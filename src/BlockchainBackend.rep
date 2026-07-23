@@ -25,5 +25,6 @@ class BlockchainBackend
     SLOT(QVariantMap getNotes(QString walletAddressHex, QString optionalTipHex))
     SLOT(QVariantMap channelDepositWithNotes(QString channelIdHex, QStringList inputNoteIdHexes, QString metadataBase58, QString changePublicKeyHex, QStringList fundingPublicKeyHexes, QString maxTxFee, QString optionalTipHex))
     SLOT(void clearBlocks())
+    SLOT(QVariantMap resetChainState())
     SLOT(void copyToClipboard(QString text))
 }

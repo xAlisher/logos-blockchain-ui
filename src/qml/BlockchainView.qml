@@ -102,6 +102,56 @@ Rectangle {
         visible: false
     }
 
+    // Confirm before wiping chain state (recovery for logos-blockchain#3171).
+    // Destructive-but-recoverable: the chain re-downloads from genesis; wallet
+    // keys and config are preserved by the backend. Uses the themed LogosDialog
+    // so it matches the rest of the app.
+    LogosDialog {
+        id: resetConfirmDialog
+        anchors.centerIn: parent
+        width: 420
+        title: qsTr("Reset chain state?")
+
+        LogosText {
+            width: resetConfirmDialog.availableWidth
+            wrapMode: Text.WordWrap
+            color: Theme.palette.textSecondary
+            font.pixelSize: Theme.typography.secondaryText
+            text: qsTr("This deletes the local chain database and consensus state, "
+                       + "then the node re-downloads the chain from scratch on the "
+                       + "next Start. Your wallet keys and config are kept. Use this "
+                       + "if the node is stuck on \"Starting…\" or \"call failed\".")
+        }
+
+        function _doReset() {
+            resetConfirmDialog.close()
+            if (!root.backend) return
+            logos.watch(
+                root.backend.resetChainState(),
+                function(result) {
+                    if (result.success) root.backend.clearBlocks()
+                    else console.log("[BlockchainView] resetChainState failed:", result.error)
+                },
+                function(error) { console.log("[BlockchainView] resetChainState error:", error) }
+            )
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Cancel")
+                implicitWidth: 110
+                implicitHeight: 40
+                onClicked: resetConfirmDialog.close()
+            },
+            LogosButton {
+                text: qsTr("Reset")
+                implicitWidth: 110
+                implicitHeight: 40
+                onClicked: resetConfirmDialog._doReset()
+            }
+        ]
+    }
+
     // Self libp2p peer id, derived from the selected user config (no running
     // node required). Refreshed when ready and whenever the config changes.
     property string peerId: ""
@@ -401,6 +451,7 @@ Rectangle {
                             onStartRequested: if (root.backend) root.backend.startBlockchain()
                             onStopRequested: if (root.backend) root.backend.stopBlockchain()
                             onChangeConfigRequested: _d.currentPage = 0
+                            onResetChainStateRequested: resetConfirmDialog.open()
                         }
 
                         NodeInfoView {

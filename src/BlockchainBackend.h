@@ -64,6 +64,7 @@ public slots:
                                     QString maxTxFee,
                                     QString optionalTipHex) override;
     void clearBlocks() override;
+    QVariantMap resetChainState() override;
     void copyToClipboard(QString text) override;
 
 private:

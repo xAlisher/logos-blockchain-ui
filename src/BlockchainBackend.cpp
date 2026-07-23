@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -486,6 +487,52 @@ QVariantMap BlockchainBackend::channelDepositWithNotes(
 void BlockchainBackend::clearBlocks()
 {
     m_blockModel->clear();
+}
+
+QVariantMap BlockchainBackend::resetChainState()
+{
+    // Recover a node wedged after an unclean shutdown (logos-blockchain#3171:
+    // the chain service spams "channel closed" and the API never becomes
+    // serviceable). Wiping the chain database + consensus state forces a clean
+    // start. Unlike deleting the whole module_data dir — which the docs
+    // currently tell operators to do — this KEEPS the wallet keystore and the
+    // user config, so neither keys nor settings are lost; the node re-runs IBD
+    // from genesis on the next Start.
+    if (status() == Running || status() == Starting || status() == Stopping)
+        return result::toVariantMap(result::err(
+            QStringLiteral("Stop the node before resetting chain state.")));
+
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return result::toVariantMap(result::err(
+            QStringLiteral("No config loaded — nothing to reset.")));
+
+    // db / state / logs are provisioned alongside the config under the module's
+    // per-instance persistence dir (use_persistence_paths). Remove those and
+    // leave keystore.yaml + user_config.yaml untouched.
+    const QDir dir = QFileInfo(cfg).absoluteDir();
+    QStringList removed;
+    QStringList failed;
+    const QStringList targets{QStringLiteral("db"),
+                              QStringLiteral("state"),
+                              QStringLiteral("logs")};
+    for (const QString& sub : targets) {
+        QDir target(dir.filePath(sub));
+        if (!target.exists())
+            continue;
+        if (target.removeRecursively())
+            removed.append(sub);
+        else
+            failed.append(sub);
+    }
+
+    if (!failed.isEmpty())
+        return result::toVariantMap(result::err(
+            QStringLiteral("Could not remove: %1").arg(failed.join(", "))));
+
+    setStatus(NotStarted);
+    return result::toVariantMap(
+        LogosResult{true, QVariant(removed.join(", ")), QVariant()});
 }
 
 void BlockchainBackend::copyToClipboard(QString text)
