@@ -27,7 +27,10 @@ Rectangle {
         function onViewModuleReadyChanged(moduleName, isReady) {
             if (moduleName === "blockchain_ui") {
                 root.ready = isReady && root.backend !== null
-                if (root.ready) root.refreshPeerId()
+                if (root.ready) {
+                    root.refreshPeerId()
+                    root._applyInitialRoute()
+                }
             }
         }
     }
@@ -36,7 +39,10 @@ Rectangle {
         // Cover the case where the replica is already Valid by the time
         // we attach the Connections handler.
         root.ready = root.backend !== null && logos.isViewModuleReady("blockchain_ui")
-        if (root.ready) root.refreshPeerId()
+        if (root.ready) {
+            root.refreshPeerId()
+            root._applyInitialRoute()
+        }
     }
 
     // Graceful shutdown: if the window is closed while the node is running,
@@ -99,6 +105,21 @@ Rectangle {
     // Self libp2p peer id, derived from the selected user config (no running
     // node required). Refreshed when ready and whenever the config changes.
     property string peerId: ""
+
+    // Open directly on the node view when a config already exists, instead of
+    // re-walking the first-run chooser every launch (logos-blockchain-ui#36).
+    // The backend restores userConfig from QSettings at construction, so the
+    // path is populated by the time the module is ready. Routing only — the
+    // operator still starts the node from the node view; the "Change" button
+    // there is the path back to the chooser (page 0). One-shot, so it never
+    // overrides a manual return to the chooser.
+    function _applyInitialRoute() {
+        if (_d.initialRouted || !root.ready || !root.backend)
+            return
+        _d.initialRouted = true
+        if (root.backend.userConfig && root.backend.userConfig.length > 0)
+            _d.currentPage = 1
+    }
 
     function refreshPeerId() {
         if (!root.backend || !root.backend.userConfig) {
@@ -206,6 +227,12 @@ Rectangle {
             }
         }
         property int currentPage: 0
+
+        // Guards the one-time startup route (see root._applyInitialRoute):
+        // it must fire once when the module first becomes ready, and never
+        // fight the user's later navigation (e.g. the node view's "Change"
+        // button, which deliberately returns to the chooser at page 0).
+        property bool initialRouted: false
     }
 
     color: Theme.palette.background
