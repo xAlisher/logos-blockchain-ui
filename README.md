@@ -1,5 +1,12 @@
 # logos-blockchain-ui
 
+> **⚠️ Fork of the official module.** This is a fork of
+> [`logos-blockchain/logos-blockchain-ui`](https://github.com/logos-blockchain/logos-blockchain-ui)
+> (`combined-all-prs` base) for the testnet 0.2.0 demo: adds `bootstrap.ibd.peers` autofill (so the
+> prefilled peers actually drive IBD) and **honest node errors** (the real cause instead of "Call
+> failed"), on top of the reset button + peer prefill + resume-on-config. Pairs with the patched node module.
+
+
 A QML + C++ backend UI module for the [Logos](https://logos.co) platform that provides a graphical interface to control and monitor the Logos blockchain node.
 
 Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-builder) using the `mkLogosQmlModule` pattern (QML frontend + C++ backend with Qt Remote Objects).
