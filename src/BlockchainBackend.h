@@ -70,6 +70,9 @@ public slots:
 private:
     void fetchBalancesForAccounts(const QStringList& list);
     void setError(const QString& message);
+    // Reads the node's own log to explain a failed/no-reply call honestly
+    // (crash / recovering / storage / peers) instead of a generic "Call failed".
+    QString lastNodeError() const;
 
     LogosAPI* m_logosAPI = nullptr;
     LogosAPIClient* m_blockchainClient = nullptr;

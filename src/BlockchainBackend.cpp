@@ -8,10 +8,12 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -23,9 +25,52 @@
 const QString BlockchainBackend::BLOCKCHAIN_MODULE_NAME =
     QStringLiteral("blockchain_module");
 
+// Explain a failed call from the node's own log, so the user sees the real
+// cause instead of a generic "Call failed". Reads the tail of the newest log
+// file under the config's per-instance logs/ dir and maps known signatures to
+// an honest, actionable message. Returns empty if nothing recognisable.
+QString BlockchainBackend::lastNodeError() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return {};
+    const QDir logsDir(QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("logs")));
+    if (!logsDir.exists())
+        return {};
+    const QFileInfoList files = logsDir.entryInfoList(QDir::Files, QDir::Time);
+    if (files.isEmpty())
+        return {};
+    QFile f(files.first().absoluteFilePath());
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    const qint64 tail = qMin<qint64>(f.size(), 128 * 1024);
+    f.seek(f.size() - tail);
+    const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    f.close();
+    for (int i = lines.size() - 1; i >= 0; --i) {
+        const QString& ln = lines.at(i);
+        if (ln.contains(QStringLiteral("crashed (signal")) || ln.contains(QStringLiteral("panicked")))
+            return QStringLiteral("Node process crashed — see logs, then Reset chain state.");
+        if (ln.contains(QStringLiteral("Storage backend error")) || ln.contains(QStringLiteral("from storage")))
+            return QStringLiteral("Chain storage is inconsistent — Reset chain state to recover.");
+        if (ln.contains(QStringLiteral("AllPeersFailed")) || ln.contains(QStringLiteral("does not support")))
+            return QStringLiteral("Couldn't sync from the configured peers — check peers / network.");
+        if (ln.contains(QStringLiteral("blocks to replay")) || ln.contains(QStringLiteral("Chain recovery")))
+            return QStringLiteral("Node is recovering (replaying blocks) — this can take a few minutes.");
+    }
+    return {};
+}
+
 void BlockchainBackend::setError(const QString& message)
 {
-    setLastErrorMessage(message);
+    // If the SDK handed us the opaque no-reply string, ask the node's log why.
+    QString honest = message;
+    if (message.contains(QStringLiteral("Call failed"), Qt::CaseInsensitive)) {
+        const QString real = lastNodeError();
+        if (!real.isEmpty())
+            honest = real;
+    }
+    setLastErrorMessage(honest);
     setStatus(Error);
 }
 
@@ -216,8 +261,17 @@ QVariantMap BlockchainBackend::getCryptarchiaInfo()
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
 
-    return result::toVariantMap(result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
-        BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info"))));
+    LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info")));
+    // The Consensus view polls this; swap the opaque no-reply string for the
+    // node's real reason (crash / recovering / storage / peers) from its log.
+    if (!r.success
+        && r.error.toString().contains(QStringLiteral("Call failed"), Qt::CaseInsensitive)) {
+        const QString real = lastNodeError();
+        if (!real.isEmpty())
+            r.error = real;
+    }
+    return result::toVariantMap(r);
 }
 
 QVariantMap BlockchainBackend::getBlock(QString headerIdHex)
@@ -277,6 +331,54 @@ QVariantMap BlockchainBackend::getClaimableVouchers()
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers"))));
 }
 
+// The node picks IBD download sources from bootstrap.ibd.peers — a list of bare
+// peer-IDs, SEPARATE from initial_peers (multiaddrs). The module's
+// generate_user_config only fills initial_peers, so ibd.peers stays empty and
+// the node logs "Skipping IBD as no peers configured" and never syncs. Derive
+// the peer-IDs from the config's own initial_peers and fill an empty ibd.peers
+// in place, right before start (covers both generate and set-path flows).
+static void injectIbdPeersFromInitialPeers(const QString& configPath)
+{
+    if (configPath.isEmpty())
+        return;
+    QFile f(configPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+    QString cfg = QString::fromUtf8(f.readAll());
+    f.close();
+
+    // Only fill an empty ibd.peers list; leave a user-populated one untouched.
+    static const QRegularExpression emptyIbd(
+        QStringLiteral("(\\n[ \\t]*ibd:\\n([ \\t]*)peers:)[ \\t]*\\[\\]"));
+    const QRegularExpressionMatch m = emptyIbd.match(cfg);
+    if (!m.hasMatch())
+        return;
+
+    // Peer-IDs = substring after the last "/p2p/" in each initial_peers entry.
+    static const QRegularExpression p2p(QStringLiteral("/p2p/([A-Za-z0-9]+)"));
+    QStringList ids;
+    QRegularExpressionMatchIterator it = p2p.globalMatch(cfg);
+    while (it.hasNext()) {
+        const QString id = it.next().captured(1);
+        if (!ids.contains(id))
+            ids.append(id);
+    }
+    if (ids.isEmpty())
+        return;
+
+    const QString indent = m.captured(2);  // indentation of the "peers:" line
+    QString repl = m.captured(1) + QLatin1Char('\n');
+    for (const QString& id : ids)
+        repl += indent + QStringLiteral("- ") + id + QLatin1Char('\n');
+    repl.chop(1);  // trim trailing newline so the next key stays put
+
+    cfg.replace(m.capturedStart(), m.capturedLength(), repl);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        f.write(cfg.toUtf8());
+        f.close();
+    }
+}
+
 void BlockchainBackend::startBlockchain()
 {
     if (!m_blockchainClient) {
@@ -285,6 +387,9 @@ void BlockchainBackend::startBlockchain()
     }
 
     setStatus(Starting);
+
+    // Fill bootstrap.ibd.peers from initial_peers so IBD actually runs.
+    injectIbdPeersFromInitialPeers(userConfig());
 
     const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
         BLOCKCHAIN_MODULE_NAME, "start", userConfig(), deploymentConfig()));
