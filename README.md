@@ -17,19 +17,24 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 - **Status-first dashboard** — live, "breathing" values (slot · height · tip · LIB · peers · balance) that flash on change
 - **Honest errors + reliable start** — the real cause instead of "Call failed"; start rides out a slow chain recovery; a recovery modal does a safe stop → verify-wiped → clean start
 - **Fund the node (auto-stake)** — one click requests testnet funds from the cryptarchia faucet; funds auto-stake so the node wins leader slots and proposes blocks — blocks *your* node proposes are highlighted
+- **Proposals tab** — the live block stream filtered to blocks *your* node proposed; a 60-minute bootstrap countdown ("Taking a bit longer…") reassures during sync
 - Start/Stop node, configure node parameters, wallet balances, account management, peers count, bootstrap countdown
 
 ## Install (signed release)
 
-Latest signed `.lgx` — installs **without** `--allow-unsigned` and renders **✓ Signed by xAlisher**:
+Latest signed `.lgx` — installs **without** `--allow-unsigned` and renders **✓ Signed by xAlisher**.
+One multi-variant package covers **linux-amd64 + darwin-arm64**:
 
-- **Linux x86-64** — [`blockchain_ui v0.2.0`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.0)
+- [`blockchain_ui v0.2.1`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.1) — linux-amd64 + darwin-arm64
 
 ```bash
-curl -fL -o blockchain_ui-0.2.0-linux-amd64.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.0/blockchain_ui-0.2.0-linux-amd64.lgx
-lgpm modules install --file blockchain_ui-0.2.0-linux-amd64.lgx
+# Linux x86-64
+curl -fL -o blockchain_ui-0.2.1.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.1/blockchain_ui-0.2.1.lgx
+lgpm modules install --file blockchain_ui-0.2.1.lgx
 ```
+
+macOS (Apple Silicon) installs the same package via the Basecamp Package Manager (catalog).
 
 ## Standalone App Quickstart
 
