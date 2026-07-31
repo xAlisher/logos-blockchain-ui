@@ -25,12 +25,18 @@ Rectangle {
     // "unparsed" — otherwise freshly-arrived blocks flash as Unparsed.
     readonly property bool isUnparsed: model.parsed === false
 
+    // Node's own leader key → this block was proposed by *your* node (#3).
+    property string myKey: ""
+    readonly property bool isMine: myKey.length > 0 && (model.leaderKey || "") === myKey
+
     width: ListView.view ? ListView.view.width : implicitWidth
     implicitHeight: col.implicitHeight + 2 * Theme.spacing.medium
 
-    color: Theme.palette.backgroundTertiary
+    color: del.isMine ? Qt.rgba(Theme.palette.success.r, Theme.palette.success.g,
+                                Theme.palette.success.b, 0.08)
+                      : Theme.palette.backgroundTertiary
     radius: Theme.spacing.radiusLarge
-    border.color: Theme.palette.border
+    border.color: del.isMine ? Theme.palette.success : Theme.palette.border
     border.width: 1
 
     ColumnLayout {
@@ -63,6 +69,32 @@ Rectangle {
                 text: qsTr("slot %1").arg(model.slot || qsTr("?"))
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textSecondary
+            }
+
+            // "proposed by your node" badge — the payoff of funding/staking (#3).
+            Rectangle {
+                visible: del.isMine
+                Layout.alignment: Qt.AlignVCenter
+                implicitHeight: 18
+                implicitWidth: mineRow.implicitWidth + 12
+                radius: 9
+                color: Qt.rgba(Theme.palette.success.r, Theme.palette.success.g,
+                               Theme.palette.success.b, 0.18)
+                Row {
+                    id: mineRow
+                    anchors.centerIn: parent
+                    spacing: 3
+                    LogosText {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "◆"; color: Theme.palette.success; font.pixelSize: 9
+                    }
+                    LogosText {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("your node"); color: Theme.palette.success
+                        font.pixelSize: Theme.typography.secondaryText
+                        font.weight: Theme.typography.weightMedium
+                    }
+                }
             }
 
             // Version badge

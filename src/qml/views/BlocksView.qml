@@ -14,6 +14,7 @@ Control {
 
     // --- Public API ---
     required property var blockModel
+    property string myKey: ""   // node's own leader key → highlight our blocks (#3)
 
     signal clearRequested()
     signal copyToClipboard(string text)
@@ -24,32 +25,10 @@ Control {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: Theme.spacing.large
+        anchors.topMargin: Theme.spacing.small
         spacing: Theme.spacing.medium
 
-        // Header
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: implicitHeight
-            spacing: Theme.spacing.medium
-
-            LogosText {
-                text: qsTr("Blocks")
-                font.pixelSize: Theme.typography.secondaryText
-                font.bold: true
-            }
-
-            Item { Layout.fillWidth: true }
-
-            LogosButton {
-                text: qsTr("Clear")
-                Layout.preferredWidth: 80
-                Layout.preferredHeight: 32
-                onClicked: root.clearRequested()
-            }
-        }
-
-        // Block list
+        // Block list (the "Blocks" tab label is header enough)
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -67,6 +46,7 @@ Control {
                 spacing: Theme.spacing.small
 
                 delegate: BlockDelegate {
+                    myKey: root.myKey
                     onCopyToClipboard: (text) => root.copyToClipboard(text)
                 }
 

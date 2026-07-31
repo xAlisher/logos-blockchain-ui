@@ -1,4 +1,6 @@
 module views
+NodeDashboardView 1.0 NodeDashboardView.qml
+FirstRunView 1.0 FirstRunView.qml
 StatusConfigView 1.0 StatusConfigView.qml
 BlocksView 1.0 BlocksView.qml
 CryptarchiaInfoView 1.0 CryptarchiaInfoView.qml

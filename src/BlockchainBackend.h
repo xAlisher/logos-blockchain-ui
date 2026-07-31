@@ -41,11 +41,23 @@ public slots:
     // Overrides of the pure-virtual slots generated from the .rep.
     void startBlockchain() override;
     void stopBlockchain() override;
+    // Start liveness-confirm (see startBlockchain): the `start` RPC can return
+    // before the node's API is up on a slow recovery, so a no-reply keeps status
+    // Starting. The UI polls :8080 and calls confirmRunning() once it answers, or
+    // confirmStartFailed() if it never does (~60s).
+    void confirmRunning() override;
+    void confirmStartFailed() override;
+    // Faucet POST via curl (the app's Qt/QML HTTPS stack fails with status 0 on
+    // this AppImage; system curl uses working system OpenSSL). Async → faucetResult.
+    void requestFaucetFunds(QString publicKeyHex) override;
     void refreshAccounts() override;
     QVariantMap getBalance(QString addressHex) override;
     QVariantMap transferFunds(QString fromKeyHex, QString toKeyHex, QString amountStr) override;
     QVariantMap claimLeaderRewards() override;
     QVariantMap getCryptarchiaInfo() override;
+    // Peer/connection counts from the node's local HTTP API via curl (the app's
+    // Qt/QML network stack is unreliable here — see requestFaucetFunds).
+    QVariantMap getNetworkInfo() override;
     QVariantMap getBlock(QString headerIdHex) override;
     QVariantMap getTransaction(QString txHashHex) override;
     QVariantMap findTransactionInBlocks(QString txHashHex) override;

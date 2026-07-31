@@ -11,8 +11,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSignalBlocker>
@@ -49,16 +51,114 @@ QString BlockchainBackend::lastNodeError() const
     f.close();
     for (int i = lines.size() - 1; i >= 0; --i) {
         const QString& ln = lines.at(i);
-        if (ln.contains(QStringLiteral("crashed (signal")) || ln.contains(QStringLiteral("panicked")))
-            return QStringLiteral("Node process crashed — see logs, then Reset chain state.");
-        if (ln.contains(QStringLiteral("Storage backend error")) || ln.contains(QStringLiteral("from storage")))
-            return QStringLiteral("Chain storage is inconsistent — Reset chain state to recover.");
-        if (ln.contains(QStringLiteral("AllPeersFailed")) || ln.contains(QStringLiteral("does not support")))
-            return QStringLiteral("Couldn't sync from the configured peers — check peers / network.");
-        if (ln.contains(QStringLiteral("blocks to replay")) || ln.contains(QStringLiteral("Chain recovery")))
-            return QStringLiteral("Node is recovering (replaying blocks) — this can take a few minutes.");
+        // ── Honest-error table: node-log signature → plain-language cause. ──
+        // Recovery FIRST (it's not an error): the node replaying stored blocks.
+        if (ln.contains(QStringLiteral("blocks to replay")) || ln.contains(QStringLiteral("Chain recovery"))
+            || ln.contains(QStringLiteral("recovering chain state")))
+            return QStringLiteral("The node is replaying stored blocks to catch up — this can take a few minutes.");
+        // Process died.
+        if (ln.contains(QStringLiteral("crashed (signal")) || ln.contains(QStringLiteral("panicked"))
+            || ln.contains(QStringLiteral("SIGABRT")) || ln.contains(QStringLiteral("SIGSEGV")))
+            return QStringLiteral("The node process crashed. Wipe the database and start over to recover.");
+        // Chain storage inconsistent.
+        if (ln.contains(QStringLiteral("Storage backend error")) || ln.contains(QStringLiteral("from storage"))
+            || ln.contains(QStringLiteral("Storage request failed")))
+            return QStringLiteral("The chain database is in a bad state. Wipe the database and start over.");
+        // Database locked / disk I/O.
+        if (ln.contains(QStringLiteral("LOCK")) || ln.contains(QStringLiteral("No locks available"))
+            || ln.contains(QStringLiteral("IO error")) || ln.contains(QStringLiteral("Resource temporarily unavailable")))
+            return QStringLiteral("The database is locked (another node may be running) or the disk had an I/O error. "
+                                  "Make sure only one node runs, then wipe and start over.");
+        // Disk full.
+        if (ln.contains(QStringLiteral("No space left")) || ln.contains(QStringLiteral("ENOSPC")))
+            return QStringLiteral("The disk is full — free up space, then wipe and start over.");
+        // Network port already in use.
+        if (ln.contains(QStringLiteral("AddrInUse")) || ln.contains(QStringLiteral("address already in use"))
+            || ln.contains(QStringLiteral("EADDRINUSE")) || ln.contains(QStringLiteral("failed to bind")))
+            return QStringLiteral("A required network port is already in use — another node may still be running. "
+                                  "Stop it and try again.");
+        // Genesis / network mismatch.
+        if (ln.contains(QStringLiteral("genesis")) &&
+            (ln.contains(QStringLiteral("mismatch")) || ln.contains(QStringLiteral("does not match"))))
+            return QStringLiteral("This database is from a different network (genesis mismatch). "
+                                  "Wipe the database and start over.");
+        // Peer / protocol-version mismatch.
+        if (ln.contains(QStringLiteral("AllPeersFailed")) || ln.contains(QStringLiteral("does not support"))
+            || (ln.contains(QStringLiteral("protocol")) && ln.contains(QStringLiteral("mismatch"))))
+            return QStringLiteral("Couldn't sync from the configured peers (unreachable, or a different "
+                                  "network/version). Check the peers and network.");
+        // Config parse.
+        if (ln.contains(QStringLiteral("missing field")) || ln.contains(QStringLiteral("invalid type"))
+            || ln.contains(QStringLiteral("failed to parse")) || ln.contains(QStringLiteral("deserialize")))
+            return QStringLiteral("The node config couldn't be parsed. Open Settings and regenerate the config.");
+        // Wallet / keystore.
+        if (ln.contains(QStringLiteral("keystore")) || ln.contains(QStringLiteral("key not found"))
+            || (ln.contains(QStringLiteral("wallet")) && ln.contains(QStringLiteral("error"))))
+            return QStringLiteral("The node couldn't load its wallet keys. Check the key paths in the config.");
     }
     return {};
+}
+
+void BlockchainBackend::confirmRunning()
+{
+    // The node's HTTP API answered — it really is up, whatever the start RPC said.
+    if (status() != Running) {
+        setStatus(Running);
+        QTimer::singleShot(500, this, [this]() { refreshAccounts(); });
+    }
+}
+
+void BlockchainBackend::confirmStartFailed()
+{
+    // The node's API never came up after a start — surface the honest reason
+    // (setError swaps the opaque "Call failed." for the node's real log signature).
+    if (status() == Running)
+        return;
+    setError(QStringLiteral("Call failed."));
+}
+
+void BlockchainBackend::requestFaucetFunds(QString publicKeyHex)
+{
+    const QString pk = publicKeyHex.trimmed();
+    if (pk.isEmpty()) {
+        emit faucetResult(false, QStringLiteral("No node key available yet — wait until the node is online."));
+        return;
+    }
+    // The AppImage's Qt/QML HTTPS (QNetworkAccessManager) fails with status 0 here,
+    // so drive the request through system curl (working system OpenSSL). The faucet
+    // credits testnet funds for the node's public key; funds auto-stake.
+    const QString url =
+        QStringLiteral("https://testnet.blockchain.logos.co/web/faucet-backend/%1").arg(pk);
+    QProcess* proc = new QProcess(this);
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [this, proc](int, QProcess::ExitStatus) {
+                const QString out = QString::fromUtf8(proc->readAllStandardOutput());
+                const QString errOut = QString::fromUtf8(proc->readAllStandardError()).trimmed();
+                // curl -w "\n%{http_code}" appends the status after the body.
+                const int nl = out.lastIndexOf(QLatin1Char('\n'));
+                const QString body = (nl >= 0 ? out.left(nl) : out).trimmed();
+                const QString code = (nl >= 0 ? out.mid(nl + 1) : QString()).trimmed();
+                if (code.isEmpty())
+                    emit faucetResult(false, errOut.isEmpty()
+                        ? QStringLiteral("Couldn't reach the faucet. Check your connection and try again.")
+                        : errOut);
+                else if (code.startsWith(QLatin1Char('2')))
+                    emit faucetResult(true, body);
+                else
+                    emit faucetResult(false, body.isEmpty()
+                        ? QStringLiteral("The faucet returned an error (HTTP %1).").arg(code)
+                        : body);
+                proc->deleteLater();
+            });
+    connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError e) {
+        if (e != QProcess::FailedToStart) return;   // `finished` handles the rest
+        emit faucetResult(false, QStringLiteral("Couldn't run the faucet request (curl unavailable)."));
+        proc->deleteLater();
+    });
+    proc->start(QStringLiteral("curl"),
+                {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("30"),
+                 QStringLiteral("-X"), QStringLiteral("POST"),
+                 QStringLiteral("-w"), QStringLiteral("\n%{http_code}"), url});
 }
 
 void BlockchainBackend::setError(const QString& message)
@@ -274,6 +374,33 @@ QVariantMap BlockchainBackend::getCryptarchiaInfo()
     return result::toVariantMap(r);
 }
 
+QVariantMap BlockchainBackend::getNetworkInfo()
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("peers"), -1);
+    out.insert(QStringLiteral("connections"), -1);
+    QProcess p;
+    p.start(QStringLiteral("curl"),
+            {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
+             QStringLiteral("http://127.0.0.1:8080/network/info")});
+    if (!p.waitForFinished(4000)) { p.kill(); return out; }
+    const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
+    if (!doc.isObject())
+        return out;
+    const QJsonObject o = doc.object();
+    int peers = -1;
+    if (o.contains(QStringLiteral("n_peers")))
+        peers = o.value(QStringLiteral("n_peers")).toInt();
+    else if (o.contains(QStringLiteral("connected_peers")))
+        peers = o.value(QStringLiteral("connected_peers")).toArray().size();
+    out.insert(QStringLiteral("peers"), peers);
+    out.insert(QStringLiteral("connections"),
+               o.contains(QStringLiteral("n_connections"))
+                   ? o.value(QStringLiteral("n_connections")).toInt()
+                   : peers);
+    return out;
+}
+
 QVariantMap BlockchainBackend::getBlock(QString headerIdHex)
 {
     if (!m_blockchainClient)
@@ -398,13 +525,21 @@ void BlockchainBackend::startBlockchain()
         setStatus(Running);
         QTimer::singleShot(500, this, [this]() { refreshAccounts(); });
     } else {
-        setError(r.error.toString());
+        // A no-reply / "Call failed" here usually means the node is still coming up
+        // (a slow chain recovery outlives the RPC deadline), NOT a real failure.
+        // Stay in Starting; the UI's liveness-confirm calls confirmRunning() once
+        // the node's API answers, or confirmStartFailed() if it never does.
+        qWarning() << "startBlockchain: start RPC returned no success ("
+                   << r.error.toString() << ") — awaiting liveness confirm";
     }
 }
 
 void BlockchainBackend::stopBlockchain()
 {
-    if (status() != Running && status() != Starting)
+    // Attempt the stop from any live-ish state (including Error) so an
+    // errored-but-still-running node actually gets stopped and releases its DB —
+    // the error-recovery wipe relies on this. Only skip when already fully down.
+    if (status() == Stopped || status() == NotStarted)
         return;
 
     if (!m_blockchainClient) {
@@ -455,6 +590,10 @@ void BlockchainBackend::refreshAccounts()
     qDebug() << "refreshAccounts: loaded" << list.size() << "addresses";
 
     m_accountsModel->setAddresses(list);
+
+    // Expose the node's primary public key (hex) for the faucet + the dashboard
+    // balance tile (issue #22). First known address = the node's account key.
+    setPrimaryAddress(list.isEmpty() ? QString() : list.first());
 
     QTimer::singleShot(0, this,
                        [this, list]() { fetchBalancesForAccounts(list); });
