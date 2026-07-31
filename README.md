@@ -13,11 +13,23 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 
 ## Features
 
-- Start/Stop blockchain node
-- Configure node parameters (config path, deployment)
-- Check wallet balances
-- Monitor node status and information
-- Account management
+- **One-click node** — first-run screen runs a testnet node in a single click; auto-starts from an existing config on later launches
+- **Status-first dashboard** — live, "breathing" values (slot · height · tip · LIB · peers · balance) that flash on change
+- **Honest errors + reliable start** — the real cause instead of "Call failed"; start rides out a slow chain recovery; a recovery modal does a safe stop → verify-wiped → clean start
+- **Fund the node (auto-stake)** — one click requests testnet funds from the cryptarchia faucet; funds auto-stake so the node wins leader slots and proposes blocks — blocks *your* node proposes are highlighted
+- Start/Stop node, configure node parameters, wallet balances, account management, peers count, bootstrap countdown
+
+## Install (signed release)
+
+Latest signed `.lgx` — installs **without** `--allow-unsigned` and renders **✓ Signed by xAlisher**:
+
+- **Linux x86-64** — [`blockchain_ui v0.2.0`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.0)
+
+```bash
+curl -fL -o blockchain_ui-0.2.0-linux-amd64.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.0/blockchain_ui-0.2.0-linux-amd64.lgx
+lgpm modules install --file blockchain_ui-0.2.0-linux-amd64.lgx
+```
 
 ## Standalone App Quickstart
 
@@ -47,9 +59,9 @@ watch -n1 'curl -s localhost:8080/cryptarchia/info'
 
 Compare the `height` with the [block explorer](https://testnet.blockchain.logos.co/web/explorer/).
 
-4. Request funds from the [faucet](https://testnet.blockchain.logos.co/web/faucet/) — copy one of the keys from the UI and paste it there.
+4. Once the node is **Online**, click **Fund the node** in the top bar → **Request funds**. This calls the [cryptarchia faucet](https://testnet.blockchain.logos.co/web/faucet/) for your node's key automatically (no copy-paste). The funds **auto-stake**.
 
-5. Once synced, refresh your balance to see your funds.
+5. Your balance appears on the dashboard (flashes green on arrival); the status block shows **◆ Staking** once it lands.
 
 Leaving the node running for ~3.5 hours allows your tokens to age and become eligible for consensus participation (automatic).
 
