@@ -84,28 +84,35 @@ Item {
     property int peerCount: -1
     property int connectionCount: -1
 
-    // ── Sub-status line: bootstrap progress (#17) or staking state (auto-stake) ──
+    // ── Sub-status line: bootstrap countdown (#17) or staking state (auto-stake) ──
     property int _bootSecs: 0
+    property int _dotPhase: 0
+    readonly property int _bootTotal: 3600     // count DOWN from 60:00
     function _isBootstrapping() { return root._statusDisplay() === "Bootstrapping" }
     function _balancePositive() { var n = Number(root.balanceText); return !isNaN(n) && n > 0 }
     function _fmtSecs(s) {
         var m = Math.floor(s / 60); var ss = s % 60
         return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss
     }
+    function _bootDots() { return ["", ".", "..", "..."][root._dotPhase] }
     function _subStatusText() {
         if (root._isBootstrapping()) {
-            return (root._bootSecs > 300
-                    ? qsTr("Taking a bit longer than usual — still catching up… %1")
-                    : qsTr("Syncing… %1")).arg(root._fmtSecs(root._bootSecs))
+            var rem = root._bootTotal - root._bootSecs
+            if (rem > 0) return qsTr("Syncing… %1").arg(root._fmtSecs(rem))   // counts down
+            return qsTr("Taking a bit longer") + root._bootDots()            // overran → dots
         }
         if (root.isRunning && root._balancePositive())
             return qsTr("◆ Staking — eligible for leader slots")
         return ""
     }
-    Timer {
+    Timer {   // countdown tick
         interval: 1000; repeat: true; running: root._isBootstrapping()
-        onTriggered: root._bootSecs += 1
+        onTriggered: if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
         onRunningChanged: if (!running) root._bootSecs = 0
+    }
+    Timer {   // animated dots for the "Taking a bit longer…" overrun
+        interval: 450; repeat: true; running: root._isBootstrapping()
+        onTriggered: root._dotPhase = (root._dotPhase + 1) % 4
     }
 
     implicitHeight: col.implicitHeight
@@ -185,6 +192,7 @@ Item {
                 width: root.width - 4 * Theme.spacing.large
                 spacing: 3
                 LogosText {
+                    id: bigStatus
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: root._statusDisplay()
@@ -192,6 +200,15 @@ Item {
                     font.pixelSize: Theme.typography.titleText
                     font.weight: Theme.typography.weightMedium
                     elide: Text.ElideRight
+                    // Bootstrapping gently breathes (~10% opacity, not to full off).
+                    SequentialAnimation on opacity {
+                        running: root._isBootstrapping()
+                        loops: Animation.Infinite
+                        alwaysRunToEnd: true
+                        NumberAnimation { to: 0.9; duration: 950; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.0; duration: 950; easing.type: Easing.InOutSine }
+                        onRunningChanged: if (!running) bigStatus.opacity = 1
+                    }
                 }
                 LogosText {
                     width: parent.width

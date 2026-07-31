@@ -29,8 +29,14 @@ Rectangle {
     property string myKey: ""
     readonly property bool isMine: myKey.length > 0 && (model.leaderKey || "") === myKey
 
+    // Collapse to zero height (used by the filtered Proposals view, #14).
+    property bool collapsed: false
+
     width: ListView.view ? ListView.view.width : implicitWidth
     implicitHeight: col.implicitHeight + 2 * Theme.spacing.medium
+    visible: !collapsed
+    height: collapsed ? 0 : implicitHeight
+    clip: collapsed
 
     color: del.isMine ? Qt.rgba(Theme.palette.success.r, Theme.palette.success.g,
                                 Theme.palette.success.b, 0.08)

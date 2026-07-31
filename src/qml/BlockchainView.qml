@@ -1124,13 +1124,11 @@ Rectangle {
                             onCopyToClipboard: (text) => root.copyText(text)
                         }
 
-                        // Proposals (#14) — placeholder until the panel lands.
-                        Item {
-                            LogosText {
-                                anchors.centerIn: parent
-                                text: qsTr("Proposals — coming soon")
-                                color: Theme.palette.textSecondary
-                            }
+                        // Proposals (#14) — blocks proposed by this node.
+                        ProposalsView {
+                            blockModel: root.blockModel
+                            myKey: root.backend ? (root.backend.primaryAddress || "") : ""
+                            onCopyToClipboard: (text) => root.copyText(text)
                         }
                     }
                 }
