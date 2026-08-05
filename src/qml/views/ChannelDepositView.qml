@@ -516,7 +516,7 @@ ColumnLayout {
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
-                LogosCopyButton {
+                BcCopyButton {
                     Layout.preferredHeight: 40
                     Layout.preferredWidth: 40
                     onCopyText: root.copyToClipboard(d.resultText)

@@ -34,7 +34,7 @@ RowLayout {
         font.pixelSize: Theme.typography.secondaryText
         font.family: "monospace"
     }
-    LogosCopyButton {
+    BcCopyButton {
         visible: root.copyable && root.value && root.value.length > 0
         onCopyText: root.copyRequested(root.value)
     }

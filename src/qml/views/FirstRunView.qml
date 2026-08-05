@@ -46,7 +46,7 @@ Item {
         LogosText {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: -Theme.spacing.small
-            text: qsTr("Testnet v0.2")
+            text: qsTr("Testnet v0.2.1")
             font.pixelSize: Theme.typography.subtitleText
             color: Theme.palette.textSecondary
         }

@@ -102,7 +102,7 @@ ColumnLayout {
                             wrapMode: Text.WordWrap
                             elide: Text.ElideRight
                         }
-                        LogosCopyButton {
+                        BcCopyButton {
                             Layout.alignment: Qt.AlignRight
                             Layout.preferredHeight: 40
                             Layout.preferredWidth: 40

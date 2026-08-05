@@ -196,8 +196,6 @@ Rectangle {
     property string _wipeError: ""   // honest failure text; re-enables the buttons
     property int    _wipeTries: 0
     property int    _wipeAttempts: 0
-    readonly property string _wipeApiBase: "http://127.0.0.1:8080"
-
     function _wipeAndStart() {
         if (!root.backend) return
         root._wipeError = ""
@@ -213,22 +211,29 @@ Rectangle {
         id: wipeDownProbe
         interval: 600; repeat: true
         onTriggered: {
+            if (!root.backend) { wipeDownProbe.stop(); wipeGraceTimer.restart(); return }
             root._wipeTries += 1
             var tries = root._wipeTries
-            var xhr = new XMLHttpRequest()
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState !== XMLHttpRequest.DONE) return
-                if (xhr.status === 0) {              // connection refused → node down
+            // Liveness via the backend (QRO → module get_cryptarchia_info), NOT a
+            // direct QML XHR: v0.2.3's ui_qml sandbox blocks network from QML. A
+            // failed call (or transport error) == the node's API is down → wipe.
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (!result.success) {              // node down
+                        wipeDownProbe.stop()
+                        wipeGraceTimer.restart()
+                    } else if (tries > 100) {           // ~60s failsafe
+                        wipeDownProbe.stop()
+                        root._wipeStage = ""
+                        root._wipeError = qsTr("Couldn't stop the node — please try again.")
+                    }
+                },
+                function(error) {                       // transport error → treat as down
                     wipeDownProbe.stop()
                     wipeGraceTimer.restart()
-                } else if (tries > 100) {            // ~60s failsafe
-                    wipeDownProbe.stop()
-                    root._wipeStage = ""
-                    root._wipeError = qsTr("Couldn't stop the node — please try again.")
                 }
-            }
-            try { xhr.open("GET", root._wipeApiBase + "/cryptarchia/info"); xhr.send() }
-            catch (e) { wipeDownProbe.stop(); wipeGraceTimer.restart() }
+            )
         }
     }
     Timer { id: wipeGraceTimer; interval: 1200; onTriggered: root._doWipe() }
@@ -270,19 +275,27 @@ Rectangle {
         id: wipeUpProbe
         interval: 600; repeat: true
         onTriggered: {
+            if (!root.backend) return
             root._wipeTries += 1
             var tries = root._wipeTries
-            var xhr = new XMLHttpRequest()
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState !== XMLHttpRequest.DONE) return
-                if (xhr.status !== 0 || tries > 50) {  // node up, or ~30s failsafe
-                    wipeUpProbe.stop()
-                    root._wipeStage = ""
-                    errorRecoveryDialog.close()
+            // Backend liveness (QRO), not QML XHR — see wipeDownProbe.
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success || tries > 50) {  // node up, or ~30s failsafe
+                        wipeUpProbe.stop()
+                        root._wipeStage = ""
+                        errorRecoveryDialog.close()
+                    }
+                },
+                function(error) {                        // still down; only bail on failsafe
+                    if (tries > 50) {
+                        wipeUpProbe.stop()
+                        root._wipeStage = ""
+                        errorRecoveryDialog.close()
+                    }
                 }
-            }
-            try { xhr.open("GET", root._wipeApiBase + "/cryptarchia/info"); xhr.send() }
-            catch (e) { /* still down; keep probing */ }
+            )
         }
     }
 
@@ -340,17 +353,23 @@ Rectangle {
             if (!root.backend) return
             root._startTries += 1
             var tries = root._startTries
-            var xhr = new XMLHttpRequest()
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState !== XMLHttpRequest.DONE) return
-                if (xhr.status !== 0) {
-                    if (root.backend) root.backend.confirmRunning()
-                } else if (tries > 40) {   // ~60s and still no API → confirmed failure
-                    if (root.backend) root.backend.confirmStartFailed()
+            // Backend liveness (QRO), not QML XHR — see wipeDownProbe. The node's
+            // API answering (get_cryptarchia_info succeeds) == it's really up.
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success) {
+                        if (root.backend) root.backend.confirmRunning()
+                    } else if (tries > 40) {   // ~60s and still no API → confirmed failure
+                        if (root.backend) root.backend.confirmStartFailed()
+                    }
+                },
+                function(error) {              // no reply yet; only fail on the ~60s cap
+                    if (tries > 40) {
+                        if (root.backend) root.backend.confirmStartFailed()
+                    }
                 }
-            }
-            try { xhr.open("GET", "http://127.0.0.1:8080/cryptarchia/info"); xhr.send() }
-            catch (e) { /* still down; keep waiting */ }
+            )
         }
     }
 
@@ -426,7 +445,8 @@ Rectangle {
 
     // ── Fund the node (auto-stake) via the cryptarchia web faucet (issue #22) ──
     // POST the node's public key to the faucet; it credits testnet funds that
-    // auto-stake. Qt's XMLHttpRequest is not CORS-bound, so we call it directly.
+    // auto-stake. The backend runs the POST via system curl — QML network is
+    // blocked by v0.2.3's ui_qml sandbox (and Qt/QML HTTPS fails on this AppImage).
     property string _fundStage: ""    // "", "requesting", "success", "error"
     property string _fundResult: ""   // tx / response text, or the error text
     property int _fundDots: 0

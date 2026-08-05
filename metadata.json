@@ -32,5 +32,9 @@
         "Qt6::Gui"
       ]
     }
+  },
+  "interface": "universal",
+  "codegen": {
+    "rep": "src/BlockchainBackend.rep"
   }
 }

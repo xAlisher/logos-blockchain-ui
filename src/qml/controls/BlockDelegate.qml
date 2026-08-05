@@ -233,7 +233,7 @@ Rectangle {
                     font.bold: true
                 }
                 Item { Layout.fillWidth: true }
-                LogosCopyButton { onCopyText: del.copyToClipboard(model.rawJson || "") }
+                BcCopyButton { onCopyText: del.copyToClipboard(model.rawJson || "") }
             }
             JsonBlock {
                 Layout.fillWidth: true

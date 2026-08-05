@@ -20,7 +20,6 @@ Item {
     property string peerId: ""
     property string infoJson: ""
     property string balanceText: "0"
-    property string apiBase: "http://127.0.0.1:8080"
 
     signal copyText(string text)
     signal startRequested()
@@ -80,7 +79,7 @@ Item {
     }
 
     // Peer / connection counts — fed from BlockchainView (backend curl, #21),
-    // because the app's QML XHR can't reliably reach the node's :8080 API.
+    // because sandboxed ui_qml (v0.2.3) can't reach the node's :8080 API from QML.
     property int peerCount: -1
     property int connectionCount: -1
 
@@ -179,7 +178,7 @@ Item {
                 anchors.topMargin: Theme.spacing.medium; anchors.rightMargin: Theme.spacing.medium
                 spacing: Theme.spacing.small
                 LogosText {
-                    text: qsTr("Testnet v0.2")
+                    text: qsTr("Testnet v0.2.1")
                     font.pixelSize: Theme.typography.secondaryText
                     color: Theme.palette.textTertiary
                 }

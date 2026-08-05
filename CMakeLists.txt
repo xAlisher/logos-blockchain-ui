@@ -11,15 +11,14 @@ logos_module(
     NAME blockchain_ui
     REP_FILE src/BlockchainBackend.rep
     SOURCES
-        src/BlockchainPluginInterface.h
-        src/BlockchainPlugin.h
-        src/BlockchainPlugin.cpp
-        src/BlockchainBackend.h
-        src/BlockchainBackend.cpp
+        src/blockchain_ui_backend.h
+        src/blockchain_ui_backend.cpp
         src/AccountsModel.h
         src/AccountsModel.cpp
         src/BlockModel.h
         src/BlockModel.cpp
+    INCLUDE_DIRS
+        src
     FIND_PACKAGES
         Qt6Gui
     LINK_LIBRARIES
