@@ -1,4 +1,5 @@
-#include "BlockchainBackend.h"
+#include "blockchain_ui_backend.h"
+#include "logos_sdk.h"
 #include "logos_api.h"
 #include "logos_api_client.h"
 
@@ -20,10 +21,10 @@
 
 #include <algorithm>
 
-const QString BlockchainBackend::BLOCKCHAIN_MODULE_NAME =
+const QString BlockchainUiBackend::BLOCKCHAIN_MODULE_NAME =
     QStringLiteral("blockchain_module");
 
-void BlockchainBackend::setError(const QString& message)
+void BlockchainUiBackend::setError(const QString& message)
 {
     setLastErrorMessage(message);
     setStatus(Error);
@@ -116,9 +117,8 @@ static QByteArray decodeBase58(const QString& input, bool* ok)
     return bytes;
 }
 
-BlockchainBackend::BlockchainBackend(LogosAPI* logosAPI, QObject* parent)
+BlockchainUiBackend::BlockchainUiBackend(QObject* parent)
     : BlockchainBackendSimpleSource(parent)
-    , m_logosAPI(logosAPI)
     , m_accountsModel(new AccountsModel(this))
     , m_blockModel(new BlockModel(this))
 {
@@ -166,15 +166,16 @@ BlockchainBackend::BlockchainBackend(LogosAPI* logosAPI, QObject* parent)
             .setValue("deploymentConfigPath", deploymentConfig());
     });
 
-    if (!m_logosAPI) {
-        qWarning() << "BlockchainBackend: constructed without LogosAPI";
-        return;
-    }
+}
 
-    m_blockchainClient = m_logosAPI->getClient(BLOCKCHAIN_MODULE_NAME);
+// Universal ui_qml lifecycle hook (interface: universal). modules() is live here;
+// modules().api is the raw LogosAPI the codegen glue built from the host.
+void BlockchainUiBackend::onContextReady()
+{
+    m_blockchainClient = modules().api->getClient(BLOCKCHAIN_MODULE_NAME);
     if (!m_blockchainClient) {
         setError(QStringLiteral("Module not initialized"));
-        qWarning() << "BlockchainBackend: failed to get blockchain module client";
+        qWarning() << "BlockchainUiBackend: failed to get blockchain module client";
         return;
     }
 
@@ -193,16 +194,16 @@ BlockchainBackend::BlockchainBackend(LogosAPI* logosAPI, QObject* parent)
         setError(QStringLiteral("Failed to subscribe to events"));
     }
 
-    qDebug() << "BlockchainBackend: initialized";
+    qDebug() << "BlockchainUiBackend: initialized";
 }
 
-BlockchainBackend::~BlockchainBackend()
+BlockchainUiBackend::~BlockchainUiBackend()
 {
     if (status() == Running || status() == Starting)
         stopBlockchain();
 }
 
-QVariantMap BlockchainBackend::claimLeaderRewards()
+QVariantMap BlockchainUiBackend::claimLeaderRewards()
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -211,7 +212,7 @@ QVariantMap BlockchainBackend::claimLeaderRewards()
         BLOCKCHAIN_MODULE_NAME, "leader_claim")));
 }
 
-QVariantMap BlockchainBackend::getCryptarchiaInfo()
+QVariantMap BlockchainUiBackend::getCryptarchiaInfo()
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -220,7 +221,7 @@ QVariantMap BlockchainBackend::getCryptarchiaInfo()
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info"))));
 }
 
-QVariantMap BlockchainBackend::getBlock(QString headerIdHex)
+QVariantMap BlockchainUiBackend::getBlock(QString headerIdHex)
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -229,7 +230,7 @@ QVariantMap BlockchainBackend::getBlock(QString headerIdHex)
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_block"), headerIdHex.trimmed())));
 }
 
-QVariantMap BlockchainBackend::getTransaction(QString txHashHex)
+QVariantMap BlockchainUiBackend::getTransaction(QString txHashHex)
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -238,7 +239,7 @@ QVariantMap BlockchainBackend::getTransaction(QString txHashHex)
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_transaction"), txHashHex.trimmed())));
 }
 
-QVariantMap BlockchainBackend::findTransactionInBlocks(QString txHashHex)
+QVariantMap BlockchainUiBackend::findTransactionInBlocks(QString txHashHex)
 {
     // Local, in-memory resolution against the blocks currently held by the
     // model. The node's get_transaction only serves mempool (pending / very
@@ -257,7 +258,7 @@ QVariantMap BlockchainBackend::findTransactionInBlocks(QString txHashHex)
     return out;
 }
 
-QVariantMap BlockchainBackend::getPeerId()
+QVariantMap BlockchainUiBackend::getPeerId()
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -268,7 +269,7 @@ QVariantMap BlockchainBackend::getPeerId()
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_peer_id"), userConfig())));
 }
 
-QVariantMap BlockchainBackend::getClaimableVouchers()
+QVariantMap BlockchainUiBackend::getClaimableVouchers()
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -277,7 +278,7 @@ QVariantMap BlockchainBackend::getClaimableVouchers()
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers"))));
 }
 
-void BlockchainBackend::startBlockchain()
+void BlockchainUiBackend::startBlockchain()
 {
     if (!m_blockchainClient) {
         setError(QStringLiteral("Module not initialized"));
@@ -297,7 +298,7 @@ void BlockchainBackend::startBlockchain()
     }
 }
 
-void BlockchainBackend::stopBlockchain()
+void BlockchainUiBackend::stopBlockchain()
 {
     if (status() != Running && status() != Starting)
         return;
@@ -319,7 +320,7 @@ void BlockchainBackend::stopBlockchain()
     }
 }
 
-void BlockchainBackend::refreshAccounts()
+void BlockchainUiBackend::refreshAccounts()
 {
     if (!m_blockchainClient) return;
 
@@ -355,7 +356,7 @@ void BlockchainBackend::refreshAccounts()
                        [this, list]() { fetchBalancesForAccounts(list); });
 }
 
-void BlockchainBackend::fetchBalancesForAccounts(const QStringList& list)
+void BlockchainUiBackend::fetchBalancesForAccounts(const QStringList& list)
 {
     if (!m_blockchainClient) return;
     for (const QString& address : list) {
@@ -364,7 +365,7 @@ void BlockchainBackend::fetchBalancesForAccounts(const QStringList& list)
     }
 }
 
-QVariantMap BlockchainBackend::getBalance(QString addressHex)
+QVariantMap BlockchainUiBackend::getBalance(QString addressHex)
 {
     const LogosResult lr = m_blockchainClient
         ? result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
@@ -375,7 +376,7 @@ QVariantMap BlockchainBackend::getBalance(QString addressHex)
     return result::toVariantMap(lr);
 }
 
-QVariantMap BlockchainBackend::transferFunds(
+QVariantMap BlockchainUiBackend::transferFunds(
     QString fromKeyHex, QString toKeyHex, QString amountStr)
 {
     if (!m_blockchainClient)
@@ -387,7 +388,7 @@ QVariantMap BlockchainBackend::transferFunds(
         fromKeyHex, senders, toKeyHex, amountStr, QString())));
 }
 
-QVariantMap BlockchainBackend::generateConfig(
+QVariantMap BlockchainUiBackend::generateConfig(
     QString outputPath, QStringList initialPeers, int netPort, int blendPort,
     QString httpAddr, QString externalAddress, bool noPublicIpCheck,
     int deploymentMode, QString deploymentConfigPath, QString statePath)
@@ -444,7 +445,7 @@ QVariantMap BlockchainBackend::generateConfig(
         BLOCKCHAIN_MODULE_NAME, "generate_user_config", jsonToSend)));
 }
 
-QVariantMap BlockchainBackend::getNotes(QString walletAddressHex, QString optionalTipHex)
+QVariantMap BlockchainUiBackend::getNotes(QString walletAddressHex, QString optionalTipHex)
 {
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
@@ -454,7 +455,7 @@ QVariantMap BlockchainBackend::getNotes(QString walletAddressHex, QString option
         walletAddressHex, optionalTipHex)));
 }
 
-QVariantMap BlockchainBackend::channelDepositWithNotes(
+QVariantMap BlockchainUiBackend::channelDepositWithNotes(
     QString channelIdHex, QStringList inputNoteIdHexes, QString metadataBase58,
     QString changePublicKeyHex, QStringList fundingPublicKeyHexes,
     QString maxTxFee, QString optionalTipHex)
@@ -484,12 +485,12 @@ QVariantMap BlockchainBackend::channelDepositWithNotes(
         args)));
 }
 
-void BlockchainBackend::clearBlocks()
+void BlockchainUiBackend::clearBlocks()
 {
     m_blockModel->clear();
 }
 
-QVariantMap BlockchainBackend::resetChainState()
+QVariantMap BlockchainUiBackend::resetChainState()
 {
     // Recover a node wedged after an unclean shutdown (logos-blockchain#3171:
     // the chain service spams "channel closed" and the API never becomes
@@ -535,7 +536,7 @@ QVariantMap BlockchainBackend::resetChainState()
         LogosResult{true, QVariant(removed.join(", ")), QVariant()});
 }
 
-void BlockchainBackend::copyToClipboard(QString text)
+void BlockchainUiBackend::copyToClipboard(QString text)
 {
     // The backend runs in a non-GUI ViewModuleHost subprocess, where there is
     // no QGuiApplication and accessing the clipboard segfaults. Clipboard is
