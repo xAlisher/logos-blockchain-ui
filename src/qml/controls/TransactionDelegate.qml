@@ -82,7 +82,7 @@ ColumnLayout {
             font.family: txRoot.txId !== "" ? "monospace" : Theme.typography.publicSans
             TapHandler { onTapped: txRoot.open = !txRoot.open }
         }
-        LogosCopyButton {
+        BcCopyButton {
             // Copy the tx id when available, otherwise the full tx JSON.
             onCopyText: txRoot.copyToClipboard(txRoot.txId !== "" ? txRoot.txId : txRoot.json)
         }
@@ -144,7 +144,7 @@ ColumnLayout {
                 font.pixelSize: Theme.typography.secondaryText
                 font.bold: true
             }
-            LogosCopyButton {
+            BcCopyButton {
                 onCopyText: txRoot.copyToClipboard(txRoot.pretty(opView.op ? opView.op.payload : null))
             }
         }
@@ -168,7 +168,7 @@ ColumnLayout {
                 font.pixelSize: Theme.typography.secondaryText
             }
             Item { Layout.fillWidth: true }
-            LogosCopyButton { onCopyText: txRoot.copyToClipboard(txRoot.pretty(opView.proof)) }
+            BcCopyButton { onCopyText: txRoot.copyToClipboard(txRoot.pretty(opView.proof)) }
         }
         JsonBlock {
             Layout.fillWidth: true

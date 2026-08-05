@@ -9644,16 +9644,17 @@
         "rust-overlay": "rust-overlay_8"
       },
       "locked": {
-        "lastModified": 1785932515,
-        "narHash": "sha256-bLUVl3Vze2gDiU9audTGzxJQh5prNWQxszPeruh3Nk8=",
+        "lastModified": 1785509881,
+        "narHash": "sha256-156rMWOMgO/MT6P6zq0RYsL8ZFNpWzq2eRlqYkcF4EU=",
         "owner": "logos-co",
         "repo": "logos-module-builder",
-        "rev": "8bb50362dfbf0f510a47c7e90a00777696c1d441",
+        "rev": "ed0cde56e2eae66030886abf7efff09eaadbc805",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
         "repo": "logos-module-builder",
+        "rev": "ed0cde56e2eae66030886abf7efff09eaadbc805",
         "type": "github"
       }
     },
@@ -41539,11 +41540,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1785929901,
-        "narHash": "sha256-HgiLLQAhF79LGwyib1GLPULA07u/nPyIm0Peprd+/AM=",
+        "lastModified": 1785446911,
+        "narHash": "sha256-nc+ICu6O9s8B9tA3OKyUI45j5Ro+KMPDFrRz04DD3+M=",
         "owner": "logos-co",
         "repo": "logos-standalone-app",
-        "rev": "0d1b1775953e2262efc1634db071808c3910e1de",
+        "rev": "e4eb3c00d2f1512c9043c88bd5f38dafd0f51b41",
         "type": "github"
       },
       "original": {
@@ -47346,11 +47347,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1776974030,
-        "narHash": "sha256-lQ/tc/owFa7Yjh8MXe0Fn2GodQXVGmpOZwe5gBEcENA=",
+        "lastModified": 1785790585,
+        "narHash": "sha256-Twwl3any+BHvTlEuKXcbr2eGny+BLO4oj8AxfKH40Xo=",
         "owner": "logos-co",
         "repo": "nix-bundle-dir",
-        "rev": "4937262f55cf8be942263255dd0801e3e3878bc9",
+        "rev": "cb9afc8c8c8a0037cf27f7467132f9e01e476588",
         "type": "github"
       },
       "original": {
@@ -52529,11 +52530,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781872587,
-        "narHash": "sha256-zl9odZ1Tq7QBAYJVrXiLSC47FVYra3kIakb/TeGPoZI=",
+        "lastModified": 1785798087,
+        "narHash": "sha256-gnCX7FFP0jhPhILV2vhyar/D3b3aMwTuQrpMDAVMeiE=",
         "owner": "logos-co",
         "repo": "nix-bundle-lgx",
-        "rev": "b49074a8e1157832002b11d3d254c1aaa4b96680",
+        "rev": "6671436d7505e20cc568599c993b8c514bf50f94",
         "type": "github"
       },
       "original": {
