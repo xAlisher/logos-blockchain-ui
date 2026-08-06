@@ -15,7 +15,7 @@ import "views"
 Rectangle {
     id: root
 
-    readonly property var backend: logos.module("blockchain_ui")
+    readonly property var backend: logos.module("logos_node_1click")
     // `ready` can't be a binding on logos.isViewModuleReady(): that's a
     // Q_INVOKABLE method, not a Q_PROPERTY, so the binding wouldn't refresh
     // when the replica transitions to Valid. Drive it from the bridge's
@@ -25,7 +25,7 @@ Rectangle {
     Connections {
         target: logos
         function onViewModuleReadyChanged(moduleName, isReady) {
-            if (moduleName === "blockchain_ui") {
+            if (moduleName === "logos_node_1click") {
                 root.ready = isReady && root.backend !== null
                 if (root.ready) {
                     root.refreshPeerId()
@@ -38,7 +38,7 @@ Rectangle {
     Component.onCompleted: {
         // Cover the case where the replica is already Valid by the time
         // we attach the Connections handler.
-        root.ready = root.backend !== null && logos.isViewModuleReady("blockchain_ui")
+        root.ready = root.backend !== null && logos.isViewModuleReady("logos_node_1click")
         if (root.ready) {
             root.refreshPeerId()
             root._applyInitialRoute()
@@ -82,8 +82,8 @@ Rectangle {
 
     // Models live on the C++ backend and are auto-remoted by ui-host as
     // "<module>/<propertyName>". QML acquires them via logos.model(...).
-    readonly property var accountsModel: logos.model("blockchain_ui", "accounts")
-    readonly property var blockModel: logos.model("blockchain_ui", "blocks")
+    readonly property var accountsModel: logos.model("logos_node_1click", "accounts")
+    readonly property var blockModel: logos.model("logos_node_1click", "blocks")
 
     // Clipboard must be handled here in the UI-host (GUI) process. The backend
     // .rep source runs in a separate, non-GUI ViewModuleHost subprocess where

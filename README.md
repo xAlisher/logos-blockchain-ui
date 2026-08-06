@@ -21,15 +21,21 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 
 ## Install (signed release)
 
-Latest signed `.lgx` — installs **without** `--allow-unsigned` and renders **✓ Signed by xAlisher**:
+> **Module renamed** to **`logos_node_1click`** (was `blockchain_ui`) to avoid clashing with the official
+> Logos module — see #34. Works on **Basecamp v0.2.3** against the **0.2.1 testnet**.
 
-- **Linux x86-64** — [`blockchain_ui v0.2.0`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.0)
+Latest signed multi-variant `.lgx` (linux-amd64 · linux-arm64 · darwin-arm64) — installs **without**
+`--allow-unsigned` and renders **✓ Signed by xAlisher**:
+
+- **[`logos_node_1click v0.2.2`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.2)**
 
 ```bash
-curl -fL -o blockchain_ui-0.2.0-linux-amd64.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.0/blockchain_ui-0.2.0-linux-amd64.lgx
-lgpm modules install --file blockchain_ui-0.2.0-linux-amd64.lgx
+curl -fL -o logos_node_1click.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.2/logos_node_1click-0.2.2.lgx
+lgpm install --file logos_node_1click.lgx
 ```
+
+Requires a **0.2.1 `blockchain_module`** at runtime (both are on the `modules.alisher.xyz` catalog).
 
 ## Standalone App Quickstart
 

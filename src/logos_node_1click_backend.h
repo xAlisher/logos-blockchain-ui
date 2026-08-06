@@ -24,16 +24,16 @@ class LogosAPIClient;
 // AccountsModel* / BlockModel* are subclass-only Q_PROPERTYs — QAbstractItemModel*
 // can't flow through a .rep, so ui-host auto-remotes each such property as
 // "<module>/<propertyName>" (see logos-view-module-runtime/ui-host/main.cpp).
-// QML acquires them via logos.model("blockchain_ui", "accounts"|"blocks").
-class BlockchainUiBackend : public BlockchainBackendSimpleSource, public LogosUiPluginContext
+// QML acquires them via logos.model("logos_node_1click", "accounts"|"blocks").
+class LogosNode1clickBackend : public BlockchainBackendSimpleSource, public LogosUiPluginContext
 {
     Q_OBJECT
     Q_PROPERTY(AccountsModel* accounts READ accounts CONSTANT)
     Q_PROPERTY(BlockModel* blocks READ blocks CONSTANT)
 
 public:
-    explicit BlockchainUiBackend(QObject* parent = nullptr);
-    ~BlockchainUiBackend() override;
+    explicit LogosNode1clickBackend(QObject* parent = nullptr);
+    ~LogosNode1clickBackend() override;
 
     AccountsModel* accounts() const { return m_accountsModel; }
     BlockModel* blocks() const { return m_blockModel; }

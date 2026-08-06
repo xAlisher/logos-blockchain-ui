@@ -1,11 +1,11 @@
 {
-  "name": "blockchain_ui",
-  "display_name": "Blockchain",
-  "version": "0.2.1",
+  "name": "logos_node_1click",
+  "display_name": "Blockchain node",
+  "version": "0.2.2",
   "type": "ui_qml",
   "category": "blockchain",
-  "description": "Blockchain UI module for the Logos application",
-  "main": "blockchain_ui_plugin",
+  "description": "Community 1-click fork",
+  "main": "logos_node_1click_plugin",
   "icon": "src/icons/blockchain.png",
   "view": "qml/BlockchainView.qml",
   "dependencies": [
