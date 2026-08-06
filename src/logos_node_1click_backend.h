@@ -89,6 +89,14 @@ private:
     // Reads the node's own log to explain a failed/no-reply call honestly
     // (crash / recovering / storage / peers) instead of a generic "Call failed".
     QString lastNodeError() const;
+    // Block proposal draws from leader.wallet.funding_pk, which the module assigns
+    // to a DIFFERENT key than the wallet key (logos-blockchain#3271 / ui#35). Read it
+    // from the generated node config so "Fund the node" can fund the RIGHT key —
+    // funding only the wallet key leaves the leader wallet empty → never proposes.
+    QString leaderFundingKey() const;
+    // POST a public key to the faucet via curl. userFacing=true emits faucetResult
+    // (the wallet-balance request the operator sees); false = the silent leader-key top-up.
+    void postFaucet(const QString& pk, bool userFacing);
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;

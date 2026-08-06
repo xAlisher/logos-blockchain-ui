@@ -125,41 +125,108 @@ void LogosNode1clickBackend::requestFaucetFunds(QString publicKeyHex)
         emit faucetResult(false, QStringLiteral("No node key available yet — wait until the node is online."));
         return;
     }
-    // The AppImage's Qt/QML HTTPS (QNetworkAccessManager) fails with status 0 here,
-    // so drive the request through system curl (working system OpenSSL). The faucet
-    // credits testnet funds for the node's public key; funds auto-stake.
+    // Fund the wallet key the operator sees on the dashboard (user-facing result).
+    postFaucet(pk, /*userFacing=*/true);
+    // ALSO fund the leader funding_pk. Block proposal draws from it, and the module
+    // assigns it a DIFFERENT key than the wallet key (logos-blockchain#3271 / ui#35):
+    // funding only the wallet key leaves the leader wallet empty → "no claimable
+    // voucher" → the node never proposes despite a funded balance shown here.
+    const QString leader = leaderFundingKey();
+    if (!leader.isEmpty() && leader.compare(pk, Qt::CaseInsensitive) != 0) {
+        qInfo() << "requestFaucetFunds: also funding leader funding_pk (proposal key)" << leader;
+        postFaucet(leader, /*userFacing=*/false);
+    } else if (leader.isEmpty()) {
+        qWarning() << "requestFaucetFunds: leader funding_pk not found in config — only the "
+                      "wallet key was funded; the node may not propose (ui#35).";
+    }
+}
+
+// POST a public key to the cryptarchia faucet via system curl (the AppImage's
+// Qt/QML HTTPS fails with status 0; system curl uses working OpenSSL). The faucet
+// credits testnet funds; funds auto-stake. userFacing=true emits faucetResult (the
+// wallet request the operator initiated); false = the silent leader-key top-up.
+void LogosNode1clickBackend::postFaucet(const QString& pk, bool userFacing)
+{
     const QString url =
         QStringLiteral("https://testnet.blockchain.logos.co/web/faucet-backend/%1").arg(pk);
     QProcess* proc = new QProcess(this);
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-            [this, proc](int, QProcess::ExitStatus) {
+            [this, proc, userFacing, pk](int, QProcess::ExitStatus) {
                 const QString out = QString::fromUtf8(proc->readAllStandardOutput());
                 const QString errOut = QString::fromUtf8(proc->readAllStandardError()).trimmed();
                 // curl -w "\n%{http_code}" appends the status after the body.
                 const int nl = out.lastIndexOf(QLatin1Char('\n'));
                 const QString body = (nl >= 0 ? out.left(nl) : out).trimmed();
                 const QString code = (nl >= 0 ? out.mid(nl + 1) : QString()).trimmed();
-                if (code.isEmpty())
-                    emit faucetResult(false, errOut.isEmpty()
-                        ? QStringLiteral("Couldn't reach the faucet. Check your connection and try again.")
-                        : errOut);
-                else if (code.startsWith(QLatin1Char('2')))
-                    emit faucetResult(true, body);
-                else
-                    emit faucetResult(false, body.isEmpty()
-                        ? QStringLiteral("The faucet returned an error (HTTP %1).").arg(code)
-                        : body);
+                const bool okReq = !code.isEmpty() && code.startsWith(QLatin1Char('2'));
+                if (userFacing) {
+                    if (code.isEmpty())
+                        emit faucetResult(false, errOut.isEmpty()
+                            ? QStringLiteral("Couldn't reach the faucet. Check your connection and try again.")
+                            : errOut);
+                    else if (okReq)
+                        emit faucetResult(true, body);
+                    else
+                        emit faucetResult(false, body.isEmpty()
+                            ? QStringLiteral("The faucet returned an error (HTTP %1).").arg(code)
+                            : body);
+                } else {
+                    qInfo() << "postFaucet(leader" << pk << "): http" << code
+                            << (okReq ? QStringLiteral("ok") : body);
+                }
                 proc->deleteLater();
             });
-    connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError e) {
+    connect(proc, &QProcess::errorOccurred, this, [this, proc, userFacing](QProcess::ProcessError e) {
         if (e != QProcess::FailedToStart) return;   // `finished` handles the rest
-        emit faucetResult(false, QStringLiteral("Couldn't run the faucet request (curl unavailable)."));
+        if (userFacing)
+            emit faucetResult(false, QStringLiteral("Couldn't run the faucet request (curl unavailable)."));
         proc->deleteLater();
     });
     proc->start(QStringLiteral("curl"),
                 {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("30"),
                  QStringLiteral("-X"), QStringLiteral("POST"),
                  QStringLiteral("-w"), QStringLiteral("\n%{http_code}"), url});
+}
+
+// The key block proposal draws from is leader.wallet.funding_pk, which the module
+// assigns separately from the wallet key (logos-blockchain#3271). Read it from the
+// generated node config so the faucet can fund it. Empty if no config is found yet.
+QString LogosNode1clickBackend::leaderFundingKey() const
+{
+    // Candidate configs, most-specific first: the path we generated, an explicitly
+    // set userConfig, then the module's per-instance persistence dirs (generate_user_config
+    // with use_persistence_paths writes user_config.yaml there).
+    QStringList candidates;
+    if (!generatedUserConfigPath().isEmpty()) candidates << generatedUserConfigPath();
+    if (!userConfig().isEmpty())              candidates << userConfig();
+    const QString dataHome = QString::fromUtf8(qgetenv("XDG_DATA_HOME"));
+    const QString base = dataHome.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.local/share") : dataHome;
+    const QDir md(base + QStringLiteral("/Logos/LogosBasecamp/module_data/blockchain_module"));
+    const QFileInfoList insts =
+        md.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+    for (const QFileInfo& inst : insts)
+        candidates << inst.absoluteFilePath() + QStringLiteral("/user_config.yaml");
+
+    static const QRegularExpression hexRe(QStringLiteral("[0-9a-fA-F]{64}"));
+    for (const QString& path : candidates) {
+        QFile f(path);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
+        const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+        f.close();
+        // Mirror the proven approach: enter the `leader:` block, take the first
+        // `funding_pk:` after it — that is the key proposal draws from.
+        bool inLeader = false;
+        for (const QString& line : lines) {
+            const QString t = line.trimmed();
+            if (t.startsWith(QStringLiteral("leader:"))) { inLeader = true; continue; }
+            if (inLeader && t.startsWith(QStringLiteral("funding_pk:"))) {
+                const auto m = hexRe.match(t);
+                if (m.hasMatch()) return m.captured(0);
+            }
+        }
+    }
+    return QString();
 }
 
 void LogosNode1clickBackend::setError(const QString& message)
