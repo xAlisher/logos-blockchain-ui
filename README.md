@@ -17,6 +17,8 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 - **Status-first dashboard** — live, "breathing" values (slot · height · tip · LIB · peers · balance) that flash on change
 - **Honest errors + reliable start** — the real cause instead of "Call failed"; start rides out a slow chain recovery; a recovery modal does a safe stop → verify-wiped → clean start
 - **Fund the node (auto-stake)** — one click requests testnet funds from the cryptarchia faucet; funds auto-stake so the node wins leader slots and proposes blocks — blocks *your* node proposes are highlighted
+- **Proposals tab** — the blocks *your* node has actually proposed, parsed from the node's own log (Cryptarchia leadership is private on-chain, so this is the authoritative record), plus a leadership voucher count
+- **LGO balances** — the raw base-unit balance is shown as abbreviated **LGO** with a ticker (e.g. `200M LGO`), exact amount on hover; the dashboard also shows the running **module build version**
 - Start/Stop node, configure node parameters, wallet balances, account management, peers count, bootstrap countdown
 
 ## Install (signed release)
@@ -24,14 +26,14 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 > **Module renamed** to **`logos_node_1click`** (was `blockchain_ui`) to avoid clashing with the official
 > Logos module — see #34. Works on **Basecamp v0.2.3** against the **0.2.1 testnet**.
 
-Latest signed multi-variant `.lgx` (linux-amd64 · linux-arm64 · darwin-arm64) — installs **without**
-`--allow-unsigned` and renders **✓ Signed by xAlisher**:
+Latest signed `.lgx` (linux-amd64) — installs **without** `--allow-unsigned` and renders
+**✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.2`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.2)**
+- **[`logos_node_1click v0.2.3`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.3)**
 
 ```bash
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.2/logos_node_1click-0.2.2.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.3/logos_node_1click-0.2.3-linux-amd64.lgx
 lgpm install --file logos_node_1click.lgx
 ```
 
