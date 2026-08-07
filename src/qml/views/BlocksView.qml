@@ -34,8 +34,7 @@ Control {
             Layout.fillHeight: true
             color: Theme.palette.backgroundSecondary
             radius: Theme.spacing.radiusLarge
-            border.color: Theme.palette.border
-            border.width: 1
+            border.width: 0
 
             ListView {
                 id: blocksListView

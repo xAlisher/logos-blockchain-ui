@@ -42,8 +42,7 @@ Rectangle {
                                 Theme.palette.success.b, 0.08)
                       : Theme.palette.backgroundTertiary
     radius: Theme.spacing.radiusLarge
-    border.color: del.isMine ? Theme.palette.success : Theme.palette.border
-    border.width: 1
+    border.width: 0                       // no stroke around block cards (isMine kept via fill)
 
     ColumnLayout {
         id: col

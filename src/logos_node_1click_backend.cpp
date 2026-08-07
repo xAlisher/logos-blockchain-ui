@@ -546,7 +546,12 @@ QVariantMap LogosNode1clickBackend::getProposals()
                 "proposed block HeaderId\\(([0-9a-f]+)\\) with (\\d+) transactions \\((\\d+) removed\\)"));
             int scannedFiles = 0;
             for (const QFileInfo& fi : files) {
-                if (scannedFiles++ >= 4) break;                 // newest few files
+                // Logs rotate HOURLY, and leader slots are rare — a proposal can sit
+                // many hours back (across many files). Scan newest-first up to a bound,
+                // stopping once we have enough for the display cap. A 4-file window only
+                // covered ~4h and showed nothing whenever the node hadn't led recently.
+                if (scannedFiles++ >= 240) break;               // bound work (~10 days hourly)
+                if (seenIds.size() >= 100) break;               // enough for the 100-item cap
                 QFile f(fi.absoluteFilePath());
                 if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
                 const qint64 tail = qMin<qint64>(f.size(), 1024 * 1024);

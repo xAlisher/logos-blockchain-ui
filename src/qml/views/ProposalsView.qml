@@ -5,8 +5,6 @@ import QtQuick.Layouts
 import Logos.Theme
 import Logos.Controls
 
-import "../controls"
-
 // Blocks THIS node proposed (#14). Cryptarchia leadership is private on-chain (each
 // block's leader_key is per-note-derived), so we can't match blocks by a node key.
 // Instead the backend parses the node's OWN log ("proposed block HeaderId(…)") — the
@@ -56,8 +54,7 @@ Control {
             Layout.fillHeight: true
             color: Theme.palette.backgroundSecondary
             radius: Theme.spacing.radiusLarge
-            border.color: Theme.palette.border
-            border.width: 1
+            border.width: 0
 
             ListView {
                 id: lv
@@ -68,9 +65,14 @@ Control {
                 spacing: 2
 
                 delegate: Rectangle {
+                    id: rowDelegate
                     width: lv.width
                     height: 40
-                    color: "transparent"
+                    color: rowHover.hovered ? Theme.palette.backgroundHover : "transparent"
+                    radius: Theme.spacing.radiusSmall
+
+                    HoverHandler { id: rowHover }
+
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.spacing.small
@@ -96,8 +98,22 @@ Control {
                             Layout.preferredWidth: 60
                             horizontalAlignment: Text.AlignRight
                         }
-                        BcCopyButton {
-                            onCopyText: root.copyToClipboard(modelData.id || "")
+                        // Pixel-identical to the dashboard copy icons (Tip/LIB/Peer ID):
+                        // flat, padding 2, 22px button, 14px gray icon — the copy control
+                        // used everywhere in this view.
+                        Button {
+                            id: copyBtn
+                            property bool copied: false
+                            flat: true; padding: 2
+                            implicitWidth: 22; implicitHeight: 22
+                            display: AbstractButton.IconOnly
+                            icon.source: Qt.resolvedUrl("../icons/copy.svg")
+                            icon.width: 14; icon.height: 14
+                            icon.color: copied ? Theme.palette.primaryHover
+                                        : (hovered ? Theme.palette.text : Theme.palette.textSecondary)
+                            ToolTip.visible: hovered; ToolTip.text: copied ? qsTr("Copied") : qsTr("Copy")
+                            onClicked: { root.copyToClipboard(modelData.id || ""); copied = true; copyReset.restart() }
+                            Timer { id: copyReset; interval: 1200; onTriggered: copyBtn.copied = false }
                         }
                     }
                     Rectangle {

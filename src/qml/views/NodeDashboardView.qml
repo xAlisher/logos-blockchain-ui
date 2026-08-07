@@ -20,6 +20,7 @@ Item {
     property string peerId: ""
     property string infoJson: ""
     property string balanceText: "0"
+    property string moduleVersion: "0.2.3"   // this fork's build; keep in sync with metadata.json
 
     signal copyText(string text)
     signal startRequested()
@@ -89,6 +90,28 @@ Item {
     readonly property int _bootTotal: 3600     // count DOWN from 60:00
     function _isBootstrapping() { return root._statusDisplay() === "Bootstrapping" }
     function _balancePositive() { var n = Number(root.balanceText); return !isNaN(n) && n > 0 }
+    // LGO display: wallet_get_balance returns base units. 1 LGO = 10^4 base units
+    // (2000000000000 base = 200,000,000 LGO → "200M LGO"). Abbreviate + ticker so the
+    // value stays inside the stat tile; the tooltip carries the exact amount.
+    readonly property real baseUnitsPerLgo: 10000
+    function _lgoTrim(x) { return (Math.round(x * 100) / 100).toString() }
+    function _fmtBalance(raw) {
+        var n = Number(raw)
+        if (isNaN(n)) return "— LGO"
+        var v = n / root.baseUnitsPerLgo
+        var a = Math.abs(v), s
+        if      (a >= 1e12) s = root._lgoTrim(v / 1e12) + "T"
+        else if (a >= 1e9)  s = root._lgoTrim(v / 1e9)  + "B"
+        else if (a >= 1e6)  s = root._lgoTrim(v / 1e6)  + "M"
+        else if (a >= 1e3)  s = root._lgoTrim(v / 1e3)  + "K"
+        else                s = root._lgoTrim(v)
+        return s + " LGO"
+    }
+    function _balanceExact(raw) {
+        var n = Number(raw)
+        if (isNaN(n)) return ""
+        return (n / root.baseUnitsPerLgo).toLocaleString(Qt.locale(), 'f', 0) + " LGO"
+    }
     function _fmtSecs(s) {
         var m = Math.floor(s / 60); var ss = s % 60
         return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss
@@ -161,13 +184,14 @@ Item {
             Layout.preferredHeight: 128
             radius: Theme.spacing.radiusLarge
             color: root._statusBg()
-            border.color: Theme.palette.border
+            border.width: 0
 
-            // top-left: "Node status" label, level with the Testnet badge
+            // top-left: module build version (replaces the redundant "Node status" label),
+            // level with the Testnet badge — lets you tell which fork build is running at a glance.
             LogosText {
                 anchors.top: parent.top; anchors.left: parent.left
                 anchors.topMargin: Theme.spacing.medium; anchors.leftMargin: Theme.spacing.medium
-                text: qsTr("Node status")
+                text: qsTr("Module v%1").arg(root.moduleVersion)
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textSecondary
             }
@@ -252,7 +276,8 @@ Item {
                 model: [
                     { label: qsTr("Slot"),    value: root._num("slot"), tip: "" },
                     { label: qsTr("Height"),  value: root._num("height"), tip: "" },
-                    { label: qsTr("Balance"), value: root.balanceText, tip: "" },
+                    { label: qsTr("Balance"), value: root._fmtBalance(root.balanceText),
+                      tip: root._balanceExact(root.balanceText) },
                     { label: qsTr("Peers"),   value: root.peerCount >= 0 ? String(root.peerCount) : "—",
                       tip: root.connectionCount >= 0 ? qsTr("%1 connections").arg(root.connectionCount) : "" }
                 ]
@@ -262,7 +287,7 @@ Item {
                     Layout.preferredHeight: 68
                     radius: Theme.spacing.radiusLarge
                     color: Theme.palette.backgroundTertiary
-                    border.color: Theme.palette.border
+                    border.width: 0
                     HoverHandler { id: tileHover }
                     ToolTip.visible: tileHover.hovered && modelData.tip && modelData.tip.length > 0
                     ToolTip.text: modelData.tip || ""
@@ -292,7 +317,7 @@ Item {
             Layout.preferredHeight: 58
             radius: Theme.spacing.radiusLarge
             color: Theme.palette.backgroundTertiary
-            border.color: Theme.palette.border
+            border.width: 0
             ColumnLayout {
                 anchors.left: parent.left
                 anchors.right: parent.right
