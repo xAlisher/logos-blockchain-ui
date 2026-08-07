@@ -536,6 +536,35 @@ QVariantMap LogosNode1clickBackend::getProposals()
     QVariantList out;
     QStringList seenIds;
     const QString cfg = userConfig();
+
+    // Durable store: proposals persist here so they SURVIVE the node's hourly log
+    // pruning (a rotating log only retains ~10h, but leader wins are rarer than that,
+    // so a log-only view loses history and flickers). Accumulate-only: we union the
+    // stored history with a fresh log scan and write any newly-seen proposals back.
+    const QString storePath = cfg.isEmpty() ? QString()
+        : QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("proposals-history.json"));
+
+    // 1) load persisted history first (these never expire)
+    if (!storePath.isEmpty()) {
+        QFile sf(storePath);
+        if (sf.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(sf.readAll());
+            sf.close();
+            if (doc.isArray()) {
+                const QJsonArray arr = doc.array();
+                for (const QJsonValue& v : arr) {
+                    const QVariantMap m = v.toObject().toVariantMap();
+                    const QString id = m.value(QStringLiteral("id")).toString();
+                    if (id.isEmpty() || seenIds.contains(id)) continue;
+                    seenIds << id;
+                    out.append(m);
+                }
+            }
+        }
+    }
+
+    // 2) scan the live logs and add any proposals not already stored
+    bool changed = false;
     if (!cfg.isEmpty()) {
         const QDir logsDir(QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("logs")));
         if (logsDir.exists()) {
@@ -546,12 +575,7 @@ QVariantMap LogosNode1clickBackend::getProposals()
                 "proposed block HeaderId\\(([0-9a-f]+)\\) with (\\d+) transactions \\((\\d+) removed\\)"));
             int scannedFiles = 0;
             for (const QFileInfo& fi : files) {
-                // Logs rotate HOURLY, and leader slots are rare — a proposal can sit
-                // many hours back (across many files). Scan newest-first up to a bound,
-                // stopping once we have enough for the display cap. A 4-file window only
-                // covered ~4h and showed nothing whenever the node hadn't led recently.
-                if (scannedFiles++ >= 240) break;               // bound work (~10 days hourly)
-                if (seenIds.size() >= 100) break;               // enough for the 100-item cap
+                if (scannedFiles++ >= 240) break;               // bound work (logs rotate hourly)
                 QFile f(fi.absoluteFilePath());
                 if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
                 const qint64 tail = qMin<qint64>(f.size(), 1024 * 1024);
@@ -573,16 +597,27 @@ QVariantMap LogosNode1clickBackend::getProposals()
                              tm.hasMatch() ? QString(tm.captured(1)).replace(QLatin1Char('T'), QLatin1Char(' '))
                                            : QString());
                     out.append(p);
+                    changed = true;
                 }
             }
         }
     }
-    // newest first (ISO timestamps sort lexically); cap the list
+
+    // newest first (ISO timestamps sort lexically); keep a generous durable cap
     std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
         return a.toMap().value(QStringLiteral("time")).toString()
              > b.toMap().value(QStringLiteral("time")).toString();
     });
-    while (out.size() > 100) out.removeLast();
+    while (out.size() > 500) out.removeLast();
+
+    // 3) persist newly-seen proposals back to the durable store
+    if (changed && !storePath.isEmpty()) {
+        QFile sf(storePath);
+        if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            sf.write(QJsonDocument(QJsonArray::fromVariantList(out)).toJson(QJsonDocument::Compact));
+            sf.close();
+        }
+    }
     // value is a JSON string (same convention as getCryptarchiaInfo / getClaimableVouchers).
     const QString json = QString::fromUtf8(
         QJsonDocument(QJsonArray::fromVariantList(out)).toJson(QJsonDocument::Compact));

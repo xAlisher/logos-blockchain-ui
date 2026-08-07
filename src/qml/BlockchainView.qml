@@ -611,6 +611,96 @@ Rectangle {
         ]
     }
 
+    // ── Node settings modal (#12) ──
+    // Replaces the old gear target: a full-page config chooser with NO way back
+    // (a dead-end). Styled like fundDialog; each action has a one-line description
+    // and is self-contained (no navigation away), and the modal is always closable.
+    LogosDialog {
+        id: settingsDialog
+        anchors.centerIn: parent
+        width: 480
+        title: qsTr("Node settings")
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
+
+        contentItem: Column {
+            width: settingsDialog.availableWidth
+            spacing: Theme.spacing.large
+
+            // ── Reset chain state ──
+            RowLayout {
+                width: parent.width
+                spacing: Theme.spacing.medium
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    LogosText {
+                        Layout.fillWidth: true
+                        text: qsTr("Reset chain state")
+                        font.pixelSize: Theme.typography.primaryText
+                        font.weight: Theme.typography.weightMedium
+                        color: Theme.palette.text
+                    }
+                    LogosText {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Re-download the chain from genesis if the node is stuck or out "
+                                   + "of sync. Your wallet keys and config are kept.")
+                        font.pixelSize: Theme.typography.secondaryText
+                        color: Theme.palette.textSecondary
+                    }
+                }
+                LogosButton {
+                    text: qsTr("Reset")
+                    implicitWidth: 130; implicitHeight: 40
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: { settingsDialog.close(); resetConfirmDialog.open() }
+                }
+            }
+
+            Rectangle { width: parent.width; height: 1; color: Theme.palette.border; opacity: 0.5 }
+
+            // ── Regenerate config & restart ──
+            RowLayout {
+                width: parent.width
+                spacing: Theme.spacing.medium
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    LogosText {
+                        Layout.fillWidth: true
+                        text: qsTr("Regenerate config & restart")
+                        font.pixelSize: Theme.typography.primaryText
+                        font.weight: Theme.typography.weightMedium
+                        color: Theme.palette.text
+                    }
+                    LogosText {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Recreate the default testnet config (known-good bootstrap peers) "
+                                   + "and restart the node. Use if it won't start or sync.")
+                        font.pixelSize: Theme.typography.secondaryText
+                        color: Theme.palette.textSecondary
+                    }
+                }
+                LogosButton {
+                    text: qsTr("Regenerate")
+                    implicitWidth: 130; implicitHeight: 40
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: { settingsDialog.close(); _d.runNodeOneClick() }
+                }
+            }
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Close")
+                implicitWidth: 100; implicitHeight: 40
+                onClicked: settingsDialog.close()
+            }
+        ]
+    }
+
     // Node balance (auto-staked) for the dashboard tile — polled while Online.
     property string nodeBalance: "—"
     Timer {
@@ -1095,7 +1185,7 @@ Rectangle {
                     }
                 }
 
-                // Settings gear (→ config; becomes the #12 modal).
+                // Settings gear → the #12 settings modal (was a dead-end config page).
                 LogosText {
                     Layout.alignment: Qt.AlignVCenter
                     Layout.rightMargin: Theme.spacing.small
@@ -1106,7 +1196,7 @@ Rectangle {
                         id: gearMouse
                         anchors.fill: parent; anchors.margins: -6
                         hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: _d.currentPage = 0
+                        onClicked: settingsDialog.open()
                     }
                 }
             }

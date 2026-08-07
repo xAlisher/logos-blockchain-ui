@@ -20,7 +20,7 @@ Item {
     property string peerId: ""
     property string infoJson: ""
     property string balanceText: "0"
-    property string moduleVersion: "0.2.3"   // this fork's build; keep in sync with metadata.json
+    property string moduleVersion: "0.2.4"   // this fork's build; keep in sync with metadata.json
 
     signal copyText(string text)
     signal startRequested()
