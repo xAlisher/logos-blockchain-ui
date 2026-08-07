@@ -17,8 +17,9 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 - **Status-first dashboard** — live, "breathing" values (slot · height · tip · LIB · peers · balance) that flash on change
 - **Honest errors + reliable start** — the real cause instead of "Call failed"; start rides out a slow chain recovery; a recovery modal does a safe stop → verify-wiped → clean start
 - **Fund the node (auto-stake)** — one click requests testnet funds from the cryptarchia faucet; funds auto-stake so the node wins leader slots and proposes blocks — blocks *your* node proposes are highlighted
-- **Proposals tab** — the blocks *your* node has actually proposed, parsed from the node's own log (Cryptarchia leadership is private on-chain, so this is the authoritative record), plus a leadership voucher count
+- **Proposals tab** — the blocks *your* node has actually proposed (Cryptarchia leadership is private on-chain, so these are parsed from the node's own log), plus a leadership voucher count. Proposals are **persisted to a durable store**, so they survive the node's hourly log pruning — a real lifetime history that doesn't flicker or vanish
 - **LGO balances** — the raw base-unit balance is shown as abbreviated **LGO** with a ticker (e.g. `200M LGO`), exact amount on hover; the dashboard also shows the running **module build version**
+- **Node settings modal** — the gear opens a closable settings modal (Reset chain state · Regenerate config & restart), each action described
 - Start/Stop node, configure node parameters, wallet balances, account management, peers count, bootstrap countdown
 
 ## Install (signed release)
@@ -29,16 +30,16 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.3`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.3)**
+- **[`logos_node_1click v0.2.4`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.4)**
 
 ```bash
 # Linux x86-64
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.3/logos_node_1click-0.2.3-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.4/logos_node_1click-0.2.4-linux-amd64.lgx
 
-# macOS Apple Silicon (M1/arm64) — new this release
+# macOS Apple Silicon (M1/arm64)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.3/logos_node_1click-0.2.3-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.4/logos_node_1click-0.2.4-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
