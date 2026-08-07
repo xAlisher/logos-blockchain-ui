@@ -26,14 +26,20 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 > **Module renamed** to **`logos_node_1click`** (was `blockchain_ui`) to avoid clashing with the official
 > Logos module — see #34. Works on **Basecamp v0.2.3** against the **0.2.1 testnet**.
 
-Latest signed `.lgx` (linux-amd64) — installs **without** `--allow-unsigned` and renders
-**✓ Signed by xAlisher**:
+Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
+and renders **✓ Signed by xAlisher**:
 
 - **[`logos_node_1click v0.2.3`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.3)**
 
 ```bash
+# Linux x86-64
 curl -fL -o logos_node_1click.lgx \
   https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.3/logos_node_1click-0.2.3-linux-amd64.lgx
+
+# macOS Apple Silicon (M1/arm64) — new this release
+curl -fL -o logos_node_1click.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.3/logos_node_1click-0.2.3-darwin-arm64.lgx
+
 lgpm install --file logos_node_1click.lgx
 ```
 
