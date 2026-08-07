@@ -7,16 +7,24 @@ import Logos.Controls
 
 import "../controls"
 
-// Blocks proposed by THIS node — the payoff of funding/staking (#14). Filters the
-// live block stream to entries whose leader key matches the node's own key; each
-// non-matching row collapses to zero height.
+// Blocks THIS node proposed (#14). Cryptarchia leadership is private on-chain (each
+// block's leader_key is per-note-derived), so we can't match blocks by a node key.
+// Instead the backend parses the node's OWN log ("proposed block HeaderId(…)") — the
+// authoritative record — same source the logos-node-dashboard uses. Plus a leadership
+// voucher count (claimable rewards = blocks led).
 Control {
     id: root
 
-    required property var blockModel
-    property string myKey: ""
+    property string proposalsJson: ""   // JSON array of {id, txs, removed, time}, newest first
+    property int voucherCount: 0
 
     signal copyToClipboard(string text)
+
+    readonly property var proposals: {
+        try { return proposalsJson && proposalsJson.length > 0 ? JSON.parse(proposalsJson) : [] }
+        catch (e) { return [] }
+    }
+    function shortId(h) { return h && h.length > 16 ? h.slice(0, 10) + "…" + h.slice(-6) : (h || "—") }
 
     background: Rectangle { color: Theme.palette.background }
 
@@ -24,6 +32,24 @@ Control {
         anchors.fill: parent
         anchors.topMargin: Theme.spacing.small
         spacing: Theme.spacing.medium
+
+        // Summary row: leadership vouchers (rewards you can claim) + proposed count.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacing.large
+            LogosText {
+                text: qsTr("Leadership vouchers: %1").arg(root.voucherCount)
+                font.pixelSize: Theme.typography.secondaryText
+                font.bold: true
+                color: root.voucherCount > 0 ? Theme.palette.success : Theme.palette.textSecondary
+            }
+            LogosText {
+                text: qsTr("Proposed blocks: %1").arg(root.proposals.length)
+                font.pixelSize: Theme.typography.secondaryText
+                color: Theme.palette.textSecondary
+            }
+            Item { Layout.fillWidth: true }
+        }
 
         Rectangle {
             Layout.fillWidth: true
@@ -38,22 +64,53 @@ Control {
                 anchors.fill: parent
                 anchors.margins: Theme.spacing.small
                 clip: true
-                model: root.blockModel
-                spacing: 0
+                model: root.proposals
+                spacing: 2
 
-                delegate: BlockDelegate {
-                    myKey: root.myKey
-                    // Show only blocks proposed by our node; collapse the rest.
-                    collapsed: !(root.myKey.length > 0 && (model.leaderKey || "") === root.myKey)
-                    onCopyToClipboard: (text) => root.copyToClipboard(text)
+                delegate: Rectangle {
+                    width: lv.width
+                    height: 40
+                    color: "transparent"
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacing.small
+                        anchors.rightMargin: Theme.spacing.small
+                        spacing: Theme.spacing.medium
+                        LogosText {
+                            text: (modelData.time || "")
+                            font.pixelSize: Theme.typography.secondaryText
+                            color: Theme.palette.textSecondary
+                            Layout.preferredWidth: 150
+                        }
+                        LogosText {
+                            text: root.shortId(modelData.id)
+                            font.family: "monospace"
+                            font.pixelSize: Theme.typography.secondaryText
+                            color: Theme.palette.text
+                            Layout.fillWidth: true
+                        }
+                        LogosText {
+                            text: qsTr("%1 tx").arg(modelData.txs !== undefined ? modelData.txs : 0)
+                            font.pixelSize: Theme.typography.secondaryText
+                            color: Theme.palette.textSecondary
+                            Layout.preferredWidth: 60
+                            horizontalAlignment: Text.AlignRight
+                        }
+                        BcCopyButton {
+                            onCopyText: root.copyToClipboard(modelData.id || "")
+                        }
+                    }
+                    Rectangle {
+                        anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
+                        height: 1; color: Theme.palette.border; opacity: 0.5
+                    }
                 }
 
-                // Empty state — nothing of ours yet (all rows collapsed → ~0 content).
                 Column {
                     anchors.centerIn: parent
                     width: parent.width - 2 * Theme.spacing.large
                     spacing: Theme.spacing.small
-                    visible: lv.contentHeight < 4
+                    visible: root.proposals.length === 0
                     LogosText {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: qsTr("No blocks proposed yet")

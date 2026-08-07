@@ -526,6 +526,67 @@ QVariantMap LogosNode1clickBackend::getClaimableVouchers()
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers"))));
 }
 
+// Blocks THIS node proposed, parsed from the node's own log. Cryptarchia leadership
+// is private (each block's leader_key is per-note-derived, not a stable identity), so
+// an on-chain leader_key match can't identify our blocks — but the node LOGS every block
+// it produces ("proposed block HeaderId(<id>) with <n> transactions (<m> removed)"), which
+// is authoritative. Same source the logos-node-dashboard uses. Returns {success, value:[…]}.
+QVariantMap LogosNode1clickBackend::getProposals()
+{
+    QVariantList out;
+    QStringList seenIds;
+    const QString cfg = userConfig();
+    if (!cfg.isEmpty()) {
+        const QDir logsDir(QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("logs")));
+        if (logsDir.exists()) {
+            const QFileInfoList files = logsDir.entryInfoList(QDir::Files, QDir::Time);   // newest first
+            static const QRegularExpression tsRe(
+                QStringLiteral("(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})"));
+            static const QRegularExpression propRe(QStringLiteral(
+                "proposed block HeaderId\\(([0-9a-f]+)\\) with (\\d+) transactions \\((\\d+) removed\\)"));
+            int scannedFiles = 0;
+            for (const QFileInfo& fi : files) {
+                if (scannedFiles++ >= 4) break;                 // newest few files
+                QFile f(fi.absoluteFilePath());
+                if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+                const qint64 tail = qMin<qint64>(f.size(), 1024 * 1024);
+                f.seek(f.size() - tail);
+                const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+                f.close();
+                for (const QString& ln : lines) {
+                    const auto m = propRe.match(ln);
+                    if (!m.hasMatch()) continue;
+                    const QString id = m.captured(1);
+                    if (seenIds.contains(id)) continue;
+                    seenIds << id;
+                    QVariantMap p;
+                    p.insert(QStringLiteral("id"), id);
+                    p.insert(QStringLiteral("txs"), m.captured(2).toInt());
+                    p.insert(QStringLiteral("removed"), m.captured(3).toInt());
+                    const auto tm = tsRe.match(ln);
+                    p.insert(QStringLiteral("time"),
+                             tm.hasMatch() ? QString(tm.captured(1)).replace(QLatin1Char('T'), QLatin1Char(' '))
+                                           : QString());
+                    out.append(p);
+                }
+            }
+        }
+    }
+    // newest first (ISO timestamps sort lexically); cap the list
+    std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
+        return a.toMap().value(QStringLiteral("time")).toString()
+             > b.toMap().value(QStringLiteral("time")).toString();
+    });
+    while (out.size() > 100) out.removeLast();
+    // value is a JSON string (same convention as getCryptarchiaInfo / getClaimableVouchers).
+    const QString json = QString::fromUtf8(
+        QJsonDocument(QJsonArray::fromVariantList(out)).toJson(QJsonDocument::Compact));
+    QVariantMap res;
+    res.insert(QStringLiteral("success"), true);
+    res.insert(QStringLiteral("value"), json);
+    return res;
+}
+
 // The node picks IBD download sources from bootstrap.ibd.peers — a list of bare
 // peer-IDs, SEPARATE from initial_peers (multiaddrs). The module's
 // generate_user_config only fills initial_peers, so ibd.peers stays empty and

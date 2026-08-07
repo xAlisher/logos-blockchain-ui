@@ -64,6 +64,9 @@ public slots:
     QVariantMap findTransactionInBlocks(QString txHashHex) override;
     QVariantMap getPeerId() override;
     QVariantMap getClaimableVouchers() override;
+    // Blocks THIS node proposed, parsed from the node's own log (the authoritative
+    // "my proposals" — leadership is private on-chain so a leader_key match can't work).
+    QVariantMap getProposals() override;
     QVariantMap generateConfig(QString outputPath, QStringList initialPeers, int netPort,
                        int blendPort, QString httpAddr, QString externalAddress,
                        bool noPublicIpCheck, int deploymentMode,

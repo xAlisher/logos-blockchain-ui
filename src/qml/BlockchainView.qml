@@ -743,12 +743,37 @@ Rectangle {
         )
     }
 
+    // Blocks this node proposed, parsed from the node's own log (getProposals) — the
+    // authoritative "my proposals" (leadership is private on-chain). Refreshed with vouchers.
+    property string proposalsJson: ""
+    function refreshProposals() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running)
+            return
+        logos.watch(
+            root.backend.getProposals(),
+            function(result) { if (result.success) root.proposalsJson = result.value },
+            function(error) { /* keep last known list on transient errors */ }
+        )
+    }
+
+    // Count of claimable leadership vouchers (blocks led, rewards pending).
+    readonly property int voucherCount: {
+        try {
+            var v = root.claimableVouchersJson && root.claimableVouchersJson.length > 0
+                    ? JSON.parse(root.claimableVouchersJson) : null
+            if (!v) return 0
+            if (Array.isArray(v)) return v.length
+            if (v.vouchers && Array.isArray(v.vouchers)) return v.vouchers.length
+            return 0
+        } catch (e) { return 0 }
+    }
+
     // Incoming blocks arrive as row insertions on the remoted block model.
     Connections {
         target: root.blockModel
         enabled: root.blockModel !== null
         ignoreUnknownSignals: true
-        function onRowsInserted() { root.refreshClaimableVouchers() }
+        function onRowsInserted() { root.refreshClaimableVouchers(); root.refreshProposals() }
     }
 
     // Initial load when the node reaches Running (before the next block).
@@ -757,8 +782,10 @@ Rectangle {
         enabled: root.backend !== null
         ignoreUnknownSignals: true
         function onStatusChanged() {
-            if (root.backend.status === BlockchainBackend.Running)
+            if (root.backend.status === BlockchainBackend.Running) {
                 root.refreshClaimableVouchers()
+                root.refreshProposals()
+            }
         }
     }
 
@@ -1144,10 +1171,10 @@ Rectangle {
                             onCopyToClipboard: (text) => root.copyText(text)
                         }
 
-                        // Proposals (#14) — blocks proposed by this node.
+                        // Proposals (#14) — blocks proposed by this node (parsed from the node log).
                         ProposalsView {
-                            blockModel: root.blockModel
-                            myKey: root.backend ? (root.backend.primaryAddress || "") : ""
+                            proposalsJson: root.proposalsJson
+                            voucherCount: root.voucherCount
                             onCopyToClipboard: (text) => root.copyText(text)
                         }
                     }
