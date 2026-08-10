@@ -30,16 +30,18 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.4`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.4)**
+- **[`logos_node_1click v0.2.6`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.6)** —
+  adds the **Blend status line** on the node dashboard (edge / core / broadcast, with honest per-epoch detail),
+  with rotation-proof detection driven off the live node mode + `/blend/info`.
 
 ```bash
 # Linux x86-64
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.4/logos_node_1click-0.2.4-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.6/logos_node_1click-0.2.6-linux-amd64.lgx
 
 # macOS Apple Silicon (M1/arm64)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.4/logos_node_1click-0.2.4-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.6/logos_node_1click-0.2.6-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
