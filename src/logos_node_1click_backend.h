@@ -101,6 +101,9 @@ private:
     // blendStateFromLog(): map the blend::service log tail → BlendStatus + *outEvent.
     QVariantMap getBlendInfo() const;
     BlendStatus blendStateFromLog(QString* outEvent) const;
+    // Node consensus mode ("Online"/"Bootstrapping"/"") from the live API — the
+    // authoritative gate for Blend (edge is automatic once Online).
+    QString nodeMode() const;
     // Block proposal draws from leader.wallet.funding_pk, which the module assigns
     // to a DIFFERENT key than the wallet key (logos-blockchain#3271 / ui#35). Read it
     // from the generated node config so "Fund the node" can fund the RIGHT key —

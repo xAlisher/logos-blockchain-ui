@@ -20,7 +20,7 @@ Item {
     property string peerId: ""
     property string infoJson: ""
     property string balanceText: "0"
-    property string moduleVersion: "0.2.5"   // this fork's build; keep in sync with metadata.json
+    property string moduleVersion: "0.2.6"   // this fork's build; keep in sync with metadata.json
 
     // ── Blend status (fed from BlockchainView → backend.blendStatus/lastBlendEvent) ──
     // Label carries the Blend state only (node state is in the status block above);
@@ -80,7 +80,7 @@ Item {
         if (errorText && errorText.length > 0) c = Theme.palette.error
         else {
             var s = _statusDisplay()
-            if (s === "Online") { c = Theme.palette.success; a = 0.05 }  // green: more subtle
+            if (s === "Online") { c = Theme.palette.success; a = 0.025 }  // green: extra subtle (half of the old 0.05)
             else if (s === "Bootstrapping") c = ctaOrange
             else return Theme.palette.backgroundTertiary
         }
@@ -189,7 +189,7 @@ Item {
         // ═══ Status block ═══
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 128
+            Layout.preferredHeight: 140
             radius: Theme.spacing.radiusLarge
             color: root._statusBg()
             border.width: 0
@@ -251,32 +251,19 @@ Item {
                     font.pixelSize: Theme.typography.secondaryText
                     font.weight: Theme.typography.weightMedium
                 }
-                // ── Blend line: gray/blue circle + "Blend <state>", below the staking line ──
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: Theme.spacing.small
-                    visible: root.isRunning && root.blendText.length > 0
-                    Rectangle {
-                        width: 8; height: 8; radius: 4
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.blendColor
-                    }
-                    LogosText {
-                        text: root.blendText
-                        color: root.blendColor
-                        font.pixelSize: Theme.typography.secondaryText
-                        font.weight: Theme.typography.weightMedium
-                    }
-                }
-                // ── Blend event: honest, plain-language line about the current epoch ──
+                // ── Blend line: one line, styled like the staking line above —
+                //    "● Blend <state> — <detail>". The ● carries the state colour
+                //    (blue while mixing, gray otherwise); detail is the epoch event. ──
                 LogosText {
                     width: parent.width
-                    visible: root.isRunning && root.blendEvent.length > 0
                     horizontalAlignment: Text.AlignHCenter
-                    text: root.blendEvent
-                    color: Theme.palette.textSecondary
+                    visible: root.isRunning && root.blendText.length > 0
+                    text: "● " + root.blendText
+                          + (root.blendEvent.length > 0 ? " — " + root.blendEvent : "")
+                    color: root.blendColor
                     font.pixelSize: Theme.typography.secondaryText
-                    wrapMode: Text.WordWrap
+                    font.weight: Theme.typography.weightMedium
+                    elide: Text.ElideRight
                 }
             }
 
