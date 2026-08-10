@@ -706,6 +706,7 @@ Rectangle {
                 },
                 function(error) { root.cryptarchiaInfoError = _d.errorText(error) }
             )
+            root.backend.refreshBlendStatus()   // recompute Blend line (updates blendStatus/lastBlendEvent)
         }
     }
 
@@ -765,6 +766,25 @@ Rectangle {
             case BlockchainBackend.Starting:
             case BlockchainBackend.Stopping: return Theme.palette.warning
             default: return Theme.palette.error
+            }
+        }
+        // Blend line: label uses the code's own mode names (Blend, capital B); blue only when
+        // actively blending (edge/core), gray otherwise.
+        function getBlendText(s) {
+            switch(s) {
+            case BlockchainBackend.Edge: return qsTr("Blend edge")
+            case BlockchainBackend.Core: return qsTr("Blend core")
+            case BlockchainBackend.Broadcast: return qsTr("Blend broadcast")
+            case BlockchainBackend.BlendError: return qsTr("Blend error")
+            case BlockchainBackend.Unknown: return qsTr("Blend unknown")
+            default: return qsTr("Blend inactive")
+            }
+        }
+        function getBlendColor(s) {
+            switch(s) {
+            case BlockchainBackend.Edge:
+            case BlockchainBackend.Core: return Theme.palette.info
+            default: return Theme.palette.textSecondary
             }
         }
         property int currentPage: 0
@@ -1094,6 +1114,9 @@ Rectangle {
                         balanceText: root.nodeBalance
                         peerCount: root.nodePeers
                         connectionCount: root.nodeConnections
+                        blendText: root.backend ? _d.getBlendText(root.backend.blendStatus) : ""
+                        blendColor: root.backend ? _d.getBlendColor(root.backend.blendStatus) : Theme.palette.textSecondary
+                        blendEvent: root.backend ? root.backend.lastBlendEvent : ""
 
                         onCopyText: (text) => root.copyText(text)
                         onStartRequested: if (root.backend) root.backend.startBlockchain()

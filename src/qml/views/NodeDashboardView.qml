@@ -21,6 +21,10 @@ Item {
     property string infoJson: ""
     property string balanceText: "0"
     property string apiBase: "http://127.0.0.1:8080"
+    // Blend line (below the staking line); blendText/blendColor computed in BlockchainView._d.
+    property string blendText: ""
+    property color  blendColor: Theme.palette.textSecondary
+    property string blendEvent: ""
 
     signal copyText(string text)
     signal startRequested()
@@ -219,6 +223,32 @@ Item {
                                                    : Theme.palette.success
                     font.pixelSize: Theme.typography.secondaryText
                     font.weight: Theme.typography.weightMedium
+                }
+                // ── Blend line: colored dot + "Blend <state>" (blue = actively blending, gray otherwise) ──
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: Theme.spacing.small
+                    visible: root.isRunning && root.blendText.length > 0
+                    Rectangle {
+                        width: 8; height: 8; radius: 4
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.blendColor
+                    }
+                    LogosText {
+                        text: root.blendText
+                        color: root.blendColor
+                        font.pixelSize: Theme.typography.secondaryText
+                        font.weight: Theme.typography.weightMedium
+                    }
+                }
+                LogosText {
+                    width: parent.width
+                    visible: root.isRunning && root.blendEvent.length > 0
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.blendEvent
+                    color: Theme.palette.textSecondary
+                    font.pixelSize: Theme.typography.secondaryText
+                    wrapMode: Text.WordWrap
                 }
             }
 

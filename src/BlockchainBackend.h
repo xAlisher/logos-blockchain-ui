@@ -78,6 +78,8 @@ public slots:
     void clearBlocks() override;
     QVariantMap resetChainState() override;
     void copyToClipboard(QString text) override;
+    // Recompute blendStatus + lastBlendEvent from node status + /blend/info + the blend::service log.
+    void refreshBlendStatus() override;
 
 private:
     void fetchBalancesForAccounts(const QStringList& list);
@@ -85,6 +87,11 @@ private:
     // Reads the node's own log to explain a failed/no-reply call honestly
     // (crash / recovering / storage / peers) instead of a generic "Call failed".
     QString lastNodeError() const;
+    // curl :8080/blend/info (Online-only; it hangs while bootstrapping). Returns { ok, coreInfoPresent, mixPeers }.
+    QVariantMap getBlendInfo() const;
+    // Scan the node log tail for the most-recent blend::service transition. Sets *outEvent to the
+    // human message; returns the derived BlendStatus for an Online node (Edge/Core/Broadcast/BlendError/Unknown).
+    BlendStatus blendStateFromLog(QString* outEvent) const;
 
     LogosAPI* m_logosAPI = nullptr;
     LogosAPIClient* m_blockchainClient = nullptr;
