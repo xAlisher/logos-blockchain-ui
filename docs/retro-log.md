@@ -1,0 +1,49 @@
+# Retro log — logos-blockchain-ui (community fork + official-app Blend)
+
+## Week of 2026-08-10 — Blend status feature (fork 0.2.6 + official PR #57)
+
+### Wins
+- [project] **Rotation-proof Blend detection.** "Blend unknown" on a healthy Online edge node was a
+  detection bug: the `blend::service` lifecycle line is written once at the Online transition and the node
+  rotates its log hourly, so reading only the newest file lost it. Fixed by driving state off the live node
+  mode (`/cryptarchia/info`) + `/blend/info` and scanning the newest ~6 log files. Extracted →
+  `blend-status-detection` (basecamp-skills).
+- [project] **`NodeError`, not `Error`.** repc flattens all `.rep` enum values into one scope; `BlendStatus::Error`
+  collided with `BlockchainStatus::Error`. Naming it `NodeError` fixed the build. Same fix applied to both the
+  fork (`logos_node_1click`) and the official (`blockchain_ui`) modules.
+- [process] **Peer-swap resumes with no resync — proven, not assumed.** Swapping a node's `initial_peers` and
+  restarting resumes from the saved chain height (khidr came back at 14759, not genesis), vs a DB wipe which
+  forces a full resync. Verified empirically before recommending, which is why we could confidently tell the
+  operator NOT to wipe.
+- [process] **STUN probe isolated network-vs-peer.** A STUN request to a public server (udp/3478) that got a
+  reply proved khidr's UDP egress worked — decisively ruling out "the wifi blocks UDP" that QUIC-timeout logs
+  had suggested. A cheap decisive probe beats inference.
+- [process] **Accurate upstream reports.** The seed-outage issue (#3293) was confirmed by the team within the
+  hour ("failed deployment to the bootstrap nodes"); the no-self-recover bug (#3294) and the fork's
+  stuck-bootstrap UX (#36) were filed with evidence + repro. Docs PR #438 extended with the participation-check.
+
+### Fails
+- [process] **Asserted "0.2.2 core is ahead of the testnet" before checking the diff.** When khidr couldn't
+  sync on 0.2.2, I concluded the testnet was still 0.2.1 and 0.2.2 was incompatible. Wrong action: stated it as
+  the diagnosis and recommended a downgrade. Root cause: reasoned from "wild(0.2.1) works, khidr(0.2.2) doesn't"
+  without running `gh api …/compare/0.2.1...0.2.2` — which showed 0.2.2 was a 3-commit wallet-only patch, wire-
+  identical. Version was never it.
+- [process] **Then blamed khidr's travel network.** After the version theory fell, I leaned on "khidr's wifi
+  blocks peer UDP." Wrong action: nearly closed the investigation there. Root cause: inferred a UDP block from
+  QUIC handshake timeouts without a real egress probe — the STUN test (later) showed UDP egress was fine. The
+  actual cause was a shared bootstrap-seed outage (a healthy node was failing the *same* seeds). Lesson →
+  `logos-node-zero-peers-seed-outage`: when N independent machines fail identically, suspect the shared
+  dependency, not each environment.
+- [project] **Swapped in ad-hoc "live peers" that were stale.** As a workaround I pointed khidr at peers wild
+  happened to be connected to; they timed out for khidr and sent me chasing a phantom local-network issue.
+  Root cause: assumed "peers a healthy node holds" = "reachable bootstrap peers for a fresh node" — they can be
+  at-capacity/rotating. Reverting to the canonical documented seeds (once the outage cleared) connected khidr
+  instantly (0 → 43 peers). Use the documented seeds for bootstrap, not discovered peers.
+
+### Skills extracted
+- `blend-status-detection` (basecamp-skills, integration/pattern)
+- `logos-node-zero-peers-seed-outage` (basecamp-skills, ops/heuristic)
+
+### Shipped
+- Fork `logos_node_1click` **v0.2.6** — released (linux+darwin signed, catalog + modules.alisher.xyz card).
+- Official `blockchain_ui` — Blend-under-Consensus, **upstream PR #57**, render-verified on a live node.
