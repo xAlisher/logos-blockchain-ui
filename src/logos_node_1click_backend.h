@@ -82,6 +82,10 @@ public slots:
     void clearBlocks() override;
     QVariantMap resetChainState() override;
     void copyToClipboard(QString text) override;
+    // Recompute the Blend status (blendStatus + lastBlendEvent) from the node
+    // state, the blend::service log, and the live /blend/info. Driven by the
+    // dashboard refresh timer while the node is Running.
+    void refreshBlendStatus() override;
 
 protected:
     void onContextReady() override;
@@ -92,6 +96,11 @@ private:
     // Reads the node's own log to explain a failed/no-reply call honestly
     // (crash / recovering / storage / peers) instead of a generic "Call failed".
     QString lastNodeError() const;
+    // Blend status sources (both shell out to curl / read the log — see the .cpp).
+    // getBlendInfo(): live /blend/info → { ok, coreInfoPresent, mixPeers }.
+    // blendStateFromLog(): map the blend::service log tail → BlendStatus + *outEvent.
+    QVariantMap getBlendInfo() const;
+    BlendStatus blendStateFromLog(QString* outEvent) const;
     // Block proposal draws from leader.wallet.funding_pk, which the module assigns
     // to a DIFFERENT key than the wallet key (logos-blockchain#3271 / ui#35). Read it
     // from the generated node config so "Fund the node" can fund the RIGHT key —

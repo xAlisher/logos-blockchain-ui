@@ -15,6 +15,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
@@ -467,6 +468,131 @@ QVariantMap LogosNode1clickBackend::getNetworkInfo()
                    ? o.value(QStringLiteral("n_connections")).toInt()
                    : peers);
     return out;
+}
+
+// Blend network status, split across two honest sources (the app's Qt/QML HTTPS
+// stack is unreliable on this AppImage, so we shell out to curl — see getNetworkInfo).
+//   getBlendInfo()      — the live /blend/info API (only answers once Online; core_info
+//                          is present ONLY when this node is a Core/full Blend node).
+//   blendStateFromLog() — the blend::service log lifecycle, the authoritative signal
+//                          during sync (the API hangs while Bootstrapping).
+// Every string below is verbatim from the node's own output — no invented codes.
+QVariantMap LogosNode1clickBackend::getBlendInfo() const
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), false);
+    out.insert(QStringLiteral("coreInfoPresent"), false);
+    out.insert(QStringLiteral("mixPeers"), -1);
+    QProcess p;
+    p.start(QStringLiteral("curl"),
+            {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
+             QStringLiteral("http://127.0.0.1:8080/blend/info")});
+    if (!p.waitForFinished(4000)) { p.kill(); return out; }
+    const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
+    if (!doc.isObject())
+        return out;
+    const QJsonObject o = doc.object();
+    out.insert(QStringLiteral("ok"), true);
+    const QJsonValue ci = o.value(QStringLiteral("core_info"));
+    if (ci.isObject()) {
+        out.insert(QStringLiteral("coreInfoPresent"), true);
+        out.insert(QStringLiteral("mixPeers"),
+                   ci.toObject().value(QStringLiteral("current_epoch_peers")).toArray().size());
+    }
+    return out;
+}
+
+// Scan the tail of the newest node log for the blend::service lifecycle and map
+// it to a BlendStatus, setting *outEvent to a plain-language line about the
+// current epoch. Newest-first, first match wins — order: error, broadcast
+// fallback, edge-joined, waiting-for-online. Returns Unknown if nothing matches.
+LogosNode1clickBackend::BlendStatus
+LogosNode1clickBackend::blendStateFromLog(QString* outEvent) const
+{
+    if (outEvent)
+        outEvent->clear();
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return Unknown;
+    const QDir logsDir(QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("logs")));
+    if (!logsDir.exists())
+        return Unknown;
+    const QFileInfoList files = logsDir.entryInfoList(QDir::Files, QDir::Time);
+    if (files.isEmpty())
+        return Unknown;
+    QFile f(files.first().absoluteFilePath());
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return Unknown;
+    const qint64 tail = qMin<qint64>(f.size(), 256 * 1024);
+    f.seek(f.size() - tail);
+    const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    f.close();
+    for (int i = lines.size() - 1; i >= 0; --i) {
+        const QString& ln = lines.at(i);
+        // Blend/SDP failure — surface the node's own message verbatim (no stable code exists).
+        if (ln.contains(QStringLiteral("Failed to join blend network"))
+            || (ln.contains(QStringLiteral("SDP service")) && ln.contains(QStringLiteral("channel closed")))) {
+            if (outEvent)
+                *outEvent = ln.section(QStringLiteral("] "), -1).trimmed();
+            return BlendError;
+        }
+        // Too few core nodes this epoch → the edge service shuts down and the node
+        // broadcasts directly. Graceful fallback, not a failure.
+        if (ln.contains(QStringLiteral("does not satisfy edge node condition"))) {
+            if (outEvent)
+                *outEvent = QStringLiteral("Not enough Blend nodes this epoch — broadcasting directly "
+                                           "(no privacy this epoch).");
+            return Broadcast;
+        }
+        // Participating as an edge node — proposals are mixed through the core nodes.
+        if (ln.contains(QStringLiteral("Blend edge swarm started"))
+            || ln.contains(QStringLiteral("Service 'BlendEdge' is ready"))
+            || ln.contains(QStringLiteral("Service 'Blend' is ready"))) {
+            if (outEvent)
+                *outEvent = QStringLiteral("Joined Blend as an edge node — your proposals are being mixed.");
+            return Edge;
+        }
+        // Still bootstrapping — Blend can't start until the chain is Online.
+        if (ln.contains(QStringLiteral("Waiting for chain to become Online"))) {
+            if (outEvent)
+                *outEvent = QStringLiteral("Blend is waiting for the node to reach Online.");
+            return WaitingForOnline;
+        }
+    }
+    return Unknown;
+}
+
+// Recompute blendStatus + lastBlendEvent from the node state, the blend log, and
+// (once past bootstrap) the live /blend/info. Called on the dashboard's refresh
+// timer while the node is Running. Cheap: one log-tail read + at most one curl.
+void LogosNode1clickBackend::refreshBlendStatus()
+{
+    BlendStatus st = Unknown;
+    QString evt;
+    const BlockchainStatus ns = status();
+    if (ns == Error) {
+        st = NodeError;
+        evt = lastNodeError();
+    } else if (ns != Running) {
+        st = Off;
+    } else {
+        st = blendStateFromLog(&evt);
+        // Promote to Core only on positive proof from the live API (core_info present).
+        // Skip the API while WaitingForOnline (it hangs during bootstrap).
+        if (st == Edge || st == Broadcast || st == Unknown) {
+            const QVariantMap bi = getBlendInfo();
+            if (bi.value(QStringLiteral("ok")).toBool()
+                && bi.value(QStringLiteral("coreInfoPresent")).toBool()) {
+                st = Core;
+                const int mp = bi.value(QStringLiteral("mixPeers")).toInt();
+                evt = mp >= 0
+                          ? QStringLiteral("Running as a Blend core node — %1 mix peers this epoch.").arg(mp)
+                          : QStringLiteral("Running as a Blend core node.");
+            }
+        }
+    }
+    setBlendStatus(st);
+    setLastBlendEvent(evt);
 }
 
 QVariantMap LogosNode1clickBackend::getBlock(QString headerIdHex)

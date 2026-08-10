@@ -1,6 +1,7 @@
 class BlockchainBackend
 {
     ENUM BlockchainStatus { NotStarted=0, Starting=1, Running=2, Stopping=3, Stopped=4, Error=5 }
+    ENUM BlendStatus { Off=0, WaitingForOnline=1, Edge=2, Core=3, Broadcast=4, NodeError=5, BlendError=6, Unknown=7 }
 
     PROP(BlockchainStatus status READONLY)
     PROP(QString userConfig READWRITE)
@@ -9,6 +10,8 @@ class BlockchainBackend
     PROP(QString generatedUserConfigPath READONLY)
     PROP(QString lastErrorMessage READONLY)
     PROP(QString primaryAddress READONLY)
+    PROP(BlendStatus blendStatus READONLY)
+    PROP(QString lastBlendEvent READONLY)
 
     SLOT(void startBlockchain())
     SLOT(void stopBlockchain())
@@ -34,4 +37,5 @@ class BlockchainBackend
     SLOT(void clearBlocks())
     SLOT(QVariantMap resetChainState())
     SLOT(void copyToClipboard(QString text))
+    SLOT(void refreshBlendStatus())
 }
