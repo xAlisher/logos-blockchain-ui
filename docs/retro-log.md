@@ -40,9 +40,19 @@
   at-capacity/rotating. Reverting to the canonical documented seeds (once the outage cleared) connected khidr
   instantly (0 → 43 peers). Use the documented seeds for bootstrap, not discovered peers.
 
+- [process] **Defaulted to a UI-side HTTP call for data the core module owns — twice.** For the official-app
+  Blend port I had the UI backend `curl http://127.0.0.1:8080/blend/info` + `/cryptarchia/info`, even though the
+  app's own `getCryptarchiaInfo()` already goes through the module client (`invokeRemoteMethod`). Maintainer
+  (Khushboo) reviewed PR#57: *"the way to obtain the blend info shouldn't be via http local calls and should come
+  from the module"* → opened blockchain-module#64 (v0.3). So #57 won't merge as-is. Root cause: reached for the
+  quick local-HTTP path that ships fine on our fork, without asking "does this data belong in the core module?" —
+  which upstream always answers yes. Same wall as the earlier `getClient("delivery_module")` episode. Lesson →
+  `core-owned-data-from-module-not-ui-http` + a trigger, so next time we decide "core first?" before building/PRing.
+
 ### Skills extracted
 - `blend-status-detection` (basecamp-skills, integration/pattern)
 - `logos-node-zero-peers-seed-outage` (basecamp-skills, ops/heuristic)
+- `core-owned-data-from-module-not-ui-http` (basecamp-skills, integration/heuristic) — wired into `_triggers.md`
 
 ### Shipped
 - Fork `logos_node_1click` **v0.2.6** — released (linux+darwin signed, catalog + modules.alisher.xyz card).
