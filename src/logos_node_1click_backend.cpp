@@ -443,6 +443,54 @@ QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
     return result::toVariantMap(r);
 }
 
+// After an unclean restart the node replays every stored block from LIB (genesis
+// during ProlongedBootstrap) to the tip — "chain recovery" — which can take a couple
+// of minutes and during which the chain API isn't serving state yet. We surface it so
+// the dashboard shows "Recovering chain — replaying N blocks…" instead of a bare peer
+// id. Log signatures (chain::service, verbatim):
+//   "found <N> stored blocks to replay during chain recovery"   → replaying (active)
+//   "<N> blocks replayed. Chain recovery finished"              → done (not active)
+// Walk the newest log tail newest→oldest: the first marker we hit decides current state.
+QVariantMap LogosNode1clickBackend::getRecoveryStatus()
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("active"), false);
+    out.insert(QStringLiteral("blocks"), 0);
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return out;
+    const QDir logsDir(QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("logs")));
+    if (!logsDir.exists())
+        return out;
+    const QFileInfoList files = logsDir.entryInfoList(QDir::Files, QDir::Time);   // newest first
+    if (files.isEmpty())
+        return out;
+    QFile f(files.first().absoluteFilePath());
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return out;
+    const qint64 tail = qMin<qint64>(f.size(), 256 * 1024);
+    f.seek(f.size() - tail);
+    const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+    f.close();
+    static const QRegularExpression reFound(
+        QStringLiteral("found (\\d+) stored blocks to replay"));
+    for (int i = lines.size() - 1; i >= 0; --i) {
+        const QString& ln = lines.at(i);
+        // A completion is the most recent marker → recovery is done.
+        if (ln.contains(QStringLiteral("Chain recovery finished"))
+            || ln.contains(QStringLiteral("blocks replayed")))
+            return out;
+        // A start with no later completion → replaying right now.
+        const QRegularExpressionMatch m = reFound.match(ln);
+        if (m.hasMatch()) {
+            out.insert(QStringLiteral("active"), true);
+            out.insert(QStringLiteral("blocks"), m.captured(1).toInt());
+            return out;
+        }
+    }
+    return out;
+}
+
 QVariantMap LogosNode1clickBackend::getNetworkInfo()
 {
     QVariantMap out;

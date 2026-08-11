@@ -770,15 +770,17 @@ Rectangle {
         }
     }
 
+    // The node's peer id is immutable for a given config — once we have it, keep it
+    // ALWAYS visible: never blank it on a transient/failed read (e.g. while the node is
+    // still replaying blocks and the network API isn't up yet). Only overwrite on a real
+    // new value. A poll (in recoveryTimer below) keeps retrying until we first get it.
     function refreshPeerId() {
-        if (!root.backend || !root.backend.userConfig) {
-            root.peerId = ""
-            return
-        }
+        if (!root.backend || !root.backend.userConfig)
+            return   // keep the last known peer id
         logos.watch(
             root.backend.getPeerId(),
-            function(result) { root.peerId = result.success ? result.value : "" },
-            function(error) { root.peerId = "" }
+            function(result) { if (result.success && result.value && result.value.length) root.peerId = result.value },
+            function(error) { /* transient — keep the last known peer id */ }
         )
     }
 
@@ -813,6 +815,36 @@ Rectangle {
                     }
                 },
                 function(error) { root.cryptarchiaInfoError = _d.errorText(error) }
+            )
+        }
+    }
+
+    // ── Chain-recovery + peer-id probe ──
+    // Runs while the node is Starting OR Running — the ~2-min block-replay after an
+    // unclean restart happens while status is still Starting (the API isn't up yet, so
+    // the confirm-probe hasn't flipped it to Running). Surfaces "Recovering chain —
+    // replaying N blocks…" during that window, and keeps fetching the peer id until we
+    // have it (so it's always shown, not blank while the chain API is still down).
+    property bool recoveryActive: false
+    property int  recoveryBlocks: 0
+    Timer {
+        id: recoveryTimer
+        interval: 2000
+        repeat: true
+        triggeredOnStart: true
+        running: root.ready && root.backend
+                 && (root.backend.status === BlockchainBackend.Starting
+                     || root.backend.status === BlockchainBackend.Running)
+        onTriggered: {
+            if (!root.backend) return
+            if (!root.peerId || !root.peerId.length) root.refreshPeerId()
+            logos.watch(
+                root.backend.getRecoveryStatus(),
+                function(result) {
+                    root.recoveryActive = !!(result && result.active)
+                    root.recoveryBlocks = (result && result.blocks) ? result.blocks : 0
+                },
+                function(error) { /* keep last */ }
             )
         }
     }
@@ -1245,6 +1277,8 @@ Rectangle {
                             : ((root.backend && root.backend.status === BlockchainBackend.Error)
                                 ? root.backend.lastErrorMessage : "")
                         peerId: root.peerId
+                        recoveryActive: root.recoveryActive
+                        recoveryBlocks: root.recoveryBlocks
                         infoJson: root.cryptarchiaInfoJson
                         balanceText: root.nodeBalance
                         peerCount: root.nodePeers

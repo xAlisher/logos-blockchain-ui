@@ -18,6 +18,9 @@ Item {
     property bool   isRunning: false
     property string errorText: ""
     property string peerId: ""
+    // Chain-recovery (block replay after an unclean restart) — fed from BlockchainView.
+    property bool   recoveryActive: false
+    property int    recoveryBlocks: 0
     property string infoJson: ""
     property string balanceText: "0"
     property string moduleVersion: "0.2.6"   // this fork's build; keep in sync with metadata.json
@@ -56,6 +59,7 @@ Item {
         return (v === undefined || v === null || v === "") ? "—" : String(v)
     }
     function _statusDisplay() {
+        if (recoveryActive) return qsTr("Recovering chain")
         if (errorText && errorText.length > 0) return errorText
         if (isRunning) {
             var m = _info ? _info.mode : undefined
@@ -67,6 +71,7 @@ Item {
         return statusText
     }
     function _statusColor() {
+        if (recoveryActive) return ctaOrange
         if (errorText && errorText.length > 0) return Theme.palette.error
         var s = _statusDisplay()
         if (s === "Online") return Theme.palette.success
@@ -126,6 +131,10 @@ Item {
     }
     function _bootDots() { return ["", ".", "..", "..."][root._dotPhase] }
     function _subStatusText() {
+        if (root.recoveryActive)
+            return root.recoveryBlocks > 0
+                ? qsTr("Replaying %1 stored blocks…").arg(root.recoveryBlocks)
+                : qsTr("Replaying stored blocks…")
         if (root._isBootstrapping()) {
             var rem = root._bootTotal - root._bootSecs
             if (rem > 0) return qsTr("Syncing… %1").arg(root._fmtSecs(rem))   // counts down
@@ -231,9 +240,9 @@ Item {
                     font.pixelSize: Theme.typography.titleText
                     font.weight: Theme.typography.weightMedium
                     elide: Text.ElideRight
-                    // Bootstrapping gently breathes (~10% opacity, not to full off).
+                    // Bootstrapping / recovering gently breathes (~10% opacity, not to full off).
                     SequentialAnimation on opacity {
-                        running: root._isBootstrapping()
+                        running: root._isBootstrapping() || root.recoveryActive
                         loops: Animation.Infinite
                         alwaysRunToEnd: true
                         NumberAnimation { to: 0.9; duration: 950; easing.type: Easing.InOutSine }
@@ -246,8 +255,8 @@ Item {
                     visible: text.length > 0
                     horizontalAlignment: Text.AlignHCenter
                     text: root._subStatusText()
-                    color: root._isBootstrapping() ? Theme.palette.textSecondary
-                                                   : Theme.palette.success
+                    color: (root._isBootstrapping() || root.recoveryActive) ? Theme.palette.textSecondary
+                                                                            : Theme.palette.success
                     font.pixelSize: Theme.typography.secondaryText
                     font.weight: Theme.typography.weightMedium
                 }

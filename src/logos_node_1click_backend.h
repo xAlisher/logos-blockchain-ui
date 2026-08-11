@@ -59,6 +59,7 @@ public slots:
     // Peer/connection counts from the node's local HTTP API via curl (the app's
     // Qt/QML network stack is unreliable here — see requestFaucetFunds).
     QVariantMap getNetworkInfo() override;
+    QVariantMap getRecoveryStatus() override;
     QVariantMap getBlock(QString headerIdHex) override;
     QVariantMap getTransaction(QString txHashHex) override;
     QVariantMap findTransactionInBlocks(QString txHashHex) override;
