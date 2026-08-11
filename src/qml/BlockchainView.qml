@@ -620,74 +620,57 @@ Rectangle {
         anchors.centerIn: parent
         width: 480
         title: qsTr("Node settings")
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        // Match errorRecoveryDialog: escape-to-close only. CloseOnPressOutside made a press on
+        // a content control register as "outside" and dismiss the modal instead of clicking.
+        closePolicy: Popup.CloseOnEscape
         Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
 
+        // Descriptions live in the body; the ACTIONS live in rightActions (the footer) — exactly
+        // like errorRecoveryDialog's Dismiss/Wipe buttons, which is the wiring whose onClicked
+        // reliably fires. Buttons placed inline in contentItem did not respond to clicks.
         contentItem: Column {
             width: settingsDialog.availableWidth
             spacing: Theme.spacing.large
 
-            // ── Reset chain state ──
-            RowLayout {
+            Column {
                 width: parent.width
-                spacing: Theme.spacing.medium
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-                    LogosText {
-                        Layout.fillWidth: true
-                        text: qsTr("Reset chain state")
-                        font.pixelSize: Theme.typography.primaryText
-                        font.weight: Theme.typography.weightMedium
-                        color: Theme.palette.text
-                    }
-                    LogosText {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: qsTr("Re-download the chain from genesis if the node is stuck or out "
-                                   + "of sync. Your wallet keys and config are kept.")
-                        font.pixelSize: Theme.typography.secondaryText
-                        color: Theme.palette.textSecondary
-                    }
+                spacing: 2
+                LogosText {
+                    width: parent.width
+                    text: qsTr("Reset chain state")
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                    color: Theme.palette.text
                 }
-                LogosButton {
-                    text: qsTr("Reset")
-                    implicitWidth: 130; implicitHeight: 40
-                    Layout.alignment: Qt.AlignVCenter
-                    onClicked: { settingsDialog.close(); resetConfirmDialog.open() }
+                LogosText {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Re-download the chain from genesis if the node is stuck or out "
+                               + "of sync. Your wallet keys and config are kept. (Reset)")
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
                 }
             }
 
             Rectangle { width: parent.width; height: 1; color: Theme.palette.border; opacity: 0.5 }
 
-            // ── Regenerate config & restart ──
-            RowLayout {
+            Column {
                 width: parent.width
-                spacing: Theme.spacing.medium
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 2
-                    LogosText {
-                        Layout.fillWidth: true
-                        text: qsTr("Regenerate config & restart")
-                        font.pixelSize: Theme.typography.primaryText
-                        font.weight: Theme.typography.weightMedium
-                        color: Theme.palette.text
-                    }
-                    LogosText {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: qsTr("Recreate the default testnet config (known-good bootstrap peers) "
-                                   + "and restart the node. Use if it won't start or sync.")
-                        font.pixelSize: Theme.typography.secondaryText
-                        color: Theme.palette.textSecondary
-                    }
+                spacing: 2
+                LogosText {
+                    width: parent.width
+                    text: qsTr("Regenerate config & restart")
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                    color: Theme.palette.text
                 }
-                LogosButton {
-                    text: qsTr("Regenerate")
-                    implicitWidth: 130; implicitHeight: 40
-                    Layout.alignment: Qt.AlignVCenter
-                    onClicked: { settingsDialog.close(); _d.runNodeOneClick() }
+                LogosText {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Recreate the default testnet config (known-good bootstrap peers) "
+                               + "and restart the node. Use if it won't start or sync. (Regenerate)")
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
                 }
             }
         }
@@ -697,6 +680,18 @@ Rectangle {
                 text: qsTr("Close")
                 implicitWidth: 100; implicitHeight: 40
                 onClicked: settingsDialog.close()
+            },
+            LogosButton {
+                text: qsTr("Reset")
+                implicitWidth: 120; implicitHeight: 40
+                // Close first, then open the confirm modal on the NEXT tick — two modals
+                // transitioning in the same frame swallowed the open().
+                onClicked: { settingsDialog.close(); Qt.callLater(function() { resetConfirmDialog.open() }) }
+            },
+            LogosButton {
+                text: qsTr("Regenerate")
+                implicitWidth: 130; implicitHeight: 40
+                onClicked: { settingsDialog.close(); Qt.callLater(function() { _d.runNodeOneClick() }) }
             }
         ]
     }
