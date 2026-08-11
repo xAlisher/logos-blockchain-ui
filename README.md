@@ -1,5 +1,8 @@
 # logos-blockchain-ui
 
+> This is a personal, experimental hobby project. It is not an official Logos product. Not audited.
+
+
 A QML + C++ backend UI module for the [Logos](https://logos.co) platform that provides a graphical interface to control and monitor the Logos blockchain node.
 
 Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-builder) using the `mkLogosQmlModule` pattern (QML frontend + C++ backend with Qt Remote Objects).
