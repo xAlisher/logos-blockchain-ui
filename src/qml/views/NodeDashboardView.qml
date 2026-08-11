@@ -307,19 +307,33 @@ Item {
                     font.pixelSize: Theme.typography.secondaryText
                     font.weight: Theme.typography.weightMedium
                 }
-                // ── Blend line: one line, styled like the staking line above —
-                //    "● Blend <state> — <detail>". The ● carries the state colour
-                //    (blue while mixing, gray otherwise); detail is the epoch event. ──
-                LogosText {
+                // ── Blend line: a centred dot + "Blend <state> — <detail>". The dot is a real
+                //    circle vertically centred with the text (the inline "●" glyph sat a touch
+                //    low). Blue while mixing, gray otherwise; detail is the epoch event. ──
+                Item {
+                    id: blendWrap
                     width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
+                    height: blendLbl.implicitHeight
                     visible: root.isRunning && root.blendText.length > 0
-                    text: "● " + root.blendText
-                          + (root.blendEvent.length > 0 ? " — " + root.blendEvent : "")
-                    color: root.blendColor
-                    font.pixelSize: Theme.typography.secondaryText
-                    font.weight: Theme.typography.weightMedium
-                    elide: Text.ElideRight
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 5
+                        Rectangle {
+                            width: 7; height: 7; radius: 3.5
+                            color: root.blendColor
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        LogosText {
+                            id: blendLbl
+                            width: Math.min(implicitWidth, blendWrap.width - 12)
+                            elide: Text.ElideRight
+                            text: root.blendText
+                                  + (root.blendEvent.length > 0 ? " — " + root.blendEvent : "")
+                            color: root.blendColor
+                            font.pixelSize: Theme.typography.secondaryText
+                            font.weight: Theme.typography.weightMedium
+                        }
+                    }
                 }
             }
 
