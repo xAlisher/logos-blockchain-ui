@@ -30,19 +30,19 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.7`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.7)** —
-  **fixes the node-settings modal buttons** (Reset / Regenerate / Close now respond — the actions moved into the
-  dialog footer, matching the error-recovery modal's wiring). UI-only; no node/consensus change.
-  Previous: **v0.2.6** added the **Blend status line** on the dashboard (edge / core / broadcast).
+- **[`logos_node_1click v0.2.8`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.8)** —
+  shows a **"Recovering chain — replaying N blocks…"** status during the block-replay after an unclean restart
+  (instead of a bare peer id), and keeps the **peer ID always visible** (never blanks on a transient read).
+  Previous: **v0.2.7** fixed the node-settings modal buttons; **v0.2.6** added the Blend status line.
 
 ```bash
 # Linux x86-64
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.7/logos_node_1click-0.2.7-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.8/logos_node_1click-0.2.8-linux-amd64.lgx
 
 # macOS Apple Silicon (M1/arm64)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.7/logos_node_1click-0.2.7-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.8/logos_node_1click-0.2.8-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
