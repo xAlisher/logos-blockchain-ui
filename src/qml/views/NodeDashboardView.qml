@@ -78,6 +78,17 @@ Item {
         if (s === "Bootstrapping") return ctaOrange
         return statusColor
     }
+    // Title is split so an animated ellipsis can own RESERVED space — the base label,
+    // then a fixed-width dots block. Keeps the centered title from jumping left-right.
+    function _titleBase() {
+        return root._statusDisplay().replace(/\s*(?:\.\.\.|…)\s*$/, "")
+    }
+    function _titleDots() {   // which states get the working "…" (Starting/Stopping/Bootstrapping/Recovering)
+        if (root.recoveryActive) return true
+        var s = root._statusDisplay()
+        if (s === qsTr("Bootstrapping")) return true
+        return /(?:\.\.\.|…)\s*$/.test(s)
+    }
     // State-tinted status-block background (~10% of the status colour).
     function _statusBg() {
         var c = Theme.palette.backgroundTertiary
@@ -231,23 +242,59 @@ Item {
                 anchors.centerIn: parent
                 width: root.width - 4 * Theme.spacing.large
                 spacing: 3
-                LogosText {
-                    id: bigStatus
+                // Base label + a fixed-width animated ellipsis. The three dots always occupy
+                // their width (only opacity is animated), so the centered title never jumps
+                // left-right while "Starting / Recovering chain / Bootstrapping…" ticks.
+                Item {
+                    id: titleWrap
                     width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root._statusDisplay()
-                    color: root._statusColor()
-                    font.pixelSize: Theme.typography.titleText
-                    font.weight: Theme.typography.weightMedium
-                    elide: Text.ElideRight
-                    // Bootstrapping / recovering gently breathes (~10% opacity, not to full off).
-                    SequentialAnimation on opacity {
-                        running: root._isBootstrapping() || root.recoveryActive
-                        loops: Animation.Infinite
-                        alwaysRunToEnd: true
-                        NumberAnimation { to: 0.9; duration: 950; easing.type: Easing.InOutSine }
-                        NumberAnimation { to: 1.0; duration: 950; easing.type: Easing.InOutSine }
-                        onRunningChanged: if (!running) bigStatus.opacity = 1
+                    height: bigStatus.implicitHeight
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 0
+                        LogosText {
+                            id: bigStatus
+                            width: Math.min(implicitWidth, titleWrap.width - (titleDots.visible ? titleDots.width : 0))
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                            text: root._titleBase()
+                            color: root._statusColor()
+                            font.pixelSize: Theme.typography.titleText
+                            font.weight: Theme.typography.weightMedium
+                            // Bootstrapping / recovering gently breathes (~10% opacity, not to full off).
+                            SequentialAnimation on opacity {
+                                running: root._isBootstrapping() || root.recoveryActive
+                                loops: Animation.Infinite
+                                alwaysRunToEnd: true
+                                NumberAnimation { to: 0.9; duration: 950; easing.type: Easing.InOutSine }
+                                NumberAnimation { to: 1.0; duration: 950; easing.type: Easing.InOutSine }
+                                onRunningChanged: if (!running) bigStatus.opacity = 1
+                            }
+                        }
+                        // Reserved-width ellipsis: all three dots present; only opacity animates.
+                        Row {
+                            id: titleDots
+                            visible: root._titleDots()
+                            spacing: 0
+                            Repeater {
+                                model: 3
+                                LogosText {
+                                    text: "."
+                                    color: bigStatus.color
+                                    font.pixelSize: Theme.typography.titleText
+                                    font.weight: Theme.typography.weightMedium
+                                    opacity: 0.25
+                                    SequentialAnimation on opacity {
+                                        running: titleDots.visible
+                                        loops: Animation.Infinite
+                                        PauseAnimation { duration: index * 260 }
+                                        NumberAnimation { to: 1.0; duration: 180 }
+                                        NumberAnimation { to: 0.25; duration: 180 }
+                                        PauseAnimation { duration: (2 - index) * 260 + 520 }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 LogosText {
