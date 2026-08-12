@@ -1,5 +1,52 @@
 # Retro log — logos-blockchain-ui (community fork + official-app Blend)
 
+## Week of 2026-08-12 — blockchain_module 0.2.2 migration + catalog delivery
+
+### Wins
+- [process] **Verify-at-source over defend-the-claim.** When khushboo9911 (a package-manager code owner)
+  pushed back on my "Basecamp rejects unsigned catalog packages" claim, I traced it to the actual source
+  (`logos-package-downloader`) instead of arguing — found it false: installs gate on `trustedSigners`
+  (ships `[]`), `"no candidate matches"` is the SemVer resolver, and unsigned installs fine. Posted a
+  correction to logos-module-builder#195, purged the false claim from 3 skill/memory files, wrote a corrected
+  memory. Root of the win: treated a code-owner's contradiction as a signal to re-verify, not to double down.
+- [process] **Trivial-experiment-first killed a dead-end for one build.** Rather than run the full
+  publish→index→GUI cycle to test "pin the dep to the official repo," I built ONE test `.lgx` and inspected
+  its manifest → `mkLogosModule` had flattened the object dep to a bare name. One build settled it before any
+  publish or khidr click. Extracted → `mklogosmodule-flattens-object-deps` (basecamp-skills).
+- [project] **Catalog delivery works end-to-end.** Published signed `blockchain_module` 0.2.2 (official
+  multi-variant bytes, xAlisher signature) → index rebuilt → the Package Manager offered 0.2.2 → khidr
+  installed it and went Online at height 19323. The unpinned-dep + our-repo `trustedSigners` model resolves to
+  our highest signed version. Extracted → `catalog-install-trust-and-resolution` (basecamp-skills).
+- [process] **Decision documented before executing.** Wrote fork issue #39 (the two verified walls + honest
+  provenance + exit condition) before publishing, so "why we host our own signed copy" is on record, not tribal.
+
+### Fails
+- [process] **A conflated observation became a confident, propagating lesson.** "Basecamp 0.2.1+ rejects
+  unsigned catalog packages" was written into 3 files and drove a needless action (I signed the khidr module
+  "so it loads under strict policy" — unnecessary). Root cause: the receiver_ui **0.2.0.5** incident ("install
+  failed") was attributed to *unsigned*, when the real cause was the **4-part-SemVer index poisoning** and the
+  fix was the **3-part re-cut** — done in the *same pass* as signing. Two variables changed together; the wrong
+  one got credited. The lesson skipped isolating the variable, and no source read backed it.
+- [project] **Read the user-repos list as the complete repo set.** Told the user "khidr has only our repo
+  configured, no official repo" from `repositories.json` — missed the `defaultDisabled: false` flag implying a
+  built-in default repo. User corrected ("logos official is bundled in BC"); source confirmed the always-on
+  `kDefaultRepositoryUrl`. Root cause: treated the user-added list as exhaustive without checking for a
+  platform default.
+
+### Skills extracted
+- `catalog-install-trust-and-resolution` (basecamp-skills, release/high) — the real trust + resolution model.
+- `mklogosmodule-flattens-object-deps` (basecamp-skills, build/medium) — builder drops object-form dep pins.
+- Corrected the false "rejects unsigned" claim in `catalog-requires-semver` (memory), `/release` §7b-SIGN,
+  and `catalog-publish-module-and-ui` (basecamp-skills). New memories: `basecamp-unsigned-not-blocked`,
+  `mklogosmodule-flattens-deps`.
+
+### Shipped
+- `blockchain_module` **v0.2.2** published to the catalog (signed multi-variant + sidecar, index rebuilt) —
+  delivers the #3287 wallet/chain-halt fix to 1-click users. No `logos_node_1click` re-release needed (unpinned
+  dep). node-agent (`node.env` 0.2.1→0.2.2) + khidr both verified Online on 0.2.2. Filings:
+  logos-module-builder#195 (official first-party ships unsigned), fork #39 (host-our-signed-copy decision),
+  ecodev #38 corrected + #56 progressed.
+
 ## Week of 2026-08-10 — Blend status feature (fork 0.2.6 + official PR #57)
 
 ### Wins
