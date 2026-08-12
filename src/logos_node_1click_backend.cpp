@@ -29,6 +29,24 @@
 const QString LogosNode1clickBackend::BLOCKCHAIN_MODULE_NAME =
     QStringLiteral("blockchain_module");
 
+// Shared, persisted binary intent — the SAME QSettings key node-remote uses, so a
+// Start/Stop from the phone (node-remote) and from this desktop UI are visible to each
+// other. See node-remote node_probe.cpp readIntent()/writeIntent() and issue #40. Only
+// Start/Stop is a user command; every richer state is node-driven and observed.
+// Defined here (above getCryptarchiaInfo, which reads it) so it is in scope file-wide.
+static void writeNodeIntent(const QString& v)
+{
+    QSettings s(QStringLiteral("Logos"), QStringLiteral("BlockchainUI"));
+    if (s.value(QStringLiteral("nodeIntent")).toString() == v) return;   // no write churn
+    s.setValue(QStringLiteral("nodeIntent"), v);
+}
+
+static QString readNodeIntent()
+{
+    return QSettings(QStringLiteral("Logos"), QStringLiteral("BlockchainUI"))
+        .value(QStringLiteral("nodeIntent")).toString();
+}
+
 // Explain a failed call from the node's own log, so the user sees the real
 // cause instead of a generic "Call failed". Reads the tail of the newest log
 // file under the config's per-instance logs/ dir and maps known signatures to
@@ -436,6 +454,15 @@ QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
     // node's real reason (crash / recovering / storage / peers) from its log.
     if (!r.success
         && r.error.toString().contains(QStringLiteral("Call failed"), Qt::CaseInsensitive)) {
+        // Coherent propagation (#40): if the node's API is down and the SHARED intent says
+        // it was stopped — e.g. the phone stopped it — demote off a stale Running/Starting/
+        // Stopping. Without this, a phone-initiated stop left the desktop stuck on Running,
+        // the desktop mirror of the phone's old dishonest state. Only on intent==stopped,
+        // so a genuine startup/recovery is never mistaken for a stop.
+        if (readNodeIntent() == QLatin1String("stopped")
+            && (status() == Running || status() == Starting || status() == Stopping))
+            setStatus(Stopped);
+
         const QString real = lastNodeError();
         if (!real.isEmpty())
             r.error = real;
@@ -901,6 +928,7 @@ void LogosNode1clickBackend::startBlockchain()
         return;
     }
 
+    writeNodeIntent(QStringLiteral("started"));
     setStatus(Starting);
 
     // Fill bootstrap.ibd.peers from initial_peers so IBD actually runs.
@@ -924,6 +952,10 @@ void LogosNode1clickBackend::startBlockchain()
 
 void LogosNode1clickBackend::stopBlockchain()
 {
+    // Record intent first, so even the already-stopped early-return below leaves the
+    // shared flag correct for the phone to read.
+    writeNodeIntent(QStringLiteral("stopped"));
+
     // Attempt the stop from any live-ish state (including Error) so an
     // errored-but-still-running node actually gets stopped and releases its DB —
     // the error-recovery wipe relies on this. Only skip when already fully down.
