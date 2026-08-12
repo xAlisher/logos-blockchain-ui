@@ -57,3 +57,53 @@
 ### Shipped
 - Fork `logos_node_1click` **v0.2.6** — released (linux+darwin signed, catalog + modules.alisher.xyz card).
 - Official `blockchain_ui` — Blend-under-Consensus, **upstream PR #57**, render-verified on a live node.
+
+## Week of 2026-08-12 — dashboard UX pass (v0.2.7 → v0.2.10)
+
+### Wins
+- [project] **LogosDialog actions belong in `rightActions`, not inline in contentItem.** The node-settings
+  modal's Reset/Regenerate buttons were placed inside `contentItem` and the dialog set
+  `closePolicy: … | Popup.CloseOnPressOutside`. Result: a press on a content button registered as "outside"
+  and dismissed the modal instead of clicking — while the **Close** button worked *because* it was already in
+  `rightActions` (the footer action bar the error-recovery modal uses). Moving the actions to `rightActions` +
+  dropping `CloseOnPressOutside` + deferring the chained-modal open with `Qt.callLater` fixed it. Extracted →
+  `logos-dialog-content-via-contentitem` (added the actions section).
+- [project] **Chain-recovery replay window is invisible to the chain API — surface it from the node log.**
+  After an unclean restart the node replays every stored block from LIB (genesis during ProlongedBootstrap)
+  to the tip — ~18k blocks / ~2 min on khidr — during which `/cryptarchia/info` is down but `/network/info`
+  is up, so the dashboard showed "peer id and nothing after." Fixed with `getRecoveryStatus()` scanning the
+  node log (`chain::service: found N stored blocks to replay` → `… Chain recovery finished`) + a probe timer
+  that runs while status is **Starting** (the replay finishes before the confirm-probe flips it to Running).
+  Same log-tail technique as `blend-status-detection`. Extracted → `logos-node-chain-recovery-status`.
+- [project] **Immutable identity fields should be sticky.** The peer id was blanked to "" on any failed
+  `getPeerId()` and only fetched once (on config-change). Made it sticky (keep last on failure) + poll-until-
+  obtained. Peer id is deterministic per config → never clear it on a transient API miss.
+- [project] **Reserve fixed width for an animated ellipsis.** A centered title ("Starting…", "Recovering
+  chain…", "Bootstrapping…") jitters left-right when the dot count animates. Fix: render the base label +
+  a fixed-width dots block (all three dots always occupy width; only opacity animates in sequence).
+- [process] **GUI-only fixes gated on a khidr install + human verify before release.** Settings buttons,
+  recovery status, and the UI polish can't be verified headlessly (Qt render/click). Each went: build → sign →
+  `lgpm` install to khidr → operator confirms in the GUI → *then* release. Held every release behind that gate;
+  it caught nothing broken but kept an unverified UI change out of the public catalog.
+
+### Fails
+- [process] **Background catalog-sign poll gave up before the CI published (0.2.8).** The "wait for CI → sign
+  the catalog .lgx → rebuild index" automation used a fixed ~7.5-min poll window; the Release CI took longer,
+  so the poll returned "release not found", the download was empty, `sign` failed, and it uploaded/rebuilt on
+  nothing → the catalog carried an **unsigned** 0.2.8 (which Basecamp rejects). Root cause: fixed short window
+  for a variable-duration CI, with no "did the artifact actually publish?" guard before acting. Fix: generous
+  poll window (~18 min) + verify the release exists before download/sign + verify `index.json` carries the
+  `signature` at the end. Applied for 0.2.10.
+- [process] **`lgpm` needs BOTH `--modules-dir` AND `--ui-plugins-dir` for a ui_qml plugin.** First install
+  attempt on khidr failed "User UI plugins directory is not set"; a ui_qml plugin installs into `plugins/`,
+  separate from core `modules/`. Also: reinstalling the *same* version can be refused → bump the version for
+  each khidr test build (0.2.9 test → 0.2.10 release).
+
+### Skills extracted
+- `logos-dialog-content-via-contentitem` (basecamp-skills) — added the "actions go in rightActions" section.
+- `logos-node-chain-recovery-status` (basecamp-skills, integration) — surface the replay window from the log.
+
+### Shipped
+- `logos_node_1click` **v0.2.7** (settings-modal buttons), **v0.2.8** (chain-recovery status + always-visible
+  peer id), **v0.2.10** (title-ellipsis reserved space + Blend-dot alignment) — each linux+darwin signed,
+  GitHub release + README + catalog + apps.alisher.xyz card. (Domain moved to apps.alisher.xyz this window.)
