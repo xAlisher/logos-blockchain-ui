@@ -287,7 +287,7 @@ ColumnLayout {
                             }
                         }
                         Item { Layout.fillWidth: true }
-                        LogosCopyButton {
+                        BcCopyButton {
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Copy raw block JSON")
                             onCopyText: root.copyToClipboard(root.pretty(root.rawJson))
@@ -404,7 +404,7 @@ ColumnLayout {
                             color: Theme.palette.textSecondary
                         }
                         Item { Layout.fillWidth: true }
-                        LogosCopyButton {
+                        BcCopyButton {
                             ToolTip.visible: hovered
                             ToolTip.text: qsTr("Copy raw transaction JSON")
                             onCopyText: root.copyToClipboard(root.pretty(root.rawJson))

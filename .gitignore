@@ -13,3 +13,6 @@ db/
 state/
 .idea/
 *ignore*
+result-*
+logs/
+*.lgx

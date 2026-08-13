@@ -1,0 +1,145 @@
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Multiexp A
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Multiexp B1
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Multiexp B2
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Multiexp C
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Initializing a b c A
+Fri Aug  7 00:31:25 2026  [TRACE]: Processing coefs
+Fri Aug  7 00:31:25 2026  [TRACE]: Calculating c
+Fri Aug  7 00:31:25 2026  [TRACE]: Initializing fft
+Fri Aug  7 00:31:25 2026  [TRACE]: Start iFFT A
+Fri Aug  7 00:31:25 2026  [TRACE]: a After ifft:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Shift A
+Fri Aug  7 00:31:25 2026  [TRACE]: a After shift:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start FFT A
+Fri Aug  7 00:31:25 2026  [TRACE]: a After fft:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start iFFT B
+Fri Aug  7 00:31:25 2026  [TRACE]: b After ifft:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Shift B
+Fri Aug  7 00:31:25 2026  [TRACE]: b After shift:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start FFT B
+Fri Aug  7 00:31:25 2026  [TRACE]: b After fft:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start iFFT C
+Fri Aug  7 00:31:25 2026  [TRACE]: c After ifft:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Shift C
+Fri Aug  7 00:31:25 2026  [TRACE]: c After shift:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start FFT C
+Fri Aug  7 00:31:25 2026  [TRACE]: c After fft:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start ABC
+Fri Aug  7 00:31:25 2026  [TRACE]: abc:
+Fri Aug  7 00:31:25 2026  [TRACE]: Start Multiexp H
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Multiexp A
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Multiexp B1
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Multiexp B2
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Multiexp C
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Initializing a b c A
+Fri Aug  7 00:54:36 2026  [TRACE]: Processing coefs
+Fri Aug  7 00:54:36 2026  [TRACE]: Calculating c
+Fri Aug  7 00:54:36 2026  [TRACE]: Initializing fft
+Fri Aug  7 00:54:36 2026  [TRACE]: Start iFFT A
+Fri Aug  7 00:54:36 2026  [TRACE]: a After ifft:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Shift A
+Fri Aug  7 00:54:36 2026  [TRACE]: a After shift:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start FFT A
+Fri Aug  7 00:54:36 2026  [TRACE]: a After fft:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start iFFT B
+Fri Aug  7 00:54:36 2026  [TRACE]: b After ifft:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Shift B
+Fri Aug  7 00:54:36 2026  [TRACE]: b After shift:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start FFT B
+Fri Aug  7 00:54:36 2026  [TRACE]: b After fft:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start iFFT C
+Fri Aug  7 00:54:36 2026  [TRACE]: c After ifft:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Shift C
+Fri Aug  7 00:54:36 2026  [TRACE]: c After shift:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start FFT C
+Fri Aug  7 00:54:36 2026  [TRACE]: c After fft:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start ABC
+Fri Aug  7 00:54:36 2026  [TRACE]: abc:
+Fri Aug  7 00:54:36 2026  [TRACE]: Start Multiexp H
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Multiexp A
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Multiexp B1
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Multiexp B2
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Multiexp C
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Initializing a b c A
+Fri Aug  7 01:04:12 2026  [TRACE]: Processing coefs
+Fri Aug  7 01:04:12 2026  [TRACE]: Calculating c
+Fri Aug  7 01:04:12 2026  [TRACE]: Initializing fft
+Fri Aug  7 01:04:12 2026  [TRACE]: Start iFFT A
+Fri Aug  7 01:04:12 2026  [TRACE]: a After ifft:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Shift A
+Fri Aug  7 01:04:12 2026  [TRACE]: a After shift:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start FFT A
+Fri Aug  7 01:04:12 2026  [TRACE]: a After fft:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start iFFT B
+Fri Aug  7 01:04:12 2026  [TRACE]: b After ifft:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Shift B
+Fri Aug  7 01:04:12 2026  [TRACE]: b After shift:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start FFT B
+Fri Aug  7 01:04:12 2026  [TRACE]: b After fft:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start iFFT C
+Fri Aug  7 01:04:12 2026  [TRACE]: c After ifft:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Shift C
+Fri Aug  7 01:04:12 2026  [TRACE]: c After shift:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start FFT C
+Fri Aug  7 01:04:12 2026  [TRACE]: c After fft:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start ABC
+Fri Aug  7 01:04:12 2026  [TRACE]: abc:
+Fri Aug  7 01:04:12 2026  [TRACE]: Start Multiexp H
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Multiexp A
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Multiexp B1
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Multiexp B2
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Multiexp C
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Initializing a b c A
+Fri Aug  7 01:19:19 2026  [TRACE]: Processing coefs
+Fri Aug  7 01:19:19 2026  [TRACE]: Calculating c
+Fri Aug  7 01:19:19 2026  [TRACE]: Initializing fft
+Fri Aug  7 01:19:19 2026  [TRACE]: Start iFFT A
+Fri Aug  7 01:19:19 2026  [TRACE]: a After ifft:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Shift A
+Fri Aug  7 01:19:19 2026  [TRACE]: a After shift:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start FFT A
+Fri Aug  7 01:19:19 2026  [TRACE]: a After fft:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start iFFT B
+Fri Aug  7 01:19:19 2026  [TRACE]: b After ifft:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Shift B
+Fri Aug  7 01:19:19 2026  [TRACE]: b After shift:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start FFT B
+Fri Aug  7 01:19:19 2026  [TRACE]: b After fft:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start iFFT C
+Fri Aug  7 01:19:19 2026  [TRACE]: c After ifft:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Shift C
+Fri Aug  7 01:19:19 2026  [TRACE]: c After shift:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start FFT C
+Fri Aug  7 01:19:19 2026  [TRACE]: c After fft:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start ABC
+Fri Aug  7 01:19:19 2026  [TRACE]: abc:
+Fri Aug  7 01:19:19 2026  [TRACE]: Start Multiexp H
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Multiexp A
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Multiexp B1
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Multiexp B2
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Multiexp C
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Initializing a b c A
+Fri Aug  7 02:11:30 2026  [TRACE]: Processing coefs
+Fri Aug  7 02:11:30 2026  [TRACE]: Calculating c
+Fri Aug  7 02:11:30 2026  [TRACE]: Initializing fft
+Fri Aug  7 02:11:30 2026  [TRACE]: Start iFFT A
+Fri Aug  7 02:11:30 2026  [TRACE]: a After ifft:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Shift A
+Fri Aug  7 02:11:30 2026  [TRACE]: a After shift:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start FFT A
+Fri Aug  7 02:11:30 2026  [TRACE]: a After fft:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start iFFT B
+Fri Aug  7 02:11:30 2026  [TRACE]: b After ifft:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Shift B
+Fri Aug  7 02:11:30 2026  [TRACE]: b After shift:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start FFT B
+Fri Aug  7 02:11:30 2026  [TRACE]: b After fft:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start iFFT C
+Fri Aug  7 02:11:30 2026  [TRACE]: c After ifft:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Shift C
+Fri Aug  7 02:11:30 2026  [TRACE]: c After shift:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start FFT C
+Fri Aug  7 02:11:30 2026  [TRACE]: c After fft:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start ABC
+Fri Aug  7 02:11:30 2026  [TRACE]: abc:
+Fri Aug  7 02:11:30 2026  [TRACE]: Start Multiexp H

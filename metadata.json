@@ -1,25 +1,40 @@
 {
-  "name": "blockchain_ui",
-  "display_name": "Blockchain",
-  "version": "0.2.0",
+  "name": "logos_node_1click",
+  "display_name": "Blockchain node",
+  "version": "0.2.10",
   "type": "ui_qml",
   "category": "blockchain",
-  "description": "Blockchain UI module for the Logos application",
-  "main": "blockchain_ui_plugin",
+  "description": "Community 1-click fork",
+  "main": "logos_node_1click_plugin",
   "icon": "src/icons/blockchain.png",
   "view": "qml/BlockchainView.qml",
-  "dependencies": ["blockchain_module"],
+  "dependencies": [
+    "blockchain_module"
+  ],
   "nix": {
     "packages": {
       "build": [],
-      "runtime": ["qt6.qtdeclarative", "zstd", "krb5", "abseil-cpp"]
+      "runtime": [
+        "qt6.qtdeclarative",
+        "zstd",
+        "krb5",
+        "abseil-cpp"
+      ]
     },
     "external_libraries": [],
     "cmake": {
-      "find_packages": ["Qt6Gui"],
+      "find_packages": [
+        "Qt6Gui"
+      ],
       "extra_sources": [],
       "extra_include_dirs": [],
-      "extra_link_libraries": ["Qt6::Gui"]
+      "extra_link_libraries": [
+        "Qt6::Gui"
+      ]
     }
+  },
+  "interface": "universal",
+  "codegen": {
+    "rep": "src/BlockchainBackend.rep"
   }
 }

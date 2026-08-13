@@ -41,10 +41,13 @@ Rectangle {
         return (v === undefined || v === null) ? "" : String(v)
     }
 
-    // mode lives at the top level (ChainServiceMode); accept string or the
-    // c-binding numeric enum (0 Bootstrapping / 1 Online / 2 NotStarted).
+    // Liveness field. 0.2.1 moved it to `cryptarchia_info.state` (string
+    // "Online"/"Bootstrapping"); older 0.2.0 builds put a top-level `mode`
+    // (string, or the c-binding numeric enum 0 Bootstrapping / 1 Online /
+    // 2 NotStarted). Accept all: top-level `mode` first, then nested `state`.
     function modeText() {
         var m = info ? info.mode : undefined
+        if (m === undefined || m === null) m = field("state")
         if (m === undefined || m === null) return qsTr("—")
         if (typeof m === "number") {
             switch (m) {

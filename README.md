@@ -1,16 +1,53 @@
 # logos-blockchain-ui
 
+> **⚠️ Fork of the official module.** This is a fork of
+> [`logos-blockchain/logos-blockchain-ui`](https://github.com/logos-blockchain/logos-blockchain-ui)
+> (`combined-all-prs` base) for the testnet 0.2.0 demo: adds `bootstrap.ibd.peers` autofill (so the
+> prefilled peers actually drive IBD) and **honest node errors** (the real cause instead of "Call
+> failed"), on top of the reset button + peer prefill + resume-on-config. Pairs with the patched node module.
+
+
 A QML + C++ backend UI module for the [Logos](https://logos.co) platform that provides a graphical interface to control and monitor the Logos blockchain node.
 
 Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-builder) using the `mkLogosQmlModule` pattern (QML frontend + C++ backend with Qt Remote Objects).
 
 ## Features
 
-- Start/Stop blockchain node
-- Configure node parameters (config path, deployment)
-- Check wallet balances
-- Monitor node status and information
-- Account management
+- **One-click node** — first-run screen runs a testnet node in a single click; auto-starts from an existing config on later launches
+- **Status-first dashboard** — live, "breathing" values (slot · height · tip · LIB · peers · balance) that flash on change
+- **Honest errors + reliable start** — the real cause instead of "Call failed"; start rides out a slow chain recovery; a recovery modal does a safe stop → verify-wiped → clean start
+- **Fund the node (auto-stake)** — one click requests testnet funds from the cryptarchia faucet; funds auto-stake so the node wins leader slots and proposes blocks — blocks *your* node proposes are highlighted
+- **Proposals tab** — the blocks *your* node has actually proposed (Cryptarchia leadership is private on-chain, so these are parsed from the node's own log), plus a leadership voucher count. Proposals are **persisted to a durable store**, so they survive the node's hourly log pruning — a real lifetime history that doesn't flicker or vanish
+- **LGO balances** — the raw base-unit balance is shown as abbreviated **LGO** with a ticker (e.g. `200M LGO`), exact amount on hover; the dashboard also shows the running **module build version**
+- **Node settings modal** — the gear opens a closable settings modal (Reset chain state · Regenerate config & restart), each action described
+- Start/Stop node, configure node parameters, wallet balances, account management, peers count, bootstrap countdown
+
+## Install (signed release)
+
+> **Module renamed** to **`logos_node_1click`** (was `blockchain_ui`) to avoid clashing with the official
+> Logos module — see #34. Works on **Basecamp v0.2.3** against the **0.2.1 testnet**.
+
+Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
+and renders **✓ Signed by xAlisher**:
+
+- **[`logos_node_1click v0.2.10`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.10)** —
+  UI polish: the status ellipsis now animates in **reserved space** so the centered title doesn't jump on
+  Starting / Bootstrapping / Recovering, and the **Blend dot** is a real circle aligned with its label.
+  Previous: **v0.2.8** added the chain-recovery status + always-visible peer id; **v0.2.7** the settings-modal fix.
+
+```bash
+# Linux x86-64
+curl -fL -o logos_node_1click.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.10/logos_node_1click-0.2.10-linux-amd64.lgx
+
+# macOS Apple Silicon (M1/arm64)
+curl -fL -o logos_node_1click.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.10/logos_node_1click-0.2.10-darwin-arm64.lgx
+
+lgpm install --file logos_node_1click.lgx
+```
+
+Requires a **0.2.1 `blockchain_module`** at runtime (both are on the `modules.alisher.xyz` catalog).
 
 ## Standalone App Quickstart
 
@@ -40,9 +77,9 @@ watch -n1 'curl -s localhost:8080/cryptarchia/info'
 
 Compare the `height` with the [block explorer](https://testnet.blockchain.logos.co/web/explorer/).
 
-4. Request funds from the [faucet](https://testnet.blockchain.logos.co/web/faucet/) — copy one of the keys from the UI and paste it there.
+4. Once the node is **Online**, click **Fund the node** in the top bar → **Request funds**. This calls the [cryptarchia faucet](https://testnet.blockchain.logos.co/web/faucet/) for your node's key automatically (no copy-paste). The funds **auto-stake**.
 
-5. Once synced, refresh your balance to see your funds.
+5. Your balance appears on the dashboard (flashes green on arrival); the status block shows **◆ Staking** once it lands.
 
 Leaving the node running for ~3.5 hours allows your tokens to age and become eligible for consensus participation (automatic).
 

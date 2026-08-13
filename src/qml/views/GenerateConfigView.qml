@@ -16,6 +16,20 @@ ColumnLayout {
     property bool resultSuccess: false
     property string resultMessage: ""
 
+    // Pre-fill the "Initial peers" box so it is never empty (see logos-blockchain#3153): an empty peers
+    // box produces a config that never syncs, and nothing tells the operator. Shown in the field so it is
+    // visible + editable — a user can keep, change, or clear them.
+    // NOTE for maintainers: these are the testnet peers verified to reach chain tip (workshop, on
+    // Linux/WSL/macOS). The module's config/node_config.yaml currently lists a *different* set — please
+    // confirm the canonical bootstrap peers, ideally sourcing this default from the module config rather
+    // than hardcoding it here.
+    readonly property var defaultInitialPeers: [
+        "/ip4/65.109.51.37/udp/3000/quic-v1/p2p/12D3KooWFrouXfmrR4nsLMtE7wu15DoMJ6VtoUtHinREZCvbWHar",
+        "/ip4/65.109.51.37/udp/3001/quic-v1/p2p/12D3KooWJRGau8M1rjT7R5e4YYsgdFhsMX35nRDtMwCDjxQkXAHz",
+        "/ip4/65.109.51.37/udp/3002/quic-v1/p2p/12D3KooWQXJavMDTRscjauFSgVAB1VLB6Rzpy2uY5SU9Tk7927tb",
+        "/ip4/65.109.51.37/udp/50001/quic-v1/p2p/12D3KooWSQc7CcGtvWDPF1yCbBthFnQjprfCVHmfmNDUrSmqQsU1"
+    ]
+
     signal generateRequested(string outputPath, var initialPeers, int netPort, int blendPort, string httpAddr, string externalAddress, bool noPublicIpCheck, int deploymentMode, string deploymentConfigPath, string statePath)
 
 
@@ -95,6 +109,7 @@ ColumnLayout {
         clip: true
         TextArea {
             id: initialPeersArea
+            text: root.defaultInitialPeers.join("\n")
             background: Rectangle {
                 radius: Theme.spacing.radiusSmall
                 color: Theme.palette.backgroundSecondary

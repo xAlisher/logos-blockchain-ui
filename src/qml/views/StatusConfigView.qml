@@ -20,6 +20,7 @@ Rectangle {
     signal startRequested()
     signal stopRequested()
     signal changeConfigRequested()
+    signal resetChainStateRequested()
 
     implicitHeight: contentLayout.height + Theme.spacing.large
     color: Theme.palette.backgroundTertiary
@@ -76,6 +77,7 @@ Rectangle {
 
             ColumnLayout {
                 Layout.fillWidth: true
+                spacing: Theme.spacing.small
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -90,13 +92,15 @@ Rectangle {
                               (root.useGeneratedConfig ? " " + qsTr("(Generated)") : "")
                         font.pixelSize: Theme.typography.secondaryText
                         color: Theme.palette.textSecondary
-                        wrapMode: Text.WordWrap
+                        // A long absolute config path has no spaces to wrap on and
+                        // overflows the row — elide the middle so the leading dirs
+                        // and the file name both stay visible.
+                        elide: Text.ElideMiddle
                     }
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: -Theme.spacing.small
                     spacing: Theme.spacing.small
                     LogosText {
                         text: qsTr("Deployment Config: ")
@@ -111,7 +115,7 @@ Rectangle {
                                        (root.deploymentConfig || qsTr("No file selected")))
                         font.pixelSize: Theme.typography.secondaryText
                         color: Theme.palette.textSecondary
-                        wrapMode: Text.WordWrap
+                        elide: Text.ElideMiddle
                     }
                 }
             }
@@ -125,6 +129,19 @@ Rectangle {
                 Layout.preferredHeight: 40
                 text: qsTr("Change")
                 onClicked: root.changeConfigRequested()
+            }
+
+            // Recovery for a node wedged after an unclean shutdown
+            // (logos-blockchain#3171): wipe the chain DB + consensus state to
+            // force a clean start. Keeps the wallet keystore + config, so no
+            // keys are lost. Only offered while the node is stopped.
+            LogosButton {
+                visible: !root.isRunning
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 160
+                Layout.preferredHeight: 40
+                text: qsTr("Reset chain state")
+                onClicked: root.resetChainStateRequested()
             }
         }
     }

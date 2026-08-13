@@ -184,7 +184,7 @@ ColumnLayout {
                         wrapMode: Text.WordWrap
                         elide: Text.ElideRight
                     }
-                    LogosCopyButton {
+                    BcCopyButton {
                         Layout.alignment: Qt.AlignRight
                         Layout.preferredHeight: 40
                         Layout.preferredWidth: 40
@@ -218,7 +218,7 @@ ColumnLayout {
             font.pixelSize: Theme.typography.secondaryText
             font.family: "monospace"
         }
-        LogosCopyButton {
+        BcCopyButton {
             Layout.preferredHeight: 24
             Layout.preferredWidth: 24
             visible: vf.value.length > 0

@@ -51,7 +51,7 @@ Rectangle {
                 elide: Text.ElideMiddle
                 font.pixelSize: Theme.typography.secondaryText
             }
-            LogosCopyButton {
+            BcCopyButton {
                 Layout.preferredHeight: 24
                 Layout.preferredWidth: 24
                 visible: root.peerId.length > 0
