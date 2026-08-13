@@ -811,11 +811,35 @@ Rectangle {
                         root.cryptarchiaInfoJson = result.value
                         root.cryptarchiaInfoError = ""
                     } else {
-                        root.cryptarchiaInfoError = _d.errorText(result.error)
+                        // An EMPTY reason is not an error. The backend deliberately returns
+                        // no message for a node the user stopped; formatting that produced
+                        // the literal "Error: " with nothing after it — a non-empty string,
+                        // so the panel stayed red and _statusDisplay() rendered it ahead of
+                        // the real "Stopped" status.
+                        var reason = result.error ? String(result.error) : ""
+                        root.cryptarchiaInfoError = reason.length ? _d.errorText(result.error) : ""
                     }
                 },
-                function(error) { root.cryptarchiaInfoError = _d.errorText(error) }
+                function(error) {
+                    var e = error ? String(error) : ""
+                    root.cryptarchiaInfoError = e.length ? _d.errorText(error) : ""
+                }
             )
+        }
+    }
+
+    // The cryptarchia poll above only runs while status === Running, so the last value it
+    // wrote is FROZEN once the node leaves that state — a stale error then outlives the
+    // state it described, and _statusDisplay() renders errorText ahead of the status. This
+    // is the same "a log line outlives the state" defect the shared intent latch was built
+    // to remove, in the UI layer instead of the log scrape.
+    Connections {
+        target: root.backend
+        function onStatusChanged() {
+            if (root.backend
+                && root.backend.status !== BlockchainBackend.Running
+                && root.backend.status !== BlockchainBackend.Error)
+                root.cryptarchiaInfoError = ""
         }
     }
 
@@ -931,6 +955,14 @@ Rectangle {
             case BlockchainBackend.Running: return Theme.palette.success
             case BlockchainBackend.Starting:
             case BlockchainBackend.Stopping: return Theme.palette.warning
+            // Stopped and NotStarted are NEUTRAL, not failures. They used to fall through
+            // to `default: error`, so a node the user had just stopped was painted red —
+            // and no amount of fixing the backend could help, because the backend was
+            // already reporting Stopped correctly. This was the root cause under three
+            // rounds of symptom fixes on the C++ side.
+            case BlockchainBackend.Stopped:
+            case BlockchainBackend.NotStarted: return Theme.palette.textSecondary
+            // Error (and anything unforeseen) stays red — that is what red is for.
             default: return Theme.palette.error
             }
         }

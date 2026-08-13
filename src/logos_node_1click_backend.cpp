@@ -250,6 +250,21 @@ QString LogosNode1clickBackend::leaderFundingKey() const
 
 void LogosNode1clickBackend::setError(const QString& message)
 {
+    // A node the user asked to stop CANNOT be in error. Guarding here rather than at each
+    // call site because every path funnels through setError(), and fixing them one at a
+    // time is what let this survive two rounds: getCryptarchiaInfo was demoted to Stopped,
+    // then confirmStartFailed() — the start-liveness poll, which keeps running after a
+    // stop — called setError() and put it straight back to Error. The result was a red
+    // panel reading "Error:" with no message at all, because the text had been cleared but
+    // the STATE had not.
+    //
+    // Stopped is an existing, correct state in this UI. Use it.
+    if (readNodeIntent() == QLatin1String("stopped")) {
+        setLastErrorMessage(QString());
+        setStatus(Stopped);
+        return;
+    }
+
     // If the SDK handed us the opaque no-reply string, ask the node's log why.
     QString honest = message;
     if (message.contains(QStringLiteral("Call failed"), Qt::CaseInsensitive)) {
@@ -450,22 +465,35 @@ QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
 
     LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info")));
-    // The Consensus view polls this; swap the opaque no-reply string for the
-    // node's real reason (crash / recovering / storage / peers) from its log.
-    if (!r.success
-        && r.error.toString().contains(QStringLiteral("Call failed"), Qt::CaseInsensitive)) {
-        // Coherent propagation (#40): if the node's API is down and the SHARED intent says
-        // it was stopped — e.g. the phone stopped it — demote off a stale Running/Starting/
-        // Stopping. Without this, a phone-initiated stop left the desktop stuck on Running,
-        // the desktop mirror of the phone's old dishonest state. Only on intent==stopped,
-        // so a genuine startup/recovery is never mistaken for a stop.
-        if (readNodeIntent() == QLatin1String("stopped")
-            && (status() == Running || status() == Starting || status() == Stopping))
-            setStatus(Stopped);
+    // Two different jobs on a failed call, and the intent one must NOT be nested inside
+    // the "Call failed" test — that was the bug. blockchain_module answers a stopped node
+    // with "The node is not running.", which does not contain "Call failed", so the whole
+    // block was skipped and the dashboard kept a red error for a deliberate stop.
+    if (!r.success) {
+        if (readNodeIntent() == QLatin1String("stopped")) {
+            // Coherent propagation (#40): the API is down and the SHARED intent says the
+            // user stopped it — e.g. from the phone. Whatever words the failure used, this
+            // is a stop, not a fault.
+            //
+            // Error is in the demote list DELIBERATELY: by the time a phone-initiated stop
+            // lands, this UI has usually already set Error from the failing poll, and
+            // without Error the demote never fires — the control stays on "Stop node
+            // before closing Basecamp" for a node that is not running.
+            if (status() == Running || status() == Starting
+                || status() == Stopping || status() == Error)
+                setStatus(Stopped);
 
-        const QString real = lastNodeError();
-        if (!real.isEmpty())
-            r.error = real;
+            // Clearing the status is not enough on its own: NodeDashboardView's
+            // _statusDisplay() renders errorText AHEAD of the status, so a stale error line
+            // survives the demote and keeps describing the stop as a failure.
+            r.error = QString();
+        } else if (r.error.toString().contains(QStringLiteral("Call failed"), Qt::CaseInsensitive)) {
+            // Expected up. Swap the opaque no-reply string for the node's real reason
+            // (crash / recovering / storage / peers) from its own log.
+            const QString real = lastNodeError();
+            if (!real.isEmpty())
+                r.error = real;
+        }
     }
     return result::toVariantMap(r);
 }
