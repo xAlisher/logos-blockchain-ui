@@ -341,6 +341,39 @@ Rectangle {
     // ── Start liveness-confirm (issue #19) ──
     // The node's `start` RPC can return before its API is actually up (a slow
     // chain recovery outlives the RPC deadline), so a no-reply is NOT an error.
+    // PHONE-INITIATED START. The mirror of the intent demote, and it was missing.
+    //
+    // This UI only enters Starting from its own startBlockchain(), so when the node is
+    // started from the phone it never leaves Stopped — and BOTH existing probes are gated
+    // behind the very state they would produce:
+    //   startConfirmProbe  runs only while Starting  (it is what calls confirmRunning)
+    //   cryptarchiaTimer   runs only while Running
+    // From Stopped, neither runs, so nothing can ever notice the node came up. Observed:
+    // blocks arriving and the node Online while the dashboard still read Stopped.
+    //
+    // Rule (see node-remote#5): the node ANSWERING is a fact and outranks intent — whoever
+    // started it, it is up. Intent only arbitrates the DOWN case (stopped vs failed).
+    Timer {
+        id: externalStartProbe
+        interval: 3000; repeat: true
+        running: root.ready && root.backend
+                 && (root.backend.status === BlockchainBackend.Stopped
+                     || root.backend.status === BlockchainBackend.NotStarted
+                     || root.backend.status === BlockchainBackend.Error)
+        onTriggered: {
+            if (!root.backend) return
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    // confirmRunning() is a no-op when already Running, so this is safe to
+                    // fire repeatedly.
+                    if (result.success && root.backend) root.backend.confirmRunning()
+                },
+                function(error) { /* still down — leave the state alone */ }
+            )
+        }
+    }
+
     // While Starting, poll :8080 until it answers → confirmRunning(); if the log
     // shows a real fatal error, or it never comes up (~60s) → confirmStartFailed().
     property int _startTries: 0
