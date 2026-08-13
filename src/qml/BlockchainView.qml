@@ -843,6 +843,14 @@ Rectangle {
                     if (result.success) {
                         root.cryptarchiaInfoJson = result.value
                         root.cryptarchiaInfoError = ""
+                        // A serving chain API is PROOF that recovery is over — the node does
+                        // not answer this call while replaying. recoveryActive comes from a
+                        // LOG SCRAPE and _statusDisplay() checks it FIRST, so a frozen true
+                        // outranks everything: the dashboard read "Recovering chain" for a
+                        // node reporting state=Online, phase=Following, while the log's
+                        // newest marker was already "120 blocks replayed. Chain recovery
+                        // finished". Fact outranks scrape — same rule as the promote probe.
+                        root.recoveryActive = false
                     } else {
                         // An EMPTY reason is not an error. The backend deliberately returns
                         // no message for a node the user stopped; formatting that produced
@@ -871,8 +879,14 @@ Rectangle {
         function onStatusChanged() {
             if (root.backend
                 && root.backend.status !== BlockchainBackend.Running
-                && root.backend.status !== BlockchainBackend.Error)
+                && root.backend.status !== BlockchainBackend.Error) {
                 root.cryptarchiaInfoError = ""
+                // Same freeze, same fix: the recovery probe only runs while Starting or
+                // Running, so whatever it last wrote survives indefinitely once the node
+                // leaves those states — and it is the FIRST thing _statusDisplay() checks.
+                root.recoveryActive = false
+                root.recoveryBlocks = 0
+            }
         }
     }
 
