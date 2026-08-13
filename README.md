@@ -34,7 +34,7 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.10`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.10)** —
+- **[`logos_node_1click v0.2.12`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.12)** —
   UI polish: the status ellipsis now animates in **reserved space** so the centered title doesn't jump on
   Starting / Bootstrapping / Recovering, and the **Blend dot** is a real circle aligned with its label.
   Previous: **v0.2.8** added the chain-recovery status + always-visible peer id; **v0.2.7** the settings-modal fix.
@@ -42,11 +42,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.10/logos_node_1click-0.2.10-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.12/logos_node_1click-0.2.12-linux-amd64.lgx
 
 # macOS Apple Silicon (M1/arm64)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.10/logos_node_1click-0.2.10-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.12/logos_node_1click-0.2.12-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
