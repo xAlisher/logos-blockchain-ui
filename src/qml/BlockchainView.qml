@@ -714,17 +714,59 @@ Rectangle {
                 implicitWidth: 100; implicitHeight: 40
                 onClicked: settingsDialog.close()
             },
-            LogosButton {
-                text: qsTr("Reset")
+            // DESTRUCTIVE ACTIONS, COLOURED AS SUCH. Reset re-downloads the chain from
+            // genesis and Regenerate overwrites user_config.yaml; both sat in the same
+            // neutral pill as "Close", so the only thing separating "dismiss this dialog"
+            // from "throw away the chain" was reading the label.
+            //
+            // LogosButton has no colour variant, so this follows the custom-pill pattern
+            // already used for the orange Request-funds CTA above — same radius and height
+            // as the LogosButton beside it, so the row still lines up.
+            Rectangle {
+                id: resetBtn
                 implicitWidth: 120; implicitHeight: 40
-                // Close first, then open the confirm modal on the NEXT tick — two modals
-                // transitioning in the same frame swallowed the open().
-                onClicked: { settingsDialog.close(); Qt.callLater(function() { resetConfirmDialog.open() }) }
+                radius: Theme.spacing.radiusXlarge   // match Close (LogosButton)
+                readonly property color base: Theme.palette.error
+                color: resetM.pressed ? Qt.darker(base, 1.16)
+                       : (resetM.containsMouse ? Qt.darker(base, 1.08) : base)
+                LogosText {
+                    anchors.centerIn: parent
+                    text: qsTr("Reset")
+                    // White, not Theme.palette.text: the text token follows the theme and
+                    // goes dark in light mode, which is unreadable on a saturated red.
+                    color: "#FFFFFF"
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                }
+                MouseArea {
+                    id: resetM
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    // Close first, then open the confirm modal on the NEXT tick — two modals
+                    // transitioning in the same frame swallowed the open().
+                    onClicked: { settingsDialog.close(); Qt.callLater(function() { resetConfirmDialog.open() }) }
+                }
             },
-            LogosButton {
-                text: qsTr("Regenerate")
+            Rectangle {
+                id: regenBtn
                 implicitWidth: 130; implicitHeight: 40
-                onClicked: { settingsDialog.close(); Qt.callLater(function() { _d.runNodeOneClick() }) }
+                radius: Theme.spacing.radiusXlarge
+                readonly property color base: Theme.palette.error
+                color: regenM.pressed ? Qt.darker(base, 1.16)
+                       : (regenM.containsMouse ? Qt.darker(base, 1.08) : base)
+                LogosText {
+                    anchors.centerIn: parent
+                    text: qsTr("Regenerate")
+                    color: "#FFFFFF"
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                }
+                MouseArea {
+                    id: regenM
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { settingsDialog.close(); Qt.callLater(function() { _d.runNodeOneClick() }) }
+                }
             }
         ]
     }
