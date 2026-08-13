@@ -23,7 +23,15 @@ Item {
     property int    recoveryBlocks: 0
     property string infoJson: ""
     property string balanceText: "0"
-    property string moduleVersion: "0.2.6"   // this fork's build; keep in sync with metadata.json
+    // Kept in sync with metadata.json BY THE BUILD, not by hand: CMake compares this literal
+    // against metadata.json and fails the configure step if they disagree. The previous
+    // "keep in sync" comment drifted three releases — the UI still said 0.2.6 while the
+    // module shipped as 0.2.12 — because a comment cannot enforce anything.
+    //
+    // Not read from metadata.json at runtime on purpose: the file IS deployed beside the
+    // plugin, but no shipped module reads JSON from QML, and sandbox file/network access
+    // fails SILENTLY. That would trade a stale version for a blank one.
+    property string moduleVersion: "0.2.12"
 
     // ── Blend status (fed from BlockchainView → backend.blendStatus/lastBlendEvent) ──
     // Label carries the Blend state only (node state is in the status block above);
