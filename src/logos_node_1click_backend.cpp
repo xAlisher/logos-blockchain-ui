@@ -1016,8 +1016,21 @@ void LogosNode1clickBackend::refreshAccounts()
 
     if (!r.success) {
         qWarning() << "refreshAccounts: failed:" << r.error.toString();
+        // RETRY. The node's API can be up before its WALLET is, so the single call fired
+        // 500ms after confirmRunning() often lands too early — and this used to just return.
+        // primaryAddress then stayed empty, and balanceTimer is gated on it being non-empty,
+        // so the balance never appeared until something else happened to call this again.
+        // That was the desktop's share of "balance arrives late after a start".
+        //
+        // Bounded: ~10 tries at 1.5s covers a slow wallet without spinning forever against
+        // a node that genuinely has no accounts.
+        if (m_accountRetries < 10) {
+            ++m_accountRetries;
+            QTimer::singleShot(1500, this, [this]() { refreshAccounts(); });
+        }
         return;
     }
+    m_accountRetries = 0;
 
     // The SDK marshals the JSON array into a QVariantList; rely on toList()
     // rather than canConvert<QStringList>() (which is unreliable for a

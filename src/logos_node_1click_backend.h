@@ -92,6 +92,8 @@ protected:
     void onContextReady() override;
 
 private:
+    // Bounded retries for refreshAccounts(): the wallet can lag the API after a start.
+    int m_accountRetries = 0;
     void fetchBalancesForAccounts(const QStringList& list);
     void setError(const QString& message);
     // Reads the node's own log to explain a failed/no-reply call honestly
