@@ -14,11 +14,18 @@ Rectangle {
     required property string userConfig
     required property string deploymentConfig
     required property bool   useGeneratedConfig
+    // Offer Start only when the backend confirms the node is down; offer Stop
+    // when it's up or in the ambiguous Error state. Both false during the
+    // transient Starting/Stopping states (button disabled).
     required property bool   canStart
-    required property bool   isRunning
+    required property bool   canStop
+    // True while the status monitor is paused after repeated failed status
+    // calls — surfaces a Resume button. The node itself is unaffected.
+    property bool            monitoringPaused: false
 
     signal startRequested()
     signal stopRequested()
+    signal resumeMonitoringRequested()
     signal changeConfigRequested()
     signal resetChainStateRequested()
 
@@ -54,12 +61,22 @@ Rectangle {
                     color: Theme.palette.textSecondary
                 }
             }
+            // Resume the paused status monitor. Node is untouched — this only
+            // restarts polling.
+            LogosButton {
+                visible: root.monitoringPaused
+                Layout.preferredHeight: 40
+                Layout.preferredWidth: 150
+                text: qsTr("Resume monitoring")
+                onClicked: root.resumeMonitoringRequested()
+            }
+
             LogosButton {
                 Layout.preferredHeight: 40
                 Layout.preferredWidth: 100
-                enabled: root.canStart
-                text: root.isRunning ? qsTr("Stop Node") : qsTr("Start Node")
-                onClicked: root.isRunning ? root.stopRequested() : root.startRequested()
+                enabled: root.canStop || root.canStart
+                text: root.canStop ? qsTr("Stop Node") : qsTr("Start Node")
+                onClicked: root.canStop ? root.stopRequested() : root.startRequested()
             }
         }
 
@@ -121,9 +138,9 @@ Rectangle {
             }
 
             LogosButton {
-                // Config can't be changed while the node is running — hide the
-                // button entirely (not just disable it) in that state.
-                visible: !root.isRunning
+                // Config can't be changed while the node may be up — hide the
+                // button entirely (not just disable it) in Running/Error.
+                visible: !root.canStop
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: 100
                 Layout.preferredHeight: 40

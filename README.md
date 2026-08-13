@@ -1,10 +1,14 @@
 # logos-blockchain-ui
 
-> **⚠️ Fork of the official module.** This is a fork of
+> This is a personal, experimental hobby project. It is not an official Logos product. Not audited.
+>
+> **Fork of the official module.** Forked from
 > [`logos-blockchain/logos-blockchain-ui`](https://github.com/logos-blockchain/logos-blockchain-ui)
 > (`combined-all-prs` base) for the testnet 0.2.0 demo: adds `bootstrap.ibd.peers` autofill (so the
-> prefilled peers actually drive IBD) and **honest node errors** (the real cause instead of "Call
-> failed"), on top of the reset button + peer prefill + resume-on-config. Pairs with the patched node module.
+> prefilled peers actually drive IBD) and **honest node state** — a stopped node reads as stopped
+> rather than as a failure, and errors carry the real cause instead of "Call failed" — on top of the
+> reset button + peer prefill + resume-on-config. Shares a node-intent latch with
+> [Node Remote](https://github.com/xAlisher/node-remote) so the desktop and the phone agree.
 
 
 A QML + C++ backend UI module for the [Logos](https://logos.co) platform that provides a graphical interface to control and monitor the Logos blockchain node.

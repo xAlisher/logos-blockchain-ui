@@ -1074,6 +1074,16 @@ void LogosNode1clickBackend::stopBlockchain()
 
     if (r.success) {
         setStatus(Stopped);
+    } else if (r.error.toString().contains(QStringLiteral("not running"), Qt::CaseInsensitive)) {
+        // The node was already down: "stop" reports it isn't running. Treat as reconciled
+        // rather than an error, so we land in a known-stopped state from which Start is
+        // safe again (avoids a stuck Error ⇄ "already running" loop).
+        //
+        // Carried over from Daniel's #45 when this file was renamed out from under it.
+        // The intent guard in setError() happens to neutralise this case too — intent is
+        // written "stopped" at the top of this function — but that is incidental, and a
+        // reconcile this important should not depend on a guard somewhere else noticing.
+        setStatus(Stopped);
     } else {
         setError(r.error.toString());
     }
