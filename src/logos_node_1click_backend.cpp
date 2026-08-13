@@ -18,6 +18,8 @@
 #include <QJsonValue>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QStandardPaths>
+#include <QProcessEnvironment>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -137,6 +139,65 @@ void LogosNode1clickBackend::confirmStartFailed()
     setError(QStringLiteral("Call failed."));
 }
 
+
+// ── Spawning system curl safely ───────────────────────────────────────────────────
+//
+// Two separate failure modes produced the same misleading "curl unavailable":
+//
+// 1. PATH. QProcess::start("curl") resolves through PATH, and a GUI-launched app does not
+//    inherit a login shell's PATH. curl ships with macOS (/usr/bin/curl) and with every
+//    mainstream desktop Linux, so "not found" here almost always means "not on OUR path",
+//    not "not installed".
+//
+// 2. THE APPIMAGE LOADER VARS — the documented trap (basecamp-skills:
+//    appimage-child-ld-library-path). The AppImage exports LD_LIBRARY_PATH pointing at its
+//    bundled libs; a spawned SYSTEM binary resolves its libraries against the bundle and
+//    dies at startup on a version mismatch. The skill notes this is "easy to mislabel"
+//    because the only signal is an immediate exit — which is exactly what happened: the
+//    user saw "curl unavailable" for a curl that was installed and working.
+//
+// So: resolve an ABSOLUTE path, and hand the child a sanitized environment.
+static QString resolveCurl()
+{
+    // PATH first — respects a deliberately installed newer curl.
+    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("curl"));
+    if (!onPath.isEmpty()) return onPath;
+
+    // Then the standard locations, so a stripped PATH is not mistaken for a missing curl.
+    for (const QString& c : {QStringLiteral("/usr/bin/curl"),      // macOS + most Linux
+                             QStringLiteral("/bin/curl"),
+                             QStringLiteral("/opt/homebrew/bin/curl"),  // macOS arm64 brew
+                             QStringLiteral("/usr/local/bin/curl")}) {  // macOS intel brew
+        if (QFileInfo::exists(c)) return c;
+    }
+    return QString();
+}
+
+// Strip the loader variables so a system binary links against the SYSTEM libraries.
+static QProcessEnvironment curlEnv()
+{
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    for (const char* v : {"LD_LIBRARY_PATH", "LD_PRELOAD",
+                          "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+                          "QT_PLUGIN_PATH", "QML2_IMPORT_PATH"})
+        env.remove(QString::fromLatin1(v));
+    return env;
+}
+
+// Shown only when curl is genuinely absent — which on macOS means someone removed a system
+// binary, and on Linux means a minimal install.
+static QString curlMissingMessage()
+{
+#if defined(Q_OS_MACOS)
+    return QStringLiteral("curl was not found. macOS ships it at /usr/bin/curl — if it is "
+                          "missing, install it with:  brew install curl");
+#else
+    return QStringLiteral("curl was not found. Install it with:  sudo apt install curl  "
+                          "(Debian/Ubuntu),  sudo dnf install curl  (Fedora),  or  "
+                          "sudo pacman -S curl  (Arch).");
+#endif
+}
+
 void LogosNode1clickBackend::requestFaucetFunds(QString publicKeyHex)
 {
     const QString pk = publicKeyHex.trimmed();
@@ -198,10 +259,18 @@ void LogosNode1clickBackend::postFaucet(const QString& pk, bool userFacing)
     connect(proc, &QProcess::errorOccurred, this, [this, proc, userFacing](QProcess::ProcessError e) {
         if (e != QProcess::FailedToStart) return;   // `finished` handles the rest
         if (userFacing)
-            emit faucetResult(false, QStringLiteral("Couldn't run the faucet request (curl unavailable)."));
+            emit faucetResult(false, QStringLiteral("Couldn't run the faucet request — curl failed to start."));
         proc->deleteLater();
     });
-    proc->start(QStringLiteral("curl"),
+    const QString curlBin = resolveCurl();
+    if (curlBin.isEmpty()) {
+        if (userFacing)
+            emit faucetResult(false, curlMissingMessage());
+        proc->deleteLater();
+        return;
+    }
+    proc->setProcessEnvironment(curlEnv());
+    proc->start(curlBin,
                 {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("30"),
                  QStringLiteral("-X"), QStringLiteral("POST"),
                  QStringLiteral("-w"), QStringLiteral("\n%{http_code}"), url});
@@ -552,7 +621,8 @@ QVariantMap LogosNode1clickBackend::getNetworkInfo()
     out.insert(QStringLiteral("peers"), -1);
     out.insert(QStringLiteral("connections"), -1);
     QProcess p;
-    p.start(QStringLiteral("curl"),
+    p.setProcessEnvironment(curlEnv());
+    p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
              QStringLiteral("http://127.0.0.1:8080/network/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return out; }
@@ -587,7 +657,8 @@ QVariantMap LogosNode1clickBackend::getBlendInfo() const
     out.insert(QStringLiteral("coreInfoPresent"), false);
     out.insert(QStringLiteral("mixPeers"), -1);
     QProcess p;
-    p.start(QStringLiteral("curl"),
+    p.setProcessEnvironment(curlEnv());
+    p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
              QStringLiteral("http://127.0.0.1:8080/blend/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return out; }
@@ -679,7 +750,8 @@ LogosNode1clickBackend::blendStateFromLog(QString* outEvent) const
 QString LogosNode1clickBackend::nodeMode() const
 {
     QProcess p;
-    p.start(QStringLiteral("curl"),
+    p.setProcessEnvironment(curlEnv());
+    p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
              QStringLiteral("http://127.0.0.1:8080/cryptarchia/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return {}; }
