@@ -27,22 +27,18 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 > **Module renamed** to **`logos_node_1click`** (was `blockchain_ui`) to avoid clashing with the official
 > Logos module — see #34. Works on **Basecamp v0.2.3** against the **0.2.1 testnet**.
 
-Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
-and renders **✓ Signed by xAlisher**:
+Latest signed `.lgx` — one multi-variant package (**linux-amd64 · linux-arm64 · macOS arm64/M1**),
+installs **without** `--allow-unsigned` and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.10`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.10)** —
-  UI polish: the status ellipsis now animates in **reserved space** so the centered title doesn't jump on
-  Starting / Bootstrapping / Recovering, and the **Blend dot** is a real circle aligned with its label.
-  Previous: **v0.2.8** added the chain-recovery status + always-visible peer id; **v0.2.7** the settings-modal fix.
+- **[`logos_node_1click v0.2.11`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.11)** —
+  hotfix: the dashboard now shows the **real module version** (was a stale hardcoded "v0.2.6").
+  Previous: **v0.2.10** UI polish (reserved-space status ellipsis + aligned Blend dot); **v0.2.8** chain-recovery
+  status + always-visible peer id; **v0.2.7** the settings-modal fix.
 
 ```bash
-# Linux x86-64
+# All platforms — one multi-variant package (lgpm picks your arch)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.10/logos_node_1click-0.2.10-linux-amd64.lgx
-
-# macOS Apple Silicon (M1/arm64)
-curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.10/logos_node_1click-0.2.10-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.11/logos_node_1click-0.2.11.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
