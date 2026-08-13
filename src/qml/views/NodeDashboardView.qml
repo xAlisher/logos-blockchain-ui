@@ -23,7 +23,7 @@ Item {
     property int    recoveryBlocks: 0
     property string infoJson: ""
     property string balanceText: "0"
-    property string moduleVersion: "0.2.6"   // this fork's build; keep in sync with metadata.json
+    property string moduleVersion: "0.2.11"   // this fork's build — MUST match metadata.json version (bump both together on release; this went stale 0.2.6→0.2.10 once)
 
     // ── Blend status (fed from BlockchainView → backend.blendStatus/lastBlendEvent) ──
     // Label carries the Blend state only (node state is in the status block above);
