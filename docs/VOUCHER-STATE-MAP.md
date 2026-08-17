@@ -260,6 +260,47 @@ ledger state at execution and can change.
 
 ---
 
+## 5b. Why claims expire: restarting the node discards them
+
+State 8 ("reservation expired") is not a rare edge case during development — it is the **normal
+outcome of claiming and then restarting**. Observed 2026-08-17: of six claims submitted from this
+machine, **three expired**, and the cause was mundane.
+
+**The mempool is in memory.** Every Basecamp restart discards every pending transaction. A claim
+that has not yet been included in a block simply ceases to exist. On this machine that day:
+
+| | |
+|---|---|
+| Basecamp restarts | **22** |
+| mempool before / after | 4,817 → **2** |
+| block production | 1 per **67** slots (down from ~1 per 39) |
+| claims submitted 15:25–15:31 | none on chain, none in mempool |
+
+With blocks that sparse, a claim must survive a long time to be picked up. Across 59 blocks in slots
+1052000–1056000 there were **zero** leader-claim ops from anyone — so those three were not
+out-competed, they were simply gone.
+
+### Nothing is lost, and the UI already says so correctly
+
+The cycle closes as designed: submitted → transaction dropped → the node's reservation ages out
+after `security_param` immutable blocks → **the voucher returns to `available`**, and **no fee is
+charged** because the transaction never executed. Verified: the voucher count went back up and the
+balance was unchanged.
+
+So an "Expired · voucher returned to pool · no fee charged" row is **honest and complete**. It is
+not a bug, and it should not be "fixed" by hiding it.
+
+### The practical rule
+
+**Do not claim immediately before restarting the node**, and while iterating on the module expect
+claims to need re-submitting. Contrast: a long-running node (sneg, up 2 d 5 h, mempool 625) had
+**four of four** claims land within seconds.
+
+This is an operational failure mode, not an API gap — worth stating because the next person to see
+an Expired row will reasonably assume something is broken.
+
+---
+
 ## 6. Is the missing history a privacy measure? No.
 
 Worth settling explicitly, because the answer changes what the UI is allowed to imply.
