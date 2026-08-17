@@ -989,6 +989,27 @@ Rectangle {
         )
     }
 
+    // Permanent leader-claim ledger: local write-ahead rows reconciled against the
+    // chain (docs/VOUCHER-STATE-MAP.md). NOT refreshed per block like the vouchers —
+    // each call advances a bounded chain scan, so it runs on its own slower timer.
+    property string claimsJson: ""
+    function refreshLeaderClaims() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running)
+            return
+        logos.watch(
+            root.backend.getLeaderClaims(),
+            function(result) { if (result.success) root.claimsJson = result.value },
+            function(error) { /* keep the last known ledger on transient errors */ }
+        )
+    }
+
+    Timer {
+        interval: 20000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: root.refreshLeaderClaims()
+    }
+
     // Count of claimable leadership vouchers (blocks led, rewards pending).
     readonly property int voucherCount: {
         try {
@@ -1562,21 +1583,46 @@ Rectangle {
                         LeaderRewardsView {
                             id: leaderRewardsView
                             vouchersJson: root.claimableVouchersJson
+                            claimsJson: root.claimsJson
+                            // Gate the Claim button: a claim is a transaction and
+                            // must be paid for, so an empty wallet cannot claim.
+                            balance: {
+                                var n = Number(root.nodeBalance)
+                                return isNaN(n) ? -1 : n
+                            }
 
                             onClaimLeaderRewardsRequested: function() {
-                                if (!root.backend) return
+                                if (!root.backend) { leaderRewardsView.claimInFlight = false; return }
                                 logos.watch(
                                     root.backend.claimLeaderRewards(),
                                     function(result) {
+                                        leaderRewardsView.claimInFlight = false
                                         if (result.success) {
                                             leaderRewardsView.setLeaderClaimResult(result.value)
                                         } else {
                                             leaderRewardsView.setLeaderClaimResult(_d.errorText(result.error))
                                         }
-                                        // Reflect the claim in the pending list.
+                                        // The claimed voucher leaves the ready list, the
+                                        // new row enters the ledger, and the balance is
+                                        // the number that actually proves it worked —
+                                        // refresh all three, not just the first.
                                         root.refreshClaimableVouchers()
+                                        root.refreshLeaderClaims()
+                                        if ((root.backend.primaryAddress || "").length > 0) {
+                                            logos.watch(
+                                                root.backend.getBalance(root.backend.primaryAddress),
+                                                function(r) {
+                                                    if (r.success && r.value !== undefined && r.value !== null)
+                                                        root.nodeBalance = String(r.value)
+                                                },
+                                                function(e) { /* keep last known */ }
+                                            )
+                                        }
                                     },
-                                    function(error) { leaderRewardsView.setLeaderClaimResult(_d.errorText(error)) }
+                                    function(error) {
+                                        leaderRewardsView.claimInFlight = false
+                                        leaderRewardsView.setLeaderClaimResult(_d.errorText(error))
+                                    }
                                 )
                             }
                             onCopyToClipboard: (text) => {

@@ -523,8 +523,15 @@ QVariantMap LogosNode1clickBackend::claimLeaderRewards()
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
 
-    return result::toVariantMap(result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
-        BLOCKCHAIN_MODULE_NAME, "leader_claim")));
+    const LogosResult lr = result::toLogosResult(
+        m_blockchainClient->invokeRemoteMethod(BLOCKCHAIN_MODULE_NAME, "leader_claim"));
+
+    // Write-ahead. The node logs nothing for a claim, so if we do not record the
+    // tx hash here, no evidence this press happened exists anywhere on the machine.
+    if (lr.success)
+        recordClaimSubmission(lr.value.toString().trimmed());
+
+    return result::toVariantMap(lr);
 }
 
 QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
@@ -872,6 +879,441 @@ QVariantMap LogosNode1clickBackend::getClaimableVouchers()
         BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers"))));
 }
 
+// ---------------------------------------------------------------------------
+// Leader-claim ledger  (design: docs/VOUCHER-STATE-MAP.md)
+//
+// Unlike proposals — which the node logs, so getProposals() can always rebuild
+// from the log — a claim leaves NO trace on this machine: `leader_claim` appears
+// zero times in the Basecamp log while wallet_get_balance is written every 5s.
+// So the row we write on press is write-ahead; miss it and there is no record
+// the press ever happened. Settlement is the opposite: always recoverable from
+// the chain, so an on-chain claim with no local row is backfilled as settled.
+// ---------------------------------------------------------------------------
+
+// Scan budget. get_blocks over IPC returns full block JSON (~1 MB per 10k slots
+// on this chain), so each pass is bounded and the watermark advances until it
+// catches up with LIB.
+static constexpr int kScanChunkSlots = 8000;
+// How far back the FIRST ever scan reaches. Not genesis: that is ~1M slots and
+// tens of MB. The summary is labelled with historyFromSlot so a partial scan is
+// never presented as a lifetime total.
+static constexpr int kInitialLookbackSlots = 120000;
+// A submitted claim not seen on chain this many finalized slots later is
+// inferred expired (the node's reservation is evicted after security_param
+// immutable blocks). Inference, not observation — the UI must say so.
+static constexpr int kExpiryLookaheadSlots = 20000;
+static constexpr int kMaxClaimRows = 2000;
+static constexpr int kMaxNoteValues = 4000;
+
+// Read a slot field from a get_cryptarchia_info payload, tolerating BOTH shapes.
+// The MODULE returns it flat ({lib_slot, slot, height, mode}); the node's own HTTP
+// endpoint wraps it ({"cryptarchia_info":{…},"phase":…}). Reading only the wrapped
+// form silently yields 0, which would disable the whole chain scan without any
+// error — the same failure class this ledger exists to eliminate. CryptarchiaInfoView.qml
+// already handles both; match it.
+static int slotField(const QString& infoJson, const char* key)
+{
+    const QJsonObject o = QJsonDocument::fromJson(infoJson.toUtf8()).object();
+    const QJsonObject inner = o.value(QStringLiteral("cryptarchia_info")).toObject();
+    if (inner.contains(QLatin1String(key)))
+        return inner.value(QLatin1String(key)).toInt();
+    return o.value(QLatin1String(key)).toInt();
+}
+
+QString LogosNode1clickBackend::claimsStorePath() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return {};
+    return QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("claims-history.json"));
+}
+
+QJsonObject LogosNode1clickBackend::loadClaimStore() const
+{
+    const QString p = claimsStorePath();
+    if (p.isEmpty())
+        return {};
+    QFile f(p);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+void LogosNode1clickBackend::saveClaimStore(const QJsonObject& store) const
+{
+    const QString p = claimsStorePath();
+    if (p.isEmpty())
+        return;
+    QFile f(p);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return;
+    f.write(QJsonDocument(store).toJson(QJsonDocument::Compact));
+    f.close();
+}
+
+QStringList LogosNode1clickBackend::ourClaimKeys() const
+{
+    QStringList keys;
+    // The claim credits leader.wallet.funding_pk, which the module assigns to a
+    // DIFFERENT key than the wallet key (ui#35) — so check that one first.
+    const QString leader = leaderFundingKey();
+    if (!leader.isEmpty())
+        keys << leader.toLower();
+    const QString primary = primaryAddress();
+    if (!primary.isEmpty() && !keys.contains(primary.toLower()))
+        keys << primary.toLower();
+    return keys;
+}
+
+// Harvest {noteId: value} from a wallet_get_notes payload.
+//
+// The MODULE returns { "tip": "<hex>", "notes": [ {"id": "<hex>", "value": "<u64
+// as string>"} ] } — an ARRAY, with the value stringified to avoid JSON number
+// precision loss. The node's HTTP /wallet/<pk>/balance returns a {id: value} MAP
+// instead; reading that shape here silently harvested nothing. (wallet_get_balance
+// over IPC is a bare number string, not JSON at all — it is not a notes source.)
+void LogosNode1clickBackend::rememberNoteValues(const QString& notesJson)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(notesJson.toUtf8());
+    if (!doc.isObject())
+        return;
+    const QJsonArray notes = doc.object().value(QStringLiteral("notes")).toArray();
+    if (notes.isEmpty())
+        return;
+
+    QJsonObject store = loadClaimStore();
+    QJsonObject known = store.value(QStringLiteral("noteValues")).toObject();
+    bool changed = false;
+    for (const QJsonValue& nv : notes) {
+        const QJsonObject n = nv.toObject();
+        const QString id = n.value(QStringLiteral("id")).toString();
+        if (id.isEmpty() || known.contains(id))
+            continue;
+        // Stored as a string upstream; keep it as a number for the fee arithmetic.
+        known.insert(id, static_cast<double>(
+                             n.value(QStringLiteral("value")).toString().toLongLong()));
+        changed = true;
+    }
+    if (!changed)
+        return;
+
+    // Bounded: drop arbitrary entries once oversized rather than grow forever.
+    // Losing an old note only costs us a "—" in a fee column.
+    while (known.size() > kMaxNoteValues)
+        known.erase(known.begin());
+
+    store.insert(QStringLiteral("noteValues"), known);
+    saveClaimStore(store);
+}
+
+void LogosNode1clickBackend::recordClaimSubmission(const QString& txHash)
+{
+    if (txHash.isEmpty())
+        return;
+
+    QJsonObject store = loadClaimStore();
+    QJsonArray claims = store.value(QStringLiteral("claims")).toArray();
+
+    // Idempotent: never double-record the same submission.
+    for (const QJsonValue& v : claims)
+        if (v.toObject().value(QStringLiteral("tx")).toString() == txHash)
+            return;
+
+    // Stamp the tip slot so an unlanded claim can later be aged out.
+    int tipSlot = 0;
+    if (m_blockchainClient) {
+        const LogosResult info = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+            BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info")));
+        if (info.success)
+            tipSlot = slotField(info.value.toString(), "slot");
+    }
+
+    QJsonObject row;
+    row.insert(QStringLiteral("tx"), txHash);
+    row.insert(QStringLiteral("status"), QStringLiteral("submitted"));
+    row.insert(QStringLiteral("submittedAt"),
+               QDateTime::currentDateTime().toString(Qt::ISODate));
+    row.insert(QStringLiteral("submittedAtSlot"), tipSlot);
+    claims.prepend(row);
+
+    store.insert(QStringLiteral("claims"), claims);
+    saveClaimStore(store);
+}
+
+QVariantMap LogosNode1clickBackend::getLeaderClaims()
+{
+    // Harvest note values BEFORE reading the store, so the fee map is as fresh as
+    // possible: a claim spends a note, and once spent it disappears from
+    // wallet_get_notes forever. Whatever we have not seen by then is unpriceable.
+    if (m_blockchainClient && status() == BlockchainStatus::Running) {
+        for (const QString& key : ourClaimKeys()) {
+            const LogosResult n = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+                BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_notes"), key, QString()));
+            if (n.success)
+                rememberNoteValues(n.value.toString());
+        }
+    }
+
+    QJsonObject store = loadClaimStore();
+    QJsonArray claims = store.value(QStringLiteral("claims")).toArray();
+    const QJsonObject noteValues = store.value(QStringLiteral("noteValues")).toObject();
+    const QStringList ours = ourClaimKeys();
+
+    // Index existing rows by tx so reconciliation and backfill share one path.
+    QHash<QString, int> rowByTx;
+    for (int i = 0; i < claims.size(); ++i)
+        rowByTx.insert(claims.at(i).toObject().value(QStringLiteral("tx")).toString(), i);
+
+    bool changed = false;
+    int libSlot = 0;
+
+    // --- reconcile forward from the watermark -----------------------------
+    if (m_blockchainClient && status() == BlockchainStatus::Running && !ours.isEmpty()) {
+        const LogosResult info = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+            BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info")));
+        if (info.success)
+            libSlot = slotField(info.value.toString(), "lib_slot");
+
+        // One-time rescan when the scan logic changes. The first release advanced
+        // the watermark even when get_blocks failed, so an existing store can
+        // claim to have scanned a range it never actually read. Bump this
+        // constant whenever a fix means past ranges must be re-examined; settled
+        // rows are keyed by tx hash, so a rescan re-confirms rather than
+        // duplicating them.
+        constexpr int kScanVersion = 2;
+        if (store.value(QStringLiteral("scanVersion")).toInt() < kScanVersion) {
+            qInfo() << "getLeaderClaims: scan logic changed, rescanning from"
+                    << store.value(QStringLiteral("historyFromSlot")).toInt();
+            store.insert(QStringLiteral("lastScannedSlot"),
+                         store.value(QStringLiteral("historyFromSlot")).toInt());
+            store.insert(QStringLiteral("scanVersion"), kScanVersion);
+            changed = true;
+        }
+
+        int from = store.value(QStringLiteral("lastScannedSlot")).toInt();
+        if (from <= 0 && libSlot > 0) {
+            from = qMax(0, libSlot - kInitialLookbackSlots);
+            store.insert(QStringLiteral("historyFromSlot"), from);
+            changed = true;
+        }
+
+        // Only ever settle from BELOW LIB. An above-LIB sighting is "in a block",
+        // not final — so a reorg moves a row honestly backwards instead of
+        // un-settling something we already called settled.
+        const int to = qMin(libSlot, from + kScanChunkSlots);
+        if (libSlot > 0 && to > from) {
+            const LogosResult blocks =
+                result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+                    BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_blocks"),
+                    QVariant(from + 1), QVariant(to)));
+
+            if (blocks.success) {
+                const QJsonArray arr =
+                    QJsonDocument::fromJson(blocks.value.toString().toUtf8()).array();
+
+                for (const QJsonValue& bv : arr) {
+                    const QJsonObject b = bv.toObject();
+                    const QJsonObject hdr = b.value(QStringLiteral("header")).toObject();
+                    const QJsonArray txs = b.value(QStringLiteral("transactions")).toArray();
+
+                    // Cheap pre-filter: does this block contain a LeaderClaim (0x30 = 48)
+                    // credited to one of our keys? Only then pay for get_block_events.
+                    QHash<QString, QPair<QString, qint64>> feeByTx;  // tx -> (inputNoteId, change)
+                    bool anyOurs = false;
+                    for (const QJsonValue& tv : txs) {
+                        const QJsonObject mt =
+                            tv.toObject().value(QStringLiteral("mantle_tx")).toObject();
+                        const QJsonArray ops = mt.value(QStringLiteral("ops")).toArray();
+                        bool isOurClaim = false;
+                        QString inputNote;
+                        qint64 change = -1;
+                        for (const QJsonValue& ov : ops) {
+                            const QJsonObject op = ov.toObject();
+                            const QJsonObject pl = op.value(QStringLiteral("payload")).toObject();
+                            const int code = op.value(QStringLiteral("opcode")).toInt(-1);
+                            if (code == 48) {
+                                if (ours.contains(pl.value(QStringLiteral("pk")).toString().toLower()))
+                                    isOurClaim = true;
+                            } else if (code == 0) {
+                                const QJsonArray in = pl.value(QStringLiteral("inputs")).toArray();
+                                const QJsonArray outs = pl.value(QStringLiteral("outputs")).toArray();
+                                if (in.size() == 1)
+                                    inputNote = in.at(0).toString();
+                                if (outs.size() == 1)
+                                    change = static_cast<qint64>(
+                                        outs.at(0).toObject().value(QStringLiteral("value")).toDouble());
+                            }
+                        }
+                        if (isOurClaim) {
+                            anyOurs = true;
+                            feeByTx.insert(mt.value(QStringLiteral("hash")).toString(),
+                                           qMakePair(inputNote, change));
+                        }
+                    }
+                    if (!anyOurs)
+                        continue;
+
+                    // The reward amount and the voucher nullifier live ONLY in the
+                    // block's events — the claim op itself carries neither.
+                    const QString blockId = hdr.value(QStringLiteral("id")).toString();
+                    const LogosResult ev =
+                        result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+                            BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_block_events"), blockId));
+                    if (!ev.success)
+                        continue;
+
+                    const QJsonArray events =
+                        QJsonDocument::fromJson(ev.value.toString().toUtf8()).array();
+                    for (const QJsonValue& evv : events) {
+                        const QJsonObject tx = evv.toObject().value(QStringLiteral("Tx")).toObject();
+                        const QJsonObject claimed = tx.value(QStringLiteral("payload"))
+                                                        .toObject()
+                                                        .value(QStringLiteral("LeaderRewardClaimed"))
+                                                        .toObject();
+                        if (claimed.isEmpty())
+                            continue;
+                        const QJsonObject note =
+                            claimed.value(QStringLiteral("utxo")).toObject()
+                                   .value(QStringLiteral("note")).toObject();
+                        if (!ours.contains(note.value(QStringLiteral("pk")).toString().toLower()))
+                            continue;
+
+                        const QString txHash = tx.value(QStringLiteral("tx_hash")).toString();
+                        const qint64 reward =
+                            static_cast<qint64>(note.value(QStringLiteral("value")).toDouble());
+
+                        QJsonObject row = rowByTx.contains(txHash)
+                            ? claims.at(rowByTx.value(txHash)).toObject()
+                            : QJsonObject{{QStringLiteral("tx"), txHash},
+                                          // no local row: this claim predates the ledger
+                                          // (or came from another machine). Say so.
+                                          {QStringLiteral("backfilled"), true}};
+
+                        row.insert(QStringLiteral("status"), QStringLiteral("settled"));
+                        row.insert(QStringLiteral("slot"), hdr.value(QStringLiteral("slot")).toInt());
+                        row.insert(QStringLiteral("block"), blockId);
+                        row.insert(QStringLiteral("voucherNf"),
+                                   claimed.value(QStringLiteral("voucher_nullifier")).toString());
+                        row.insert(QStringLiteral("reward"), reward);
+
+                        // Fee = input note value − change output. The block gives only
+                        // the input's id, so this needs the harvested note map; when the
+                        // note predates the map the fee stays absent and renders "—".
+                        const auto fp = feeByTx.value(txHash);
+                        if (!fp.first.isEmpty() && fp.second >= 0
+                            && noteValues.contains(fp.first)) {
+                            const qint64 in =
+                                static_cast<qint64>(noteValues.value(fp.first).toDouble());
+                            if (in >= fp.second)
+                                row.insert(QStringLiteral("fee"), in - fp.second);
+                        }
+
+                        if (rowByTx.contains(txHash)) {
+                            claims.replace(rowByTx.value(txHash), row);
+                        } else {
+                            claims.prepend(row);
+                            rowByTx.clear();
+                            for (int i = 0; i < claims.size(); ++i)
+                                rowByTx.insert(
+                                    claims.at(i).toObject().value(QStringLiteral("tx")).toString(), i);
+                        }
+                        changed = true;
+                    }
+                }
+            }
+
+            // ONLY advance the watermark when the range was actually read. This
+            // used to sit outside the success check, so a failing get_blocks
+            // silently marked the range scanned and the watermark raced past real
+            // claims that were never looked at — a silent skip path, and exactly
+            // the class of bug this ledger exists to remove. Fail loudly, retry
+            // the same range next pass.
+            if (blocks.success) {
+                store.insert(QStringLiteral("lastScannedSlot"), to);
+                changed = true;
+            } else {
+                qWarning() << "getLeaderClaims: get_blocks(" << (from + 1) << "," << to
+                           << ") failed:" << blocks.error.toString()
+                           << "- watermark held at" << from;
+            }
+        }
+    }
+
+    // --- age out submissions that never landed ----------------------------
+    // Inference, not observation: an unlanded claim produces nothing to see.
+    if (libSlot > 0) {
+        for (int i = 0; i < claims.size(); ++i) {
+            QJsonObject row = claims.at(i).toObject();
+            if (row.value(QStringLiteral("status")).toString() != QLatin1String("submitted"))
+                continue;
+            const int at = row.value(QStringLiteral("submittedAtSlot")).toInt();
+            if (at > 0 && libSlot > at + kExpiryLookaheadSlots) {
+                row.insert(QStringLiteral("status"), QStringLiteral("expired"));
+                row.insert(QStringLiteral("inferred"), true);
+                claims.replace(i, row);
+                changed = true;
+            }
+        }
+    }
+
+    while (claims.size() > kMaxClaimRows)
+        claims.removeLast();
+
+    if (changed) {
+        store.insert(QStringLiteral("claims"), claims);
+        saveClaimStore(store);
+    }
+
+    // --- summary ----------------------------------------------------------
+    qint64 claimed = 0, fees = 0;
+    int settled = 0, inFlight = 0, feesKnown = 0;
+    for (const QJsonValue& v : claims) {
+        const QJsonObject r = v.toObject();
+        const QString st = r.value(QStringLiteral("status")).toString();
+        if (st == QLatin1String("settled")) {
+            ++settled;
+            claimed += static_cast<qint64>(r.value(QStringLiteral("reward")).toDouble());
+            if (r.contains(QStringLiteral("fee"))) {
+                fees += static_cast<qint64>(r.value(QStringLiteral("fee")).toDouble());
+                ++feesKnown;
+            }
+        } else if (st == QLatin1String("submitted") || st == QLatin1String("in_block")) {
+            ++inFlight;
+        }
+    }
+
+    QJsonObject summary;
+    summary.insert(QStringLiteral("settled"), settled);
+    summary.insert(QStringLiteral("inFlight"), inFlight);
+    summary.insert(QStringLiteral("claimed"), claimed);
+    summary.insert(QStringLiteral("fees"), fees);
+    // Net is only honest when every settled row has a known fee; otherwise the
+    // UI must present it as a floor, not a total.
+    summary.insert(QStringLiteral("feesComplete"), feesKnown == settled);
+    summary.insert(QStringLiteral("net"), claimed - fees);
+    summary.insert(QStringLiteral("historyFromSlot"),
+                   store.value(QStringLiteral("historyFromSlot")).toInt());
+    summary.insert(QStringLiteral("lastScannedSlot"),
+                   store.value(QStringLiteral("lastScannedSlot")).toInt());
+    summary.insert(QStringLiteral("libSlot"), libSlot);
+    // True once the scan has caught up with LIB — until then the totals are partial.
+    summary.insert(QStringLiteral("scanCaughtUp"),
+                   libSlot > 0
+                       && store.value(QStringLiteral("lastScannedSlot")).toInt() >= libSlot);
+
+    QJsonObject out;
+    out.insert(QStringLiteral("claims"), claims);
+    out.insert(QStringLiteral("summary"), summary);
+
+    QVariantMap res;
+    res.insert(QStringLiteral("success"), true);
+    res.insert(QStringLiteral("value"),
+               QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Compact)));
+    return res;
+}
+
 // Blocks THIS node proposed, parsed from the node's own log. Cryptarchia leadership
 // is private (each block's leader_key is per-note-derived, not a stable identity), so
 // an on-chain leader_key match can't identify our blocks — but the node LOGS every block
@@ -1159,6 +1601,9 @@ QVariantMap LogosNode1clickBackend::getBalance(QString addressHex)
         : result::err(QStringLiteral("Module not initialized."));
 
     m_accountsModel->setBalanceForAddress(addressHex, result::toDisplayMessage(lr));
+    // NOTE: wallet_get_balance returns a BARE NUMBER over IPC, not JSON — it
+    // carries no note breakdown, so it is not a source for the fee map. Notes are
+    // harvested from wallet_get_notes in getLeaderClaims() instead.
     return result::toVariantMap(lr);
 }
 

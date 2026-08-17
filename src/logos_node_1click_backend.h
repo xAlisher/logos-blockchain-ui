@@ -65,6 +65,9 @@ public slots:
     QVariantMap findTransactionInBlocks(QString txHashHex) override;
     QVariantMap getPeerId() override;
     QVariantMap getClaimableVouchers() override;
+    // Persistent leader-claim ledger: local write-ahead rows reconciled against the
+    // chain. Returns { claims: [...], summary: {...} } as a JSON string in `value`.
+    QVariantMap getLeaderClaims() override;
     // Blocks THIS node proposed, parsed from the node's own log (the authoritative
     // "my proposals" — leadership is private on-chain so a leader_key match can't work).
     QVariantMap getProposals() override;
@@ -115,6 +118,24 @@ private:
     // POST a public key to the faucet via curl. userFacing=true emits faucetResult
     // (the wallet-balance request the operator sees); false = the silent leader-key top-up.
     void postFaucet(const QString& pk, bool userFacing);
+
+    // ---- Leader-claim ledger (docs/VOUCHER-STATE-MAP.md) ----
+    // Claims are NOT logged by the node — unlike proposals, which getProposals()
+    // can always rebuild from the log. So the row written at press time is
+    // write-ahead, not a cache: miss it and no record the press happened exists.
+    // Settlement, by contrast, is always recoverable from the chain, so any
+    // on-chain claim without a local row is backfilled.
+    QString claimsStorePath() const;
+    QJsonObject loadClaimStore() const;
+    void saveClaimStore(const QJsonObject& store) const;
+    void recordClaimSubmission(const QString& txHash);
+    // Public keys a claim of ours can be credited to (leader funding key first,
+    // then the wallet key — the module assigns them separately, see ui#35).
+    QStringList ourClaimKeys() const;
+    // Remember {noteId: value} from a balance payload so a settled claim's fee
+    // (input note − change output) can be resolved exactly. The block carries
+    // only the input's id, never its value.
+    void rememberNoteValues(const QString& notesJson);
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;

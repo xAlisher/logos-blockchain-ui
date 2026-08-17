@@ -31,6 +31,9 @@ class BlockchainBackend
     SLOT(QVariantMap findTransactionInBlocks(QString txHashHex))
     SLOT(QVariantMap getPeerId())
     SLOT(QVariantMap getClaimableVouchers())
+    // Persistent leader-claim ledger. Returns {claims:[…], summary:{…}} — the local
+    // write-ahead rows reconciled against the chain. See docs/VOUCHER-STATE-MAP.md.
+    SLOT(QVariantMap getLeaderClaims())
     SLOT(QVariantMap getProposals())
     SLOT(QVariantMap generateConfig(QString outputPath, QStringList initialPeers, int netPort, int blendPort, QString httpAddr, QString externalAddress, bool noPublicIpCheck, int deploymentMode, QString deploymentConfigPath, QString statePath))
     SLOT(QVariantMap getNotes(QString walletAddressHex, QString optionalTipHex))

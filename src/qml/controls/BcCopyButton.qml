@@ -8,17 +8,24 @@ Button {
 
     signal copyText()
 
-    implicitWidth: 24
-    implicitHeight: 24
+    // Sized to match the Node tab's copy control (NodeDashboardView's CopyBtn:
+    // 22px button, padding 2, 14px icon). This previously declared a 24px icon
+    // inside a 24px button with NO padding override — the style's default Button
+    // padding then squeezed the icon into the leftover ~12px, so it rendered
+    // smaller and fainter than the Node tab's. Keep padding explicit so the
+    // result does not depend on which Qt Quick Controls style is active.
+    padding: 2
+    implicitWidth: 22
+    implicitHeight: 22
     display: AbstractButton.IconOnly
     flat: true
 
     property string iconSource: Qt.resolvedUrl("../icons/copy.svg")
 
     icon.source: root.iconSource
-    icon.width: 24
-    icon.height: 24
-    icon.color: Theme.palette.textSecondary
+    icon.width: 14
+    icon.height: 14
+    icon.color: hovered ? Theme.palette.text : Theme.palette.textSecondary
 
     function reset() {
         iconSource = Qt.resolvedUrl("../icons/copy.svg")
