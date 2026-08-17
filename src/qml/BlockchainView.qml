@@ -771,18 +771,30 @@ Rectangle {
         ]
     }
 
-    // Node balance (auto-staked) for the dashboard tile — polled while Online.
+    // Node balance for the dashboard tile and the claim gate.
+    //
+    // This polls the LEADER FUNDING KEY, not primaryAddress. They are different
+    // keys (ui#35): primaryAddress is merely the first entry get_known_addresses
+    // returned, while leader.wallet.funding_pk is what proposes blocks, receives
+    // leader rewards and pays a claim's fee. Polling the wrong one made the tile
+    // report a healthy balance for a key that funds nothing, and let the Claim
+    // button gate on a wallet that isn't the one being charged.
+    // Falls back to primaryAddress only until the leader key is known.
     property string nodeBalance: "—"
+    readonly property string balanceKey:
+        (root.backend && (root.backend.leaderKey || "").length > 0)
+            ? root.backend.leaderKey
+            : (root.backend ? (root.backend.primaryAddress || "") : "")
     Timer {
         id: balanceTimer
         interval: 5000; repeat: true; triggeredOnStart: true
         running: root.ready && root.backend
                  && root.backend.status === BlockchainBackend.Running
-                 && (root.backend.primaryAddress || "").length > 0
+                 && root.balanceKey.length > 0
         onTriggered: {
-            if (!root.backend) return
+            if (!root.backend || root.balanceKey.length === 0) return
             logos.watch(
-                root.backend.getBalance(root.backend.primaryAddress),
+                root.backend.getBalance(root.balanceKey),
                 function(result) {
                     if (result.success && result.value !== undefined && result.value !== null)
                         root.nodeBalance = String(result.value)
@@ -1423,6 +1435,7 @@ Rectangle {
                         recoveryBlocks: root.recoveryBlocks
                         infoJson: root.cryptarchiaInfoJson
                         balanceText: root.nodeBalance
+                        leaderKey: root.balanceKey
                         peerCount: root.nodePeers
                         connectionCount: root.nodeConnections
                         blendText: root.backend ? _d.getBlendText(root.backend.blendStatus) : ""
@@ -1584,6 +1597,7 @@ Rectangle {
                             id: leaderRewardsView
                             vouchersJson: root.claimableVouchersJson
                             claimsJson: root.claimsJson
+                            proposalsJson: root.proposalsJson
                             // Gate the Claim button: a claim is a transaction and
                             // must be paid for, so an empty wallet cannot claim.
                             balance: {
@@ -1608,9 +1622,11 @@ Rectangle {
                                         // refresh all three, not just the first.
                                         root.refreshClaimableVouchers()
                                         root.refreshLeaderClaims()
-                                        if ((root.backend.primaryAddress || "").length > 0) {
+                                        // The leader key is the one a claim charges,
+                                        // so it is the balance that moves.
+                                        if (root.balanceKey.length > 0) {
                                             logos.watch(
-                                                root.backend.getBalance(root.backend.primaryAddress),
+                                                root.backend.getBalance(root.balanceKey),
                                                 function(r) {
                                                     if (r.success && r.value !== undefined && r.value !== null)
                                                         root.nodeBalance = String(r.value)

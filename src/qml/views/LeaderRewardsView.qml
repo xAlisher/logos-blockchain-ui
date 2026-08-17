@@ -6,6 +6,7 @@ import Logos.Theme
 import Logos.Controls
 
 import "../controls"
+import "../amounts.js" as Amounts
 
 // Leader rewards: a fungible voucher POOL plus a permanent CLAIMS LEDGER.
 //
@@ -29,6 +30,11 @@ ScrollView {
 
     // JSON from getLeaderClaims(): { claims: [...], summary: {...} }
     property string claimsJson: ""
+
+    // JSON array from getProposals() — blocks THIS node led. Leadership is private
+    // on chain, so this comes from the node's own log; it is the source of every
+    // voucher, which is what closes the loop led -> earned -> claimed -> unclaimed.
+    property string proposalsJson: ""
 
     // Wallet balance in base units, for the claim gate. -1 = not yet known.
     property real balance: -1
@@ -80,6 +86,32 @@ ScrollView {
         return 0
     }
 
+    readonly property var _proposals: safeParse(proposalsJson)
+    readonly property int blocksLed: Array.isArray(root._proposals) ? root._proposals.length : 0
+
+    // Money still on the table. An ESTIMATE: the reward is read from ledger state
+    // at execution and does change (9,517 then 9,535 observed on this chain), so
+    // this is "vouchers x the most recent settled reward", never a promise.
+    readonly property real unclaimedEst: root.vouchers.length * root.lastReward
+    // What a claim costs as a share of what it pays. At ~44% this is the single
+    // most decision-relevant number here, and nothing else surfaces it.
+    readonly property int feePct: (root.lastReward > 0 && root.lastFee > 0)
+        ? Math.round(root.lastFee * 100 / root.lastReward) : -1
+    readonly property real netPerClaim: (root.lastReward > 0 && root.lastFee > 0)
+        ? root.lastReward - root.lastFee : 0
+
+    readonly property var _lastSettled: {
+        for (var i = 0; i < claims.length; ++i)
+            if (claims[i].status === "settled") return claims[i]
+        return null
+    }
+    readonly property int feesKnown: {
+        var n = 0
+        for (var i = 0; i < claims.length; ++i)
+            if (claims[i].status === "settled" && claims[i].fee > 0) n++
+        return n
+    }
+
     readonly property bool canClaim: vouchers.length > 0 && balance > 0 && !claimInFlight
     readonly property string claimBlockedReason: {
         if (claimInFlight) return qsTr("Claim in flight — wait for it to be submitted.")
@@ -89,10 +121,10 @@ ScrollView {
         return ""
     }
 
-    function fmt(n) {
-        if (n === undefined || n === null || isNaN(n)) return "—"
-        return Number(n).toLocaleString(Qt.locale(), "f", 0)
-    }
+    // Bare number — for counts and slot numbers, which have no unit.
+    function fmt(n) { return Amounts.plain(n) }
+    // With the ticker — for amounts. See amounts.js: the raw u64 IS LGO.
+    function fmtLgo(n) { return Amounts.exact(n) }
 
     // Claim status → colour. NOTE: Theme.palette.orange does NOT exist on
     // DarkTheme (only overlayOrange does) — an undefined colour renders BLACK,
@@ -132,239 +164,178 @@ ScrollView {
         }
 
         // ======================= VOUCHERS =======================
-        Rectangle {
+        LogosText {
+            text: qsTr("Vouchers")
+            font.pixelSize: Theme.typography.subtitleText
+            font.weight: Theme.typography.weightMedium
+        }
+
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: poolCol.implicitHeight + 2 * Theme.spacing.large
-            color: Theme.palette.backgroundTertiary
-            radius: Theme.spacing.radiusLarge
-            border.color: Theme.palette.border
-            border.width: 1
+            spacing: Theme.spacing.medium
 
-            ColumnLayout {
-                id: poolCol
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: Theme.spacing.large
-                spacing: Theme.spacing.small
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacing.small
-                    LogosText {
-                        text: qsTr("Vouchers")
-                        font.pixelSize: Theme.typography.secondaryText
-                        font.bold: true
-                    }
-                    Item { Layout.fillWidth: true }
-                    InfoButton {
-                        Layout.alignment: Qt.AlignVCenter
-                        text: qsTr("Vouchers you earned by leading a block. \"Ready\" means provable at the current tip; the protocol picks which one a claim consumes. A claim is itself a transaction, so it costs a fee — you need a balance to claim. Claims are public: the claim carries your public key in the clear on chain.")
-                    }
-                }
-
-                // "ready" is the node's `available`. "claiming" counts our own
-                // submitted-but-unsettled claims — the node's reserved-voucher list
-                // is never sent to the UI, so we cannot report its `pending`.
-                LogosText {
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    color: Theme.palette.textSecondary
-                    font.pixelSize: Theme.typography.secondaryText
-                    text: root.claimingCount > 0
-                        ? qsTr("%1 ready to claim, %2 claiming")
-                            .arg(root.vouchers.length).arg(root.claimingCount)
-                        : qsTr("%1 ready to claim").arg(root.vouchers.length)
-                }
+            StatTile {
+                label: qsTr("Ready to claim")
+                value: String(root.vouchers.length)
+                sub: root.lastReward > 0 ? qsTr("~%1").arg(root.fmtLgo(root.unclaimedEst)) : ""
+                interactive: root.vouchers.length > 0
+                tip: root.vouchers.length > 0 ? qsTr("Open the voucher list") : ""
+                onClicked: if (root.vouchers.length > 0) voucherDialog.open()
 
                 LogosButton {
-                    id: claimButton
-                    Layout.topMargin: Theme.spacing.small
-                    Layout.preferredWidth: 200
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 150
                     enabled: root.canClaim
-                    text: root.claimInFlight ? qsTr("Claiming…") : qsTr("Claim one voucher")
+                    text: root.claimInFlight ? qsTr("Claiming…") : qsTr("Claim voucher")
                     onClicked: {
                         root.claimInFlight = true
                         root.claimLeaderRewardsRequested()
                     }
                 }
+            }
 
-                LogosText {
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    color: Theme.palette.textSecondary
-                    font.pixelSize: Theme.typography.secondaryText
-                    text: root.lastReward > 0
-                        ? qsTr("~%1 per voucher, ~%2 fee each — from the last settled claim.")
-                            .arg(root.fmt(root.lastReward)).arg(root.fmt(root.lastFee))
-                        : qsTr("Value per voucher is known after a claim settles.")
-                }
-
-                LogosText {
-                    visible: !root.canClaim && root.claimBlockedReason.length > 0
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    text: root.claimBlockedReason
-                    color: Theme.palette.textTertiary
-                    font.pixelSize: Theme.typography.secondaryText
-                }
-
-                LogosText {
-                    visible: root._lastResult.length > 0 && root._lastResult.indexOf("Error") === 0
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    text: root._lastResult
-                    color: Theme.palette.error
-                    font.pixelSize: Theme.typography.secondaryText
-                }
-
-                LogosButton {
-                    Layout.topMargin: Theme.spacing.small
-                    Layout.preferredWidth: 200
-                    visible: root.vouchers.length > 0
-                    text: voucherDetail.visible ? qsTr("Hide vouchers") : qsTr("Show vouchers")
-                    onClicked: voucherDetail.visible = !voucherDetail.visible
-                }
-
-                ColumnLayout {
-                    id: voucherDetail
-                    visible: false
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacing.small
-                    spacing: Theme.spacing.small
-
-                    LogosText {
-                        visible: root.tip.length > 0
-                        Layout.fillWidth: true
-                        text: qsTr("at tip %1").arg(root.tip)
-                        elide: Text.ElideMiddle
-                        font.pixelSize: Theme.typography.secondaryText
-                        color: Theme.palette.textTertiary
-                    }
-
-                    // Each voucher is its own nested block, styled like the Node tab's
-                    // cards, with the shared HashRow (24x24 BcCopyButton, same icons).
-                    Repeater {
-                        model: root.vouchers
-                        delegate: Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: vCol.implicitHeight + 2 * Theme.spacing.small
-                            color: Theme.palette.backgroundSecondary
-                            radius: Theme.spacing.radiusSmall
-                            border.color: Theme.palette.border
-                            border.width: 1
-
-                            ColumnLayout {
-                                id: vCol
-                                anchors.top: parent.top
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.margins: Theme.spacing.small
-                                spacing: Theme.spacing.tiny
-
-                                LogosText {
-                                    text: qsTr("Voucher %1").arg(index + 1)
-                                    font.pixelSize: Theme.typography.secondaryText
-                                    font.bold: true
-                                }
-                                HashRow {
-                                    label: qsTr("Commitment")
-                                    labelWidth: 90
-                                    value: modelData && modelData.commitment ? String(modelData.commitment) : ""
-                                    onCopyRequested: function(t) { root.copyToClipboard(t) }
-                                }
-                                HashRow {
-                                    label: qsTr("Nullifier")
-                                    labelWidth: 90
-                                    value: modelData && modelData.nullifier ? String(modelData.nullifier) : ""
-                                    onCopyRequested: function(t) { root.copyToClipboard(t) }
-                                }
-                            }
-                        }
-                    }
-                }
+            StatTile {
+                label: qsTr("Claiming")
+                value: String(root.claimingCount)
+                sub: root.claimingCount > 0 ? qsTr("awaiting settlement") : qsTr("none in flight")
+                tip: qsTr("Claims submitted but not yet final. Counted from this ledger — the node never sends the UI its own reserved-voucher list.")
             }
         }
 
-        // ======================= LIFETIME =======================
-        Rectangle {
+        // Why the button is unavailable, stated rather than left to guess.
+        LogosText {
+            visible: !root.canClaim && root.claimBlockedReason.length > 0
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: root.claimBlockedReason
+            color: Theme.palette.textTertiary
+            font.pixelSize: Theme.typography.secondaryText
+        }
+        LogosText {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.palette.textSecondary
+            font.pixelSize: Theme.typography.secondaryText
+            text: root.lastReward <= 0
+                ? qsTr("Value per voucher is known after a claim settles.")
+                : root.lastFee > 0
+                    ? qsTr("~%1 per voucher, ~%2 fee each — from the last settled claim.")
+                        .arg(root.fmtLgo(root.lastReward)).arg(root.fmtLgo(root.lastFee))
+                    : qsTr("~%1 per voucher — from the last settled claim. The fee is not known yet; a claim is a transaction and does cost one.")
+                        .arg(root.fmtLgo(root.lastReward))
+        }
+        LogosText {
+            visible: root._lastResult.length > 0 && root._lastResult.indexOf("Error") === 0
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: root._lastResult
+            color: Theme.palette.error
+            font.pixelSize: Theme.typography.secondaryText
+        }
+
+        // ======================= REWARDS =======================
+        LogosText {
+            visible: root.summary && root.summary.settled > 0
+            text: qsTr("Rewards")
+            font.pixelSize: Theme.typography.subtitleText
+            font.weight: Theme.typography.weightMedium
+        }
+
+        Item {
             Layout.fillWidth: true
             visible: root.summary && root.summary.settled > 0
-            Layout.preferredHeight: lifeCol.implicitHeight + 2 * Theme.spacing.large
-            color: Theme.palette.backgroundTertiary
-            radius: Theme.spacing.radiusLarge
-            border.color: Theme.palette.border
-            border.width: 1
+            implicitHeight: lifeCol.implicitHeight
 
             ColumnLayout {
                 id: lifeCol
-                anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.margins: Theme.spacing.large
-                spacing: Theme.spacing.tiny
+                spacing: Theme.spacing.small
 
-                LogosText {
-                    text: qsTr("Rewards claimed")
-                    font.pixelSize: Theme.typography.secondaryText
-                    font.bold: true
-                }
-
+                // Operator-facing figures. The previous version spent two of four
+                // tiles on "Fees ≥ 0" and "Net ≤ +N" — bounds that are honest but
+                // carry no information. These answer what an operator actually
+                // asks: is money sitting unclaimed, is claiming worth it, am I
+                // still winning slots.
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacing.large
+                    spacing: Theme.spacing.medium
                     Repeater {
                         model: root.summary ? [
-                            { k: qsTr("Claims"),  v: root.fmt(root.summary.settled) },
-                            { k: qsTr("Claimed"), v: root.fmt(root.summary.claimed) },
-                            { k: qsTr("Fees"),    v: root.summary.feesComplete
-                                                      ? root.fmt(root.summary.fees)
-                                                      : qsTr("≥ %1").arg(root.fmt(root.summary.fees)) },
-                            { k: qsTr("Net"),     v: root.summary.feesComplete
-                                                      ? qsTr("+%1").arg(root.fmt(root.summary.net))
-                                                      : qsTr("≤ +%1").arg(root.fmt(root.summary.net)) }
+                            {
+                                k: qsTr("Claimed"),
+                                v: root.fmtLgo(root.summary.claimed),
+                                sub: qsTr("%1 claims").arg(root.fmt(root.summary.settled))
+                            },
+                            {
+                                // The actionable one: value still on the table.
+                                k: qsTr("Unclaimed"),
+                                v: root.lastReward > 0
+                                    ? qsTr("~%1").arg(root.fmtLgo(root.unclaimedEst))
+                                    : "—",
+                                sub: qsTr("%1 vouchers ready").arg(root.vouchers.length)
+                            },
+                            {
+                                // Claiming burns a large share of the reward; an
+                                // operator should see that before pressing again.
+                                k: qsTr("Cost to claim"),
+                                v: root.feePct >= 0
+                                    ? qsTr("%1  %2%").arg(root.fmtLgo(root.lastFee)).arg(root.feePct)
+                                    : qsTr("not known yet"),
+                                sub: root.feePct >= 0
+                                    ? qsTr("net +%1 per claim").arg(root.fmt(root.netPerClaim))
+                                    : qsTr("of a %1 reward").arg(root.fmtLgo(root.lastReward))
+                            },
+                            {
+                                // Recency: a node that stopped winning slots shows here.
+                                k: qsTr("Blocks led"),
+                                v: root.blocksLed > 0 ? root.fmt(root.blocksLed) : "—",
+                                sub: qsTr("%1 vouchers earned").arg(root.fmt(root.blocksLed))
+                            },
+                            {
+                                k: qsTr("Last claim"),
+                                v: root._lastSettled
+                                    ? String(root._lastSettled.settledAt || "").replace("T", " ").substring(11, 16)
+                                    : "—",
+                                sub: root._lastSettled
+                                    ? qsTr("+%1").arg(root.fmtLgo(root._lastSettled.reward))
+                                    : ""
+                            }
                         ] : []
-                        delegate: ColumnLayout {
-                            spacing: 0
-                            LogosText {
-                                text: modelData.k
-                                color: Theme.palette.textSecondary
-                                font.pixelSize: Theme.typography.secondaryText
-                            }
-                            LogosText {
-                                text: modelData.v
-                                font.pixelSize: Theme.typography.primaryText
-                                font.weight: Theme.typography.weightMedium
-                            }
+                        delegate: StatTile {
+                            label: modelData.k
+                            value: modelData.v
+                            sub: modelData.sub || ""
                         }
                     }
-                    Item { Layout.fillWidth: true }
                 }
 
-                // Never present a partial scan as a lifetime total.
+                // One caveat line, not three. It states only what is actually
+                // uncertain right now and disappears entirely once the scan has
+                // caught up and every fee is priced.
                 LogosText {
-                    visible: root.summary && (!root.summary.scanCaughtUp || root.summary.historyFromSlot > 0)
                     Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacing.tiny
                     wrapMode: Text.WordWrap
                     color: Theme.palette.textTertiary
+                    opacity: 0.65
                     font.pixelSize: Theme.typography.secondaryText
+                    visible: text.length > 0
                     text: {
                         if (!root.summary) return ""
+                        var parts = []
                         if (!root.summary.scanCaughtUp)
-                            return qsTr("Still scanning the chain (slot %1 of %2) — totals are partial.")
+                            parts.push(qsTr("still scanning the chain (slot %1 of %2) — totals are partial")
                                 .arg(root.fmt(root.summary.lastScannedSlot))
-                                .arg(root.fmt(root.summary.libSlot))
-                        return qsTr("History scanned from slot %1, not from genesis.")
-                            .arg(root.fmt(root.summary.historyFromSlot))
+                                .arg(root.fmt(root.summary.libSlot)))
+                        else if (root.summary.historyFromSlot > 0)
+                            parts.push(qsTr("history from slot %1, not genesis")
+                                .arg(root.fmt(root.summary.historyFromSlot)))
+                        if (root.summary.settled > 0 && !root.summary.feesComplete)
+                            parts.push(qsTr("fees known for %1 of %2 claims")
+                                .arg(root.feesKnown).arg(root.summary.settled))
+                        return parts.join(" · ")
                     }
-                }
-                LogosText {
-                    visible: root.summary && root.summary.settled > 0 && !root.summary.feesComplete
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    color: Theme.palette.textTertiary
-                    font.pixelSize: Theme.typography.secondaryText
-                    text: qsTr("Some fees are unknown: a fee is the spent note minus the change, and notes spent before this ledger existed cannot be priced.")
                 }
             }
         }
@@ -430,31 +401,35 @@ ScrollView {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing.small
-                                Rectangle {
-                                    width: 8; height: 8; radius: 4
-                                    color: root.statusColor(claimRow.st)
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
+                                // No status dot: the label already carries the colour,
+                                // so the dot repeated the same information twice.
                                 LogosText {
                                     text: root.statusLabel(claimRow.st)
                                     color: root.statusColor(claimRow.st)
+                                    Layout.alignment: Qt.AlignVCenter
                                     font.pixelSize: Theme.typography.secondaryText
                                     font.weight: Theme.typography.weightMedium
                                 }
                                 LogosText {
-                                    text: modelData.settledAt || modelData.submittedAt || ""
+                                    // ISO "2026-08-17T15:31:47" reads better without the T.
+                                    // Held back so the status and the amount lead:
+                                    // the timestamp is context, not the headline.
+                                    text: String(modelData.settledAt || modelData.submittedAt || "")
+                                              .replace("T", " ")
+                                    Layout.alignment: Qt.AlignVCenter
                                     color: Theme.palette.textTertiary
+                                    opacity: 0.65
                                     font.pixelSize: Theme.typography.secondaryText
                                 }
                                 Item { Layout.fillWidth: true }
                                 LogosText {
                                     visible: claimRow.st === "settled"
                                     text: modelData.fee > 0
-                                        ? qsTr("+%1 − %2 = +%3")
+                                        ? qsTr("+%1 − %2 = +%3 LGO")
                                             .arg(root.fmt(modelData.reward))
                                             .arg(root.fmt(modelData.fee))
                                             .arg(root.fmt(modelData.reward - modelData.fee))
-                                        : qsTr("+%1 (fee unknown)").arg(root.fmt(modelData.reward))
+                                        : qsTr("+%1 (fee unknown)").arg(root.fmtLgo(modelData.reward))
                                     color: Theme.palette.success
                                     font.pixelSize: Theme.typography.secondaryText
                                     font.weight: Theme.typography.weightMedium
@@ -505,4 +480,94 @@ ScrollView {
             }
         }
     }
+    // Voucher detail lives in a modal rather than inline: vouchers are fungible,
+    // so the LIST is reference material while the COUNT is the headline. Keeping
+    // 13 hex pairs out of the main flow is what lets the page stay scannable.
+    Dialog {
+        id: voucherDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(720, root.width - 2 * Theme.spacing.large)
+        height: Math.min(560, root.height - 2 * Theme.spacing.large)
+        padding: Theme.spacing.large
+        standardButtons: Dialog.Close
+
+        background: Rectangle {
+            color: Theme.palette.backgroundSecondary
+            radius: Theme.spacing.radiusLarge
+            border.color: Theme.palette.border
+            border.width: 1
+        }
+
+        header: ColumnLayout {
+            spacing: 2
+            LogosText {
+                Layout.margins: Theme.spacing.large
+                Layout.bottomMargin: 0
+                text: qsTr("Ready to claim: %1").arg(root.vouchers.length)
+                font.pixelSize: Theme.typography.subtitleText
+                font.weight: Theme.typography.weightMedium
+            }
+            LogosText {
+                Layout.margins: Theme.spacing.large
+                Layout.topMargin: 0
+                Layout.fillWidth: true
+                visible: root.tip.length > 0
+                text: qsTr("at tip %1").arg(root.tip)
+                elide: Text.ElideMiddle
+                color: Theme.palette.textTertiary
+                opacity: 0.65
+                font.pixelSize: Theme.typography.secondaryText
+            }
+        }
+
+        contentItem: ScrollView {
+            id: voucherScroll
+            clip: true
+            ColumnLayout {
+                width: voucherScroll.availableWidth
+                spacing: Theme.spacing.small
+
+                Repeater {
+                    model: root.vouchers
+                    delegate: Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: vCol.implicitHeight + 2 * Theme.spacing.small
+                        color: Theme.palette.backgroundTertiary
+                        radius: Theme.spacing.radiusSmall
+                        border.color: Theme.palette.border
+                        border.width: 1
+
+                        ColumnLayout {
+                            id: vCol
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Theme.spacing.small
+                            spacing: Theme.spacing.tiny
+
+                            LogosText {
+                                text: qsTr("Voucher %1").arg(index + 1)
+                                font.pixelSize: Theme.typography.secondaryText
+                                font.bold: true
+                            }
+                            HashRow {
+                                label: qsTr("Commitment")
+                                labelWidth: 90
+                                value: modelData && modelData.commitment ? String(modelData.commitment) : ""
+                                onCopyRequested: function(t) { root.copyToClipboard(t) }
+                            }
+                            HashRow {
+                                label: qsTr("Nullifier")
+                                labelWidth: 90
+                                value: modelData && modelData.nullifier ? String(modelData.nullifier) : ""
+                                onCopyRequested: function(t) { root.copyToClipboard(t) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 }

@@ -5,6 +5,10 @@ import QtQuick.Layouts
 import Logos.Theme
 import Logos.Controls
 
+import "../controls"
+
+import "../amounts.js" as Amounts
+
 // Node dashboard (one-click UX #13). Status-first: a state-tinted status block
 // (Stop control + Testnet badge + Peer ID line), a row of stat tiles
 // (Slot / Height / Balance / Peers) and the Tip / LIB chain refs — all copyable.
@@ -23,6 +27,9 @@ Item {
     property int    recoveryBlocks: 0
     property string infoJson: ""
     property string balanceText: "0"
+    // leader.wallet.funding_pk — named in the Balance tooltip so the
+    // reader knows which wallet the figure describes.
+    property string leaderKey: ""
     // Kept in sync with metadata.json BY THE BUILD, not by hand: CMake compares this literal
     // against metadata.json and fails the configure step if they disagree. The previous
     // "keep in sync" comment drifted three releases — the UI still said 0.2.6 while the
@@ -122,28 +129,21 @@ Item {
     readonly property int _bootTotal: 3600     // count DOWN from 60:00
     function _isBootstrapping() { return root._statusDisplay() === "Bootstrapping" }
     function _balancePositive() { var n = Number(root.balanceText); return !isNaN(n) && n > 0 }
-    // LGO display: wallet_get_balance returns base units. 1 LGO = 10^4 base units
-    // (2000000000000 base = 200,000,000 LGO → "200M LGO"). Abbreviate + ticker so the
-    // value stays inside the stat tile; the tooltip carries the exact amount.
-    readonly property real baseUnitsPerLgo: 10000
-    function _lgoTrim(x) { return (Math.round(x * 100) / 100).toString() }
-    function _fmtBalance(raw) {
-        var n = Number(raw)
-        if (isNaN(n)) return "— LGO"
-        var v = n / root.baseUnitsPerLgo
-        var a = Math.abs(v), s
-        if      (a >= 1e12) s = root._lgoTrim(v / 1e12) + "T"
-        else if (a >= 1e9)  s = root._lgoTrim(v / 1e9)  + "B"
-        else if (a >= 1e6)  s = root._lgoTrim(v / 1e6)  + "M"
-        else if (a >= 1e3)  s = root._lgoTrim(v / 1e3)  + "K"
-        else                s = root._lgoTrim(v)
-        return s + " LGO"
-    }
-    function _balanceExact(raw) {
-        var n = Number(raw)
-        if (isNaN(n)) return ""
-        return (n / root.baseUnitsPerLgo).toLocaleString(Qt.locale(), 'f', 0) + " LGO"
-    }
+    // LGO display. The raw u64 from wallet_get_balance IS LGO — there is no
+    // sub-unit. This used to divide by an invented `baseUnitsPerLgo = 10000`,
+    // making every balance read 10,000x too small. Upstream disagrees on all
+    // counts: core/src/mantle/transactions/gas.rs cites the spec as
+    // "P_STR(0) = 1 LGO/gas" and writes GasPrice::new(1); the official
+    // logos-blockchain-ui renders the raw string; hackyguru/persona formats the
+    // raw value with no division. `baseUnitsPerLgo` had zero hits on GitHub
+    // outside this fork.
+    //
+    // Formatting now lives in controls/AmountText.qml so exactly one place
+    // decides what a number means. These two wrappers keep the existing stat-tile
+    // call sites (value + tip) working.
+    function _fmtBalance(raw) { return Amounts.short(raw) }
+    function _balanceExact(raw) { return Amounts.exact(raw) }
+
     function _fmtSecs(s) {
         var m = Math.floor(s / 60); var ss = s % 60
         return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss
@@ -376,37 +376,31 @@ Item {
                 model: [
                     { label: qsTr("Slot"),    value: root._num("slot"), tip: "" },
                     { label: qsTr("Height"),  value: root._num("height"), tip: "" },
+                    // This is the LEADER FUNDING KEY's balance — the wallet that
+                    // proposes blocks, receives leader rewards and pays claim fees.
+                    // It is a different key from the node's first known address
+                    // (ui#35), so the tooltip names it rather than leaving the
+                    // reader to assume it matches the top of the Accounts list.
                     { label: qsTr("Balance"), value: root._fmtBalance(root.balanceText),
-                      tip: root._balanceExact(root.balanceText) },
+                      tip: root._balanceExact(root.balanceText)
+                           + (root.leaderKey.length > 0
+                              ? qsTr("\nLeader funding key %1…%2 — proposals, rewards and claim fees")
+                                  .arg(root.leaderKey.substring(0, 8))
+                                  .arg(root.leaderKey.slice(-6))
+                              : "") },
                     { label: qsTr("Peers"),   value: root.peerCount >= 0 ? String(root.peerCount) : "—",
                       tip: root.connectionCount >= 0 ? qsTr("%1 connections").arg(root.connectionCount) : "" }
                 ]
-                delegate: Rectangle {
-                    id: tileRect
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 68
-                    radius: Theme.spacing.radiusLarge
-                    color: Theme.palette.backgroundTertiary
-                    border.width: 0
-                    HoverHandler { id: tileHover }
-                    ToolTip.visible: tileHover.hovered && modelData.tip && modelData.tip.length > 0
-                    ToolTip.text: modelData.tip || ""
-                    ColumnLayout {
-                        anchors.centerIn: parent
-                        spacing: 2
-                        LogosText {
-                            Layout.alignment: Qt.AlignHCenter
-                            text: modelData.label
-                            font.pixelSize: Theme.typography.secondaryText
-                            color: Theme.palette.textSecondary
-                        }
-                        FlashValue {
-                            Layout.alignment: Qt.AlignHCenter
-                            text: modelData.value
-                            font.pixelSize: Theme.typography.panelTitleText
-                            font.weight: Theme.typography.weightMedium
-                        }
-                    }
+                // Shared with the Leader Rewards tiles (controls/StatTile.qml) so
+                // the two pages cannot drift. FlashValue's behaviour moved into
+                // the control as `flashOnChange`.
+                delegate: StatTile {
+                    label: modelData.label
+                    value: modelData.value
+                    tip: modelData.tip || ""
+                    // Slot and Height tick constantly; the flash is what makes a
+                    // live node visibly live.
+                    flashOnChange: true
                 }
             }
         }

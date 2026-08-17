@@ -1073,6 +1073,24 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
     bool changed = false;
     int libSlot = 0;
 
+    // Slot -> wall clock, so a backfilled row can be dated. A claim recovered from
+    // the chain has no local record of when it was submitted; its block's slot is
+    // the only timestamp that exists. get_time_info is flat here (verified against
+    // the module source, not the HTTP endpoint — see docs/VOUCHER-STATE-MAP.md §7).
+    qint64 genesisMs = 0;
+    int slotMs = 0;
+    if (m_blockchainClient && status() == BlockchainStatus::Running) {
+        const LogosResult ti = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+            BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_time_info")));
+        if (ti.success) {
+            const QJsonObject o =
+                QJsonDocument::fromJson(ti.value.toString().toUtf8()).object();
+            genesisMs = static_cast<qint64>(
+                o.value(QStringLiteral("genesis_time_unix_ms")).toDouble());
+            slotMs = o.value(QStringLiteral("slot_duration_ms")).toInt();
+        }
+    }
+
     // --- reconcile forward from the watermark -----------------------------
     if (m_blockchainClient && status() == BlockchainStatus::Running && !ours.isEmpty()) {
         const LogosResult info = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
@@ -1086,7 +1104,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         // constant whenever a fix means past ranges must be re-examined; settled
         // rows are keyed by tx hash, so a rescan re-confirms rather than
         // duplicating them.
-        constexpr int kScanVersion = 7;
+        constexpr int kScanVersion = 8;
         if (store.value(QStringLiteral("scanVersion")).toInt() < kScanVersion) {
             qInfo() << "getLeaderClaims: scan logic changed, rescanning from"
                     << store.value(QStringLiteral("historyFromSlot")).toInt();
@@ -1249,8 +1267,18 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                                           {QStringLiteral("backfilled"), true}};
 
                         row.insert(QStringLiteral("status"), QStringLiteral("settled"));
-                        row.insert(QStringLiteral("slot"), hdr.value(QStringLiteral("slot")).toInt());
+                        const int settledSlot = hdr.value(QStringLiteral("slot")).toInt();
+                        row.insert(QStringLiteral("slot"), settledSlot);
                         row.insert(QStringLiteral("block"), blockId);
+                        // Date it from the block's slot. Without this a backfilled
+                        // row renders with an empty timestamp, which is why the
+                        // ledger looked unsorted.
+                        if (genesisMs > 0 && slotMs > 0) {
+                            row.insert(QStringLiteral("settledAt"),
+                                       QDateTime::fromMSecsSinceEpoch(
+                                           genesisMs + static_cast<qint64>(settledSlot) * slotMs)
+                                           .toString(Qt::ISODate));
+                        }
                         row.insert(QStringLiteral("voucherNf"),
                                    claimed.value(QStringLiteral("voucher_nullifier")).toString());
                         row.insert(QStringLiteral("reward"), reward);
@@ -1341,6 +1369,30 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                 changed = true;
             }
         }
+    }
+
+    // Newest first. Rows arrive in two ways — prepended on submission, prepended
+    // again as the chain scan discovers them — so insertion order interleaves
+    // settled and pending arbitrarily. Order by the slot each row actually
+    // happened at: its block slot once settled, otherwise the tip slot at
+    // submission. Both are the same clock, so pending claims sort above older
+    // settled ones, which is what a ledger should read like.
+    {
+        QList<QJsonObject> rows;
+        rows.reserve(claims.size());
+        for (const QJsonValue& v : claims)
+            rows.append(v.toObject());
+        const auto effSlot = [](const QJsonObject& r) {
+            const int s = r.value(QStringLiteral("slot")).toInt();
+            return s > 0 ? s : r.value(QStringLiteral("submittedAtSlot")).toInt();
+        };
+        std::stable_sort(rows.begin(), rows.end(),
+                         [&](const QJsonObject& a, const QJsonObject& b) {
+                             return effSlot(a) > effSlot(b);
+                         });
+        claims = QJsonArray();
+        for (const QJsonObject& r : rows)
+            claims.append(r);
     }
 
     while (claims.size() > kMaxClaimRows)
@@ -1661,9 +1713,16 @@ void LogosNode1clickBackend::refreshAccounts()
 
     m_accountsModel->setAddresses(list);
 
-    // Expose the node's primary public key (hex) for the faucet + the dashboard
-    // balance tile (issue #22). First known address = the node's account key.
+    // Expose the node's primary public key (hex) for the faucet (issue #22).
+    // NOTE: this is just the FIRST known address; the ordering carries no
+    // guarantee, and it is NOT the key that proposes blocks or pays claim fees.
     setPrimaryAddress(list.isEmpty() ? QString() : list.first());
+
+    // The operationally meaningful key: proposals draw from it, leader rewards
+    // land in it, and a claim's fee comes out of it. Observed on this node as a
+    // different key from primaryAddress with a different balance, which is why
+    // the dashboard tile and the claim gate must both read THIS one.
+    setLeaderKey(leaderFundingKey());
 
     QTimer::singleShot(0, this,
                        [this, list]() { fetchBalancesForAccounts(list); });

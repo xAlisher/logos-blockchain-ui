@@ -10,6 +10,10 @@ class BlockchainBackend
     PROP(QString generatedUserConfigPath READONLY)
     PROP(QString lastErrorMessage READONLY)
     PROP(QString primaryAddress READONLY)
+    // leader.wallet.funding_pk — the key block proposals draw from, where leader
+    // rewards land, and which pays a claim's fee. The module assigns it to a
+    // DIFFERENT key than primaryAddress (ui#35), so the two must not be conflated.
+    PROP(QString leaderKey READONLY)
     PROP(BlendStatus blendStatus READONLY)
     PROP(QString lastBlendEvent READONLY)
 
