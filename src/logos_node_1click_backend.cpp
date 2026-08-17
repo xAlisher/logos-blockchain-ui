@@ -902,6 +902,10 @@ static constexpr int kInitialLookbackSlots = 120000;
 // inferred expired (the node's reservation is evicted after security_param
 // immutable blocks). Inference, not observation — the UI must say so.
 static constexpr int kExpiryLookaheadSlots = 20000;
+// Extra slots fetched past the chunk end purely to resolve the last in-range
+// block's id from its successor's parent_block. Blocks are ~10-40 slots apart
+// here, so this comfortably contains at least one successor.
+static constexpr int kIdLookaheadSlots = 600;
 static constexpr int kMaxClaimRows = 2000;
 static constexpr int kMaxNoteValues = 4000;
 
@@ -1082,7 +1086,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         // constant whenever a fix means past ranges must be re-examined; settled
         // rows are keyed by tx hash, so a rescan re-confirms rather than
         // duplicating them.
-        constexpr int kScanVersion = 2;
+        constexpr int kScanVersion = 7;
         if (store.value(QStringLiteral("scanVersion")).toInt() < kScanVersion) {
             qInfo() << "getLeaderClaims: scan logic changed, rescanning from"
                     << store.value(QStringLiteral("historyFromSlot")).toInt();
@@ -1104,18 +1108,56 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         // un-settling something we already called settled.
         const int to = qMin(libSlot, from + kScanChunkSlots);
         if (libSlot > 0 && to > from) {
+            // Fetch a little past `to` so the last in-range block has a successor
+            // whose parent_block gives us its id (see the chaining note below).
+            // Blocks beyond `to` are used for that and nothing else.
+            const int fetchTo = qMin(libSlot, to + kIdLookaheadSlots);
             const LogosResult blocks =
                 result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
                     BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_blocks"),
-                    QVariant(from + 1), QVariant(to)));
+                    QVariant(from + 1), QVariant(fetchTo)));
 
+            int dbgBlocks = 0, dbgClaimOps = 0, dbgOurClaims = 0;
+            int dbgEvents = 0, dbgEvFail = 0, dbgMatched = 0;
+            QString dbgEvErr, dbgBadId, dbgHdrKeys;
             if (blocks.success) {
-                const QJsonArray arr =
+                const QJsonArray rawArr =
                     QJsonDocument::fromJson(blocks.value.toString().toUtf8()).array();
+                dbgBlocks = rawArr.size();
 
-                for (const QJsonValue& bv : arr) {
-                    const QJsonObject b = bv.toObject();
+                // A block's ID is NOT a field: core/src/header/mod.rs `Header` holds
+                // {version, parent_block, slot, body_root, proof_of_leadership} and
+                // the ID is COMPUTED (hash over "BLOCK_ID_V1"). The node's HTTP DTO
+                // adds an `id`, but get_blocks over IPC serialises the raw Block, so
+                // there is none — reading header.id yielded "" and every
+                // get_block_events call was rejected as "must be 64 hex characters".
+                //
+                // Recover it from the chain instead: for finalised blocks in slot
+                // order, block[i]'s id is block[i+1]'s `parent_block`. We therefore
+                // fetch a small lookahead past `to` purely to resolve the last
+                // block's id, and only process blocks that have a successor.
+                QList<QJsonObject> arr;
+                arr.reserve(rawArr.size());
+                for (const QJsonValue& v : rawArr)
+                    arr.append(v.toObject());
+                std::sort(arr.begin(), arr.end(),
+                          [](const QJsonObject& a, const QJsonObject& b) {
+                              return a.value(QStringLiteral("header")).toObject()
+                                         .value(QStringLiteral("slot")).toInt()
+                                   < b.value(QStringLiteral("header")).toObject()
+                                         .value(QStringLiteral("slot")).toInt();
+                          });
+
+                for (int bi = 0; bi + 1 < arr.size(); ++bi) {
+                    const QJsonObject b = arr.at(bi);
                     const QJsonObject hdr = b.value(QStringLiteral("header")).toObject();
+                    // Blocks past `to` were fetched only to resolve ids; the
+                    // watermark does not cover them yet.
+                    if (hdr.value(QStringLiteral("slot")).toInt() > to)
+                        continue;
+                    const QString blockId = arr.at(bi + 1)
+                                                .value(QStringLiteral("header")).toObject()
+                                                .value(QStringLiteral("parent_block")).toString();
                     const QJsonArray txs = b.value(QStringLiteral("transactions")).toArray();
 
                     // Cheap pre-filter: does this block contain a LeaderClaim (0x30 = 48)
@@ -1134,6 +1176,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                             const QJsonObject pl = op.value(QStringLiteral("payload")).toObject();
                             const int code = op.value(QStringLiteral("opcode")).toInt(-1);
                             if (code == 48) {
+                                ++dbgClaimOps;
                                 if (ours.contains(pl.value(QStringLiteral("pk")).toString().toLower()))
                                     isOurClaim = true;
                             } else if (code == 0) {
@@ -1148,6 +1191,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                         }
                         if (isOurClaim) {
                             anyOurs = true;
+                            ++dbgOurClaims;
                             feeByTx.insert(mt.value(QStringLiteral("hash")).toString(),
                                            qMakePair(inputNote, change));
                         }
@@ -1155,17 +1199,29 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                     if (!anyOurs)
                         continue;
 
-                    // The reward amount and the voucher nullifier live ONLY in the
-                    // block's events — the claim op itself carries neither.
-                    const QString blockId = hdr.value(QStringLiteral("id")).toString();
+                    // The reward amount lives ONLY in the block's events — the claim
+                    // op carries the nullifier but never the amount. blockId came
+                    // from the successor's parent_block above.
                     const LogosResult ev =
                         result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
                             BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_block_events"), blockId));
-                    if (!ev.success)
+                    if (!ev.success) {
+                        // Do NOT skip silently — this is the step that was losing
+                        // every settlement while the scan reported success.
+                        if (dbgEvErr.isEmpty()) {
+                            dbgEvErr = ev.error.toString();
+                            // Capture the value we actually sent and the header's
+                            // key set — guessing the shape has been wrong 4x today.
+                            dbgBadId = blockId;
+                            dbgHdrKeys = QStringList(hdr.keys()).join(QLatin1Char(','));
+                        }
+                        ++dbgEvFail;
                         continue;
+                    }
 
                     const QJsonArray events =
                         QJsonDocument::fromJson(ev.value.toString().toUtf8()).array();
+                    dbgEvents += events.size();
                     for (const QJsonValue& evv : events) {
                         const QJsonObject tx = evv.toObject().value(QStringLiteral("Tx")).toObject();
                         const QJsonObject claimed = tx.value(QStringLiteral("payload"))
@@ -1180,6 +1236,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                         if (!ours.contains(note.value(QStringLiteral("pk")).toString().toLower()))
                             continue;
 
+                        ++dbgMatched;
                         const QString txHash = tx.value(QStringLiteral("tx_hash")).toString();
                         const qint64 reward =
                             static_cast<qint64>(note.value(QStringLiteral("value")).toDouble());
@@ -1230,6 +1287,34 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             // claims that were never looked at — a silent skip path, and exactly
             // the class of bug this ledger exists to remove. Fail loudly, retry
             // the same range next pass.
+            // Record scan health IN THE STORE, not just the log: this plugin runs
+            // under ui-host, whose stderr Basecamp does not persist, so a log-only
+            // diagnostic is invisible. A scan that reads nothing must not look
+            // identical to a scan that found nothing:
+            //   blocks=0 over a wide range  -> the range never arrived
+            //   claimOps>0 with ours=0      -> matching against the wrong key
+            QJsonObject scan;
+            scan.insert(QStringLiteral("from"), from + 1);
+            scan.insert(QStringLiteral("to"), to);
+            scan.insert(QStringLiteral("ok"), blocks.success);
+            scan.insert(QStringLiteral("blocks"), dbgBlocks);
+            scan.insert(QStringLiteral("claimOps"), dbgClaimOps);
+            scan.insert(QStringLiteral("ourClaims"), dbgOurClaims);
+            scan.insert(QStringLiteral("keys"), ours.join(QLatin1Char(',')));
+            scan.insert(QStringLiteral("events"), dbgEvents);
+            scan.insert(QStringLiteral("eventsFailed"), dbgEvFail);
+            scan.insert(QStringLiteral("matchedEvents"), dbgMatched);
+            if (!dbgEvErr.isEmpty()) {
+                scan.insert(QStringLiteral("eventsError"), dbgEvErr);
+                scan.insert(QStringLiteral("badBlockId"), dbgBadId);
+                scan.insert(QStringLiteral("badBlockIdLen"), dbgBadId.length());
+                scan.insert(QStringLiteral("headerKeys"), dbgHdrKeys);
+            }
+            if (!blocks.success)
+                scan.insert(QStringLiteral("error"), blocks.error.toString());
+            store.insert(QStringLiteral("lastScan"), scan);
+            changed = true;
+
             if (blocks.success) {
                 store.insert(QStringLiteral("lastScannedSlot"), to);
                 changed = true;

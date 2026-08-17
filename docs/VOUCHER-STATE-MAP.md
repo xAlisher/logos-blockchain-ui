@@ -331,7 +331,55 @@ costlier misunderstanding than any of the state bugs above. One line of copy in 
 
 ---
 
-## 7. What needs upstream, and what does not
+## 7. Implementation trap: the module's IPC shapes are NOT the node's HTTP shapes
+
+Every bug in the first working build of the ledger had one cause: the code was written
+against the node's HTTP API — which is what you get when you explore with `curl` on
+`127.0.0.1:8080` — while the module exposes a **different serialization of the same data** over
+IPC. They diverge on nearly every call:
+
+| Data | Node HTTP (`:8080`) | Module IPC (`invokeRemoteMethod`) |
+|---|---|---|
+| cryptarchia info | wrapped: `{"cryptarchia_info":{…},"phase":…}` | **flat**: `{lib_slot, slot, height, mode}` |
+| wallet balance | JSON incl. a `notes` map | **a bare number string** — not JSON at all |
+| wallet notes | `{noteId: value}` map | `{"notes":[{"id":…,"value":"<string>"}]}` — array, value stringified |
+| block header | includes `id` (and calls it `block_root`) | **no `id`** — five fields, `id` is computed |
+
+The block-header one is the nastiest. `core/src/header/mod.rs` defines
+`Header { version, parent_block, slot, body_root, proof_of_leadership }` — the ID is *derived*
+(a hash over `"BLOCK_ID_V1"`), so serde never emits it. Only the HTTP DTO adds one. Reading
+`header.id` therefore yields `""`, and every `get_block_events` call is rejected with
+*"Header ID must be 64 hex characters"*.
+
+**Workaround, and it is the supported one:** for finalised blocks in slot order, block *i*'s id
+is block *i+1*'s `parent_block`. Sort each chunk by slot, fetch a small lookahead past the chunk
+end so the last in-range block has a successor, and process only blocks that have one.
+
+**The rule: verify every field against the module's own source, not against a curl response.**
+A shape that "obviously" matches has been wrong four times out of four here.
+
+### The compounding failure: silent error paths
+
+None of the above was visible, because each was reached through a path that produced no
+evidence — a bare `continue`, or a watermark advanced outside its success check. The scan
+cheerfully reported `blocks=228, ourClaims=9` while writing zero rows.
+
+Two habits fixed it, and both are worth keeping:
+
+1. **Never advance state on a failed read.** The watermark now moves only inside
+   `if (blocks.success)`; a failure holds position and retries.
+2. **Record scan health where it can actually be seen.** This plugin runs under `ui-host`,
+   whose stderr Basecamp does **not** persist — so `qWarning`/`qInfo` from a `ui_qml` plugin is
+   discarded outright. Diagnostics therefore go into `claims-history.json` as a `lastScan`
+   object (`from`, `to`, `ok`, `blocks`, `claimOps`, `ourClaims`, `events`, `eventsFailed`,
+   `eventsError`). That is what turned "it finds nothing" into a named cause in one pass.
+
+`scanVersion` in the store forces a rescan when the scan logic changes, so ranges burned by an
+earlier bug are re-examined instead of being trusted forever.
+
+---
+
+## 8. What needs upstream, and what does not
 
 **Fixable here, today:** the "pending" rename, the `enabled` gate, in-flight disable, the pool +
 claims-list layout, the persistent ledger with chain backfill, the balance refresh.
