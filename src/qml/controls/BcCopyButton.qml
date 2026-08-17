@@ -25,7 +25,8 @@ Button {
     icon.source: root.iconSource
     icon.width: 14
     icon.height: 14
-    icon.color: hovered ? Theme.palette.text : Theme.palette.textSecondary
+    // Matches the (i): recedes at rest, lifts on hover.
+    icon.color: hovered ? Theme.palette.text : Theme.palette.textMuted
 
     function reset() {
         iconSource = Qt.resolvedUrl("../icons/copy.svg")

@@ -17,6 +17,8 @@ Control {
     property int voucherCount: 0
 
     signal copyToClipboard(string text)
+    // Asks the host to switch to Operations -> Leader Rewards.
+    signal openLeaderRewardsRequested()
 
     readonly property var proposals: {
         try { return proposalsJson && proposalsJson.length > 0 ? JSON.parse(proposalsJson) : [] }
@@ -35,11 +37,22 @@ Control {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacing.large
+            // A link to Leader Rewards: proposals are where vouchers come from,
+            // so this count is the natural jumping-off point to claiming them.
             LogosText {
+                id: voucherLink
                 text: qsTr("Leadership vouchers: %1").arg(root.voucherCount)
                 font.pixelSize: Theme.typography.secondaryText
                 font.bold: true
-                color: root.voucherCount > 0 ? Theme.palette.success : Theme.palette.textSecondary
+                font.underline: voucherHover.hovered
+                color: voucherHover.hovered
+                       ? Theme.palette.primary
+                       : (root.voucherCount > 0 ? Theme.palette.success
+                                                : Theme.palette.textSecondary)
+                HoverHandler { id: voucherHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: root.openLeaderRewardsRequested() }
+                ToolTip.visible: voucherHover.hovered
+                ToolTip.text: qsTr("Open Leader Rewards")
             }
             LogosText {
                 text: qsTr("Proposed blocks: %1").arg(root.proposals.length)

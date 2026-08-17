@@ -397,7 +397,9 @@ Item {
                 delegate: StatTile {
                     label: modelData.label
                     value: modelData.value
-                    tip: modelData.tip || ""
+                    // Click-to-open (i) rather than a hover tooltip — the Balance
+                    // explanation is two lines and was unreadable on hover.
+                    info: modelData.tip || ""
                     // Slot and Height tick constantly; the flash is what makes a
                     // live node visibly live.
                     flashOnChange: true

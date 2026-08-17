@@ -1476,6 +1476,12 @@ Rectangle {
                             proposalsJson: root.proposalsJson
                             voucherCount: root.voucherCount
                             onCopyToClipboard: (text) => root.copyText(text)
+                            // Operations tab, then the Leader Rewards pane
+                            // (operationIndex 2 — see the NavItem list).
+                            onOpenLeaderRewardsRequested: {
+                                operationTabBar.currentIndex = 1
+                                opPage.operationIndex = 2
+                            }
                         }
                     }
                 }

@@ -88,6 +88,13 @@ ScrollView {
 
     readonly property var _proposals: safeParse(proposalsJson)
     readonly property int blocksLed: Array.isArray(root._proposals) ? root._proposals.length : 0
+    // Oldest entry in the proposals log — the log accumulates and never expires,
+    // so "blocks led" is lifetime, not a current-chain figure.
+    readonly property string firstProposalDay: {
+        if (!Array.isArray(root._proposals) || root._proposals.length === 0) return ""
+        var oldest = root._proposals[root._proposals.length - 1]
+        return String((oldest && oldest.time) || "").substring(0, 10)
+    }
 
     // Money still on the table. An ESTIMATE: the reward is read from ledger state
     // at execution and does change (9,517 then 9,535 observed on this chain), so
@@ -164,41 +171,60 @@ ScrollView {
         }
 
         // ======================= VOUCHERS =======================
-        LogosText {
-            text: qsTr("Vouchers")
-            font.pixelSize: Theme.typography.subtitleText
-            font.weight: Theme.typography.weightMedium
-        }
-
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacing.medium
+            LogosText {
+                text: qsTr("Vouchers")
+                font.pixelSize: Theme.typography.subtitleText
+                font.weight: Theme.typography.weightMedium
+            }
+            // Sized and styled like the header's "Fund the node". Sitting beside
+            // the heading keeps the tiles pure stats, so the number stays centred
+            // with nothing hanging off it.
+            CtaButton {
+                Layout.alignment: Qt.AlignVCenter
+                compact: true
+                enabled: root.canClaim
+                text: root.claimInFlight ? qsTr("Claiming…") : qsTr("Claim")
+                onClicked: {
+                    root.claimInFlight = true
+                    root.claimLeaderRewardsRequested()
+                }
+            }
+            Item { Layout.fillWidth: true }
+        }
+
+        // GridLayout, not RowLayout: a RowLayout cannot wrap, so at narrow widths
+        // the tiles were squeezed until their contents overlapped and spilled past
+        // the borders. Columns are derived from the available width against a
+        // minimum tile size, so tiles drop to the next line instead.
+        GridLayout {
+            Layout.fillWidth: true
+            columnSpacing: Theme.spacing.medium
+            rowSpacing: Theme.spacing.medium
+            columns: Math.max(1, Math.floor((width + columnSpacing) / (180 + columnSpacing)))
 
             StatTile {
+                // fillHeight equalises the tile heights; topAligned keeps the two
+                // LABELS on one line even though these tiles carry a different
+                // number of rows (CTA here, sub-line opposite).
+                Layout.fillHeight: true
+                topAligned: true
                 label: qsTr("Ready to claim")
                 value: String(root.vouchers.length)
-                sub: root.lastReward > 0 ? qsTr("~%1").arg(root.fmtLgo(root.unclaimedEst)) : ""
+                // No value here: "Unclaimed" in Rewards already carries it.
                 interactive: root.vouchers.length > 0
-                tip: root.vouchers.length > 0 ? qsTr("Open the voucher list") : ""
                 onClicked: if (root.vouchers.length > 0) voucherDialog.open()
-
-                LogosButton {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 150
-                    enabled: root.canClaim
-                    text: root.claimInFlight ? qsTr("Claiming…") : qsTr("Claim voucher")
-                    onClicked: {
-                        root.claimInFlight = true
-                        root.claimLeaderRewardsRequested()
-                    }
-                }
             }
 
             StatTile {
-                label: qsTr("Claiming")
+                Layout.fillHeight: true
+                topAligned: true
+                // "Submitted" matches the status word used on the claim rows.
+                label: qsTr("Submitted")
                 value: String(root.claimingCount)
-                sub: root.claimingCount > 0 ? qsTr("awaiting settlement") : qsTr("none in flight")
-                tip: qsTr("Claims submitted but not yet final. Counted from this ledger — the node never sends the UI its own reserved-voucher list.")
+                info: qsTr("Claims submitted but not yet final. Counted from this ledger — the node never sends the UI its own reserved-voucher list.")
             }
         }
 
@@ -210,19 +236,6 @@ ScrollView {
             text: root.claimBlockedReason
             color: Theme.palette.textTertiary
             font.pixelSize: Theme.typography.secondaryText
-        }
-        LogosText {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.palette.textSecondary
-            font.pixelSize: Theme.typography.secondaryText
-            text: root.lastReward <= 0
-                ? qsTr("Value per voucher is known after a claim settles.")
-                : root.lastFee > 0
-                    ? qsTr("~%1 per voucher, ~%2 fee each — from the last settled claim.")
-                        .arg(root.fmtLgo(root.lastReward)).arg(root.fmtLgo(root.lastFee))
-                    : qsTr("~%1 per voucher — from the last settled claim. The fee is not known yet; a claim is a transaction and does cost one.")
-                        .arg(root.fmtLgo(root.lastReward))
         }
         LogosText {
             visible: root._lastResult.length > 0 && root._lastResult.indexOf("Error") === 0
@@ -257,9 +270,11 @@ ScrollView {
                 // carry no information. These answer what an operator actually
                 // asks: is money sitting unclaimed, is claiming worth it, am I
                 // still winning slots.
-                RowLayout {
+                GridLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.spacing.medium
+                    columnSpacing: Theme.spacing.medium
+                    rowSpacing: Theme.spacing.medium
+                    columns: Math.max(1, Math.floor((width + columnSpacing) / (180 + columnSpacing)))
                     Repeater {
                         model: root.summary ? [
                             {
@@ -270,6 +285,7 @@ ScrollView {
                             {
                                 // The actionable one: value still on the table.
                                 k: qsTr("Unclaimed"),
+                                info: qsTr("Vouchers ready to claim, valued at the most recent settled reward. An ESTIMATE: the reward is read from ledger state when a claim executes and does change (9,517 then 9,535 observed on this chain)."),
                                 v: root.lastReward > 0
                                     ? qsTr("~%1").arg(root.fmtLgo(root.unclaimedEst))
                                     : "—",
@@ -279,6 +295,7 @@ ScrollView {
                                 // Claiming burns a large share of the reward; an
                                 // operator should see that before pressing again.
                                 k: qsTr("Cost to claim"),
+                                info: qsTr("A claim is itself a transaction, so it costs a fee — which is why an empty wallet cannot claim. The fee is the spent note minus its change; the block records only the note's id, so a claim whose note was spent before this ledger existed cannot be priced."),
                                 v: root.feePct >= 0
                                     ? qsTr("%1  %2%").arg(root.fmtLgo(root.lastFee)).arg(root.feePct)
                                     : qsTr("not known yet"),
@@ -288,9 +305,25 @@ ScrollView {
                             },
                             {
                                 // Recency: a node that stopped winning slots shows here.
+                                //
+                                // Do NOT label this "vouchers earned". Measured on
+                                // this node: 110 blocks led, 10 claimed, 12
+                                // claimable — and 7 of 8 sampled proposals ARE in
+                                // the chain, so they were not orphaned. The wallet
+                                // drops a voucher it cannot prove at the current
+                                // tip into neither `available` nor `pending`
+                                // (states.rs claimable_vouchers), and no API
+                                // reports that bucket, so the difference is real
+                                // but unexplainable from here. Stating a 1:1
+                                // relationship would be inventing one.
                                 k: qsTr("Blocks led"),
                                 v: root.blocksLed > 0 ? root.fmt(root.blocksLed) : "—",
-                                sub: qsTr("%1 vouchers earned").arg(root.fmt(root.blocksLed))
+                                sub: root.firstProposalDay.length > 0
+                                    ? qsTr("since %1").arg(root.firstProposalDay) : "",
+                                info: qsTr("Blocks this node proposed, read from its own log (leadership is private on chain).\n\nThis is NOT the number of claimable vouchers: %1 led, %2 claimed, %3 claimable. The wallet hides any voucher it cannot prove at the current tip, and the node exposes no way to list those — so the difference cannot be explained from here.")
+                                    .arg(root.fmt(root.blocksLed))
+                                    .arg(root.fmt(root.summary.settled))
+                                    .arg(root.vouchers.length)
                             },
                             {
                                 k: qsTr("Last claim"),
@@ -306,6 +339,7 @@ ScrollView {
                             label: modelData.k
                             value: modelData.v
                             sub: modelData.sub || ""
+                            info: modelData.info || ""
                         }
                     }
                 }
@@ -325,11 +359,11 @@ ScrollView {
                         if (!root.summary) return ""
                         var parts = []
                         if (!root.summary.scanCaughtUp)
-                            parts.push(qsTr("still scanning the chain (slot %1 of %2) — totals are partial")
+                            parts.push(qsTr("Still scanning the chain (slot %1 of %2) — totals are partial")
                                 .arg(root.fmt(root.summary.lastScannedSlot))
                                 .arg(root.fmt(root.summary.libSlot)))
                         else if (root.summary.historyFromSlot > 0)
-                            parts.push(qsTr("history from slot %1, not genesis")
+                            parts.push(qsTr("History from slot %1, not genesis")
                                 .arg(root.fmt(root.summary.historyFromSlot)))
                         if (root.summary.settled > 0 && !root.summary.feesComplete)
                             parts.push(qsTr("fees known for %1 of %2 claims")
@@ -340,35 +374,32 @@ ScrollView {
             }
         }
 
-        // ======================= CLAIMS LEDGER =======================
-        Rectangle {
+        // ======================= CLAIMS =======================
+        // Heading outside the block, matching Vouchers and Rewards. No outer
+        // stroke: the rows already carry their own borders, so an enclosing one
+        // just boxes a box.
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: claimsCol.implicitHeight + 2 * Theme.spacing.large
-            color: Theme.palette.backgroundTertiary
-            radius: Theme.spacing.radiusLarge
-            border.color: Theme.palette.border
-            border.width: 1
+            LogosText {
+                text: qsTr("Claims")
+                font.pixelSize: Theme.typography.subtitleText
+                font.weight: Theme.typography.weightMedium
+            }
+            Item { Layout.fillWidth: true }
+            InfoButton {
+                text: qsTr("Every claim you have made, kept permanently. A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last irreversible block count as settled, so a chain reorg moves a claim back rather than un-settling it.")
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: claimsCol.implicitHeight
 
             ColumnLayout {
                 id: claimsCol
-                anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.margins: Theme.spacing.large
                 spacing: Theme.spacing.small
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    LogosText {
-                        text: qsTr("Claims")
-                        font.pixelSize: Theme.typography.secondaryText
-                        font.bold: true
-                    }
-                    Item { Layout.fillWidth: true }
-                    InfoButton {
-                        text: qsTr("Every claim you have made, kept permanently. A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last irreversible block count as settled, so a chain reorg moves a claim back rather than un-settling it.")
-                    }
-                }
 
                 LogosText {
                     visible: root.claims.length === 0
@@ -383,10 +414,13 @@ ScrollView {
                         id: claimRow
                         Layout.fillWidth: true
                         Layout.preferredHeight: rowCol.implicitHeight + 2 * Theme.spacing.small
-                        color: Theme.palette.backgroundSecondary
+                        // Match the info tiles: backgroundTertiary (#1C1C1C) is
+                        // DARKER than backgroundSecondary (#262626), despite the
+                        // names. No stroke either — the tiles carry none, and the
+                        // fill alone already separates the rows.
+                        color: Theme.palette.backgroundTertiary
                         radius: Theme.spacing.radiusSmall
-                        border.color: Theme.palette.border
-                        border.width: 1
+                        border.width: 0
 
                         readonly property string st: modelData.status || "submitted"
 
@@ -490,13 +524,48 @@ ScrollView {
         width: Math.min(720, root.width - 2 * Theme.spacing.large)
         height: Math.min(560, root.height - 2 * Theme.spacing.large)
         padding: Theme.spacing.large
-        standardButtons: Dialog.Close
 
         background: Rectangle {
             color: Theme.palette.backgroundSecondary
             radius: Theme.spacing.radiusLarge
             border.color: Theme.palette.border
             border.width: 1
+        }
+
+        // Custom footer: Dialog's standardButtons draws a DialogButtonBox from the
+        // Qt style, which is not theme-aware and rendered as a white bar with a
+        // system-grey button. Close is a dismiss, not a primary action, so it is
+        // a bordered ghost button rather than the orange CTA.
+        footer: Rectangle {
+            color: "transparent"
+            implicitHeight: 56
+            Rectangle {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.rightMargin: Theme.spacing.large
+                implicitWidth: closeLabel.implicitWidth + 3 * Theme.spacing.large
+                implicitHeight: 32
+                radius: Theme.spacing.radiusXlarge
+                color: closeMouse.containsMouse ? Theme.palette.backgroundHover
+                                                : "transparent"
+                border.color: Theme.palette.border
+                border.width: 1
+                LogosText {
+                    id: closeLabel
+                    anchors.centerIn: parent
+                    text: qsTr("Close")
+                    font.pixelSize: Theme.typography.secondaryText
+                    font.weight: Theme.typography.weightMedium
+                    color: Theme.palette.text
+                }
+                MouseArea {
+                    id: closeMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: voucherDialog.close()
+                }
+            }
         }
 
         header: ColumnLayout {
@@ -524,6 +593,8 @@ ScrollView {
         contentItem: ScrollView {
             id: voucherScroll
             clip: true
+            // Without this the first card slides under the header as it scrolls.
+            topPadding: Theme.spacing.small
             ColumnLayout {
                 width: voucherScroll.availableWidth
                 spacing: Theme.spacing.small

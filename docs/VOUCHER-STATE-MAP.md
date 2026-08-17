@@ -387,7 +387,33 @@ claims-list layout, the persistent ledger with chain backfill, the balance refre
 **Needs the node:**
 - `wallet_get_claimable_vouchers` should return `pending` alongside `available` (it already
   computes both and throws one away).
-- Bucket 2 — vouchers provable at no tip — should be reported rather than dropped silently.
+- **Bucket 2 — vouchers provable at no tip — should be reported rather than dropped
+  silently. This is now MEASURED, not inferred, and it is the strongest of these asks.**
+  On this node, 2026-08-17:
+
+  | | |
+  |---|---|
+  | blocks led (node's own log, from 2026-08-06) | **110** |
+  | claims settled | 10 |
+  | vouchers reported claimable | 12 |
+  | **unaccounted** | **~88** |
+
+  The easy explanations were ruled out rather than assumed:
+  - **not a chain re-genesis** — genesis is ~2026-08-05 (slot ≈1,065,700 at 1 s/slot) and
+    the proposal log starts 08-06, so every entry is on the current chain;
+  - **not orphaned blocks** — 8 logged proposals sampled against
+    `/cryptarchia/blocks/<id>/events`: **7 are in the chain**, 1 returned 404;
+  - **not pruning** — `wallet/src/lib.rs:848` `prune_vouchers` removes only vouchers whose
+    nullifier already appeared on chain, i.e. the 10 claimed ones.
+
+  What remains is the silent third bucket in `claimable_vouchers`: a voucher the wallet
+  cannot prove at the current tip is pushed into neither `available` nor `pending`, and no
+  endpoint lists it. So an operator cannot tell whether ~88 vouchers exist and are
+  temporarily unprovable, or never materialised. At the observed reward that is on the
+  order of 800k LGO of ambiguity.
+
+  **Ask:** either include that bucket in `wallet_get_claimable_vouchers` with a reason, or
+  expose a count. Silence here is indistinguishable from loss.
 - `leader_claim` should return the voucher nullifier it consumed, and ideally the fee.
 - A claim should be logged. Today it leaves no trace on the operator's own machine.
 - (Tracked separately: `InsufficientFunds` reports `available` without `required`. Confirmed
