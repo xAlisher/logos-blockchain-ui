@@ -170,18 +170,44 @@ resolvable.
 
 ### @senti — auditor
 
-(pending — Senti's constraints and objections are recorded under **Constraints** below once posted)
+Accepted the narrow git claim ("separate tracked files merge cleanly for distinct paths, and
+same-path collisions fail loudly") and returned **CHANGES-REQUESTED** with two blocking
+corrections, both applied in `239aabe`:
+
+1. A per-record disclosure review is required — "zero hits in the current corpus" does not
+   establish that *future* generated records are safe to publish or retain permanently. This
+   became constraint 4 below.
+2. "Zero recovery paths" had to be narrowed to "zero *git* recovery paths found" — filesystem
+   snapshots, editor history, backups and undelete tooling were never tested. The inference that
+   the 6,358 B snapshot proved only a fraction of the 24,556 B state was restored was removed
+   entirely: those sizes alone do not separate what was lost from what was written afterwards.
+
+Enforcement was to stay explicitly open — the branch-isolation rule is a convention, not a
+demonstrated control. It is in **Open** below, unchanged.
+
+After the corrections landed: **APPROVED**.
 
 ## Decision
 
-*Pending — to be filled only after @senti replies APPROVED, then confirmed by @senti against what
-it approved.*
+**Commit discussion records to the repository. One file per record, under `docs/discussions/`,
+named `YYYY-MM-DD-slug.md`.**
+
+The alternative that was actually in place — an untracked scratch file matched by `.gitignore`'s
+`*ignore*` — is rejected. It does not avoid the collision between two agents writing at once; it
+only removes git's ability to report the collision. §5 arm C measured this: agent A's 15,174 bytes
+vanished with no conflict, no error, no `git status` entry, no reflog entry and no dangling blob.
+Arms A, B and B2 all ended with both agents' work on disk. Tracking does not prevent the
+collision — it converts a silent total loss into a visible, resolvable one.
+
+The decision is conditional on the five constraints below, all five of which apply per record.
+Constraint 4 is the one that changed the weighting rather than merely adding a step: loss of work
+is recoverable, over-disclosure to a public remote is not, so tracking trades a recoverable
+failure mode for an unrecoverable one and only holds if the disclosure gate is real.
 
 ## Constraints
 
-*Pending — the constraints @senti forces on the decision go here.*
-
-Fergie's proposed constraints, offered ahead of Senti's review:
+All five are conditions of the decision, not suggestions. 1–3 and 5 are Fergie's, carried through
+review; 4 is Senti's, added as a blocking correction.
 
 1. **One file per record.** Never a shared append-only file. This is the property that makes
    concurrent agent edits merge cleanly, and it is the property `issue-drafts.ignore.md` lacked.
@@ -202,6 +228,9 @@ Fergie's proposed constraints, offered ahead of Senti's review:
    scratch" into "unrecoverable".
 
 ## Open
+
+Two of these were handed back to @alisher at close rather than resolved here — **migration** and
+**enforcement**. The decision above does not cover either, and neither is blocked on the other.
 
 - **Migrating `docs/issue-drafts.ignore.md`** to a tracked `docs/issue-drafts/`, one file per
   draft. It is the file that proved the point and it is still sitting in the same trap today.
