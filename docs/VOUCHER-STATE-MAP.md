@@ -387,6 +387,14 @@ costlier misunderstanding than any of the state bugs above. One line of copy in 
 
 ---
 
+## 6b. Experiment log
+
+Every hypothesis tested while building this, with verdicts — including the many that were wrong:
+[`DOGFOOD-EXPERIMENTS.md`](DOGFOOD-EXPERIMENTS.md). Read the REFUTED rows before extending the
+feature; they are cheaper than rediscovering them.
+
+---
+
 ## 7. Implementation trap: the module's IPC shapes are NOT the node's HTTP shapes
 
 Every bug in the first working build of the ledger had one cause: the code was written
