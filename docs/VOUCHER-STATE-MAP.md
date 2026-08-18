@@ -260,14 +260,28 @@ ledger state at execution and can change.
 
 ---
 
-## 5b. Why claims expire: restarting the node discards them
+## 5b. Why claims expire — and why the obvious answer is wrong
 
-State 8 ("reservation expired") is not a rare edge case during development — it is the **normal
-outcome of claiming and then restarting**. Observed 2026-08-17: of six claims submitted from this
-machine, **three expired**, and the cause was mundane.
+State 8 ("reservation expired") is common on this machine and **absent on another**, and the
+difference is not yet explained. This section records the measurements rather than a conclusion,
+because the first conclusion drawn here was wrong.
 
-**The mempool is in memory.** Every Basecamp restart discards every pending transaction. A claim
-that has not yet been included in a block simply ceases to exist. On this machine that day:
+**Superseded hypothesis — restarts.** The original version of this section blamed the in-memory
+mempool: 22 Basecamp restarts on 2026-08-17, each discarding pending transactions. That is real, but
+it does **not** explain the data. A burst of 12 claims at 23:35, on a node with 9 h 25 m of
+continuous uptime and no restarts, still produced **5 settled and 7 expired**.
+
+**What the measurements do support:**
+
+- **A claim lands immediately or never.** The 5 that settled were included within ~20 slots of
+  submission. The other 7 never appeared in **1,586 blocks across ~6 hours** — while 40 unrelated
+  leader-claims from other nodes landed in that same window. Claims do not queue and arrive late.
+- **Pacing correlates with success.** A second node claimed **47 of 47** with a 2-second gap between
+  calls. This one fired ~12 in 11 seconds and kept 5.
+- **Connectivity differs**: 92 peers there vs 64 here.
+
+Candidate causes, none isolated: transactions built in a burst conflicting over the same notes;
+weaker propagation; mempool eviction. Restart activity on the day:
 
 | | |
 |---|---|
@@ -276,9 +290,9 @@ that has not yet been included in a block simply ceases to exist. On this machin
 | block production | 1 per **67** slots (down from ~1 per 39) |
 | claims submitted 15:25–15:31 | none on chain, none in mempool |
 
-With blocks that sparse, a claim must survive a long time to be picked up. Across 59 blocks in slots
-1052000–1056000 there were **zero** leader-claim ops from anyone — so those three were not
-out-competed, they were simply gone.
+Across 59 blocks in slots 1052000–1056000 there were **zero** leader-claim ops from anyone, so those
+three were not out-competed. But that window predates the restart-free burst above, which failed the
+same way — so sparse blocks and restarts are, at most, contributing factors.
 
 ### Nothing is lost, and the UI already says so correctly
 
@@ -292,12 +306,13 @@ not a bug, and it should not be "fixed" by hiding it.
 
 ### The practical rule
 
-**Do not claim immediately before restarting the node**, and while iterating on the module expect
-claims to need re-submitting. Contrast: a long-running node (sneg, up 2 d 5 h, mempool 625) had
-**four of four** claims land within seconds.
+**Pace claims — leave a couple of seconds between them — and verify rather than assume.** Do not
+claim immediately before restarting either. A long-running, well-connected node claimed 47 of 47;
+this one, bursting, keeps roughly half.
 
 This is an operational failure mode, not an API gap — worth stating because the next person to see
-an Expired row will reasonably assume something is broken.
+an Expired row will reasonably assume something is broken. The row itself is honest: the voucher
+comes back and no fee is charged.
 
 ---
 
