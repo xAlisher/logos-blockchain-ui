@@ -99,6 +99,69 @@ headings are `### Fails` and `### Skills extracted`: how *we* work, not how the 
 never PR'd, so no harm done. It is the shape of the accident, and it is a branching mistake, not a
 committing mistake.
 
+**5. The two-agent experiment is no longer a claim — it was run.**
+
+Three arms, same collision, three synthetic repos (`/tmp/merge-exp*`), scripts kept at
+`/tmp/merge-exp-b/run.sh` and `runc.sh`.
+
+*Arm A — one shared tracked file (`issue-drafts.ignore.md`'s layout, but tracked):*
+
+```
+CONFLICT (content): Merge conflict in docs/issue-drafts.md      exit=1
+draft 3
+<<<<<<< HEAD
+draft A: mnemonic salt
+=======
+draft B: backup import
+>>>>>>> agentB
+```
+
+Conflicts — but **both sides are in the file**. A human resolves it in ten seconds and loses nothing.
+
+*Arm B — one file per record, different slugs:*
+
+```
+Merge made by the 'ort' strategy.                                exit=0
+ docs/discussions/2026-08-18-backup-import.md | 1 +
+$ git ls-files docs/discussions/
+docs/discussions/2026-08-18-backup-import.md
+docs/discussions/2026-08-18-mnemonic-salt.md
+```
+
+Clean. No conflict, no resolution step, both records present. This is the claim in §3, now measured.
+
+*Arm B2 — one file per record, both agents pick the **same** slug:*
+
+```
+CONFLICT (add/add): Merge conflict in docs/discussions/2026-08-18-same-slug.md   exit=1
+<<<<<<< HEAD
+# A version
+=======
+# B version
+>>>>>>> collB
+```
+
+Degrades to arm A: loud, and both versions survive. Worth a constraint (below), not a blocker.
+
+*Arm C — untracked, matching `.gitignore`'s `*ignore*` — the arm that actually happened:*
+
+```
+A wrote bytes: 15174
+--- git status after agent A ---
+                                    ← empty. git never said there was work to lose.
+B wrote bytes: 3274
+--- recovery attempts ---
+error: pathspec 'docs/issue-drafts.ignore.md' did not match any file(s) known to git
+reflog entries touching the file: 0
+dangling blobs from fsck: 0
+A's content still present: 0
+```
+
+**No conflict. No error. No warning. Zero recovery paths, and A's 15 KB is gone.** That is the
+whole argument: tracking does not prevent the collision, it converts a silent total loss into a
+visible, resolvable one. Note the byte ratio reproduced the real incident's shape unprompted —
+15,174 → 3,274 here, 24,556 → 6,358 there.
+
 ### @senti — auditor
 
 (pending — Senti's constraints and objections are recorded under **Constraints** below once posted)
@@ -118,7 +181,9 @@ Fergie's proposed constraints, offered ahead of Senti's review:
    concurrent agent edits merge cleanly, and it is the property `issue-drafts.ignore.md` lacked.
 2. **Never on a PR-shaped branch.** Cut branches destined for `upstream` from `upstream/master`,
    never from our `master`. Process docs may live on `origin/master` only.
-3. **Never put "ignore" in a filename in this repo.** `.gitignore:15` is `*ignore*`, unanchored —
+3. **Date + slug must be unique.** Arm B2 shows a slug collision degrades to an add/add conflict —
+   loud and lossless, so this is hygiene, not a safety property. Check the directory before writing.
+4. **Never put "ignore" in a filename in this repo.** `.gitignore:15` is `*ignore*`, unanchored —
    it silently swallows anything containing the substring, and invisibility is what turned "local
    scratch" into "unrecoverable".
 
@@ -132,8 +197,10 @@ Fergie's proposed constraints, offered ahead of Senti's review:
   commit and the branch touches `docs/retro-log.md` or `docs/discussions/`, fail — was offered
   and not yet requested. It should be demonstrated firing on
   `origin/compat/0.2.1-on-v0.2.1-base` before being trusted.
-- **The two-agent merge experiment was not run.** The claim that git-tracked one-file-per-record
-  would have survived the collision rests on the layout argument and the `logos-notes` precedent,
-  not on a test executed here — the command was denied. Offered, still unrun.
+- ~~**The two-agent merge experiment was not run.**~~ **Resolved** — run, three arms, results in
+  §5 above. Caveat for the record: it was run in synthetic repos with synthetic content, not by
+  replaying the real `issue-drafts.ignore.md` history (which does not exist — that is the point).
+  It tests git's merge behaviour under each layout, which is the disputed claim; it does not test
+  agent behaviour.
 - **Whether `.gitignore:15`'s `*ignore*` should be narrowed** to an anchored pattern. Out of
   scope for this question, but it is the root cause of the precedent that motivated it.
