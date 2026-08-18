@@ -38,7 +38,7 @@ Item {
     // Not read from metadata.json at runtime on purpose: the file IS deployed beside the
     // plugin, but no shipped module reads JSON from QML, and sandbox file/network access
     // fails SILENTLY. That would trade a stale version for a blank one.
-    property string moduleVersion: "0.2.13"
+    property string moduleVersion: "0.2.14"
 
     // ── Blend status (fed from BlockchainView → backend.blendStatus/lastBlendEvent) ──
     // Label carries the Blend state only (node state is in the status block above);
@@ -135,8 +135,12 @@ Item {
     // counts: core/src/mantle/transactions/gas.rs cites the spec as
     // "P_STR(0) = 1 LGO/gas" and writes GasPrice::new(1); the official
     // logos-blockchain-ui renders the raw string; hackyguru/persona formats the
-    // raw value with no division. `baseUnitsPerLgo` had zero hits on GitHub
-    // outside this fork.
+    // raw value with no division. No client we looked at divides.
+    //
+    // (An earlier comment here claimed `baseUnitsPerLgo` had "zero hits on
+    // GitHub". That is not reproducible — `gh search code` returns [] even for
+    // strings that demonstrably exist in a repo, so an empty result proves
+    // nothing. Removed rather than left as an unsupported assertion.)
     //
     // Formatting now lives in controls/AmountText.qml so exactly one place
     // decides what a number means. These two wrappers keep the existing stat-tile

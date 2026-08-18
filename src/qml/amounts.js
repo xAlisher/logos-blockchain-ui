@@ -9,7 +9,9 @@
 // This module used to divide by an invented `baseUnitsPerLgo = 10000`, so every
 // balance read 10,000x too small. Nothing upstream does that: the official
 // logos-blockchain-ui renders the raw string and hackyguru/persona formats the
-// raw value with no division; `baseUnitsPerLgo` had zero hits across GitHub.
+// raw value with no division. No client we looked at divides. (An earlier
+// comment claimed `baseUnitsPerLgo` had "zero hits across GitHub" — not
+// reproducible, `gh search code` returns [] for strings that do exist.)
 //
 // A shared library rather than a QML component because callers need the string
 // inside a sentence, not a visual item. Five views each doing their own unit
