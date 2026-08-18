@@ -1104,7 +1104,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         // constant whenever a fix means past ranges must be re-examined; settled
         // rows are keyed by tx hash, so a rescan re-confirms rather than
         // duplicating them.
-        constexpr int kScanVersion = 8;
+        constexpr int kScanVersion = 11;
         if (store.value(QStringLiteral("scanVersion")).toInt() < kScanVersion) {
             qInfo() << "getLeaderClaims: scan logic changed, rescanning from"
                     << store.value(QStringLiteral("historyFromSlot")).toInt();
@@ -1138,6 +1138,8 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             int dbgBlocks = 0, dbgClaimOps = 0, dbgOurClaims = 0;
             int dbgEvents = 0, dbgEvFail = 0, dbgMatched = 0;
             QString dbgEvErr, dbgBadId, dbgHdrKeys;
+            int dbgFeeMap = 0;
+            QString dbgOpcodes, dbgTxKeys, dbgLedgerShape;
             if (blocks.success) {
                 const QJsonArray rawArr =
                     QJsonDocument::fromJson(blocks.value.toString().toUtf8()).array();
@@ -1180,13 +1182,20 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
 
                     // Cheap pre-filter: does this block contain a LeaderClaim (0x30 = 48)
                     // credited to one of our keys? Only then pay for get_block_events.
-                    QHash<QString, QPair<QString, qint64>> feeByTx;  // tx -> (inputNoteId, change)
+                    // Keyed by VOUCHER NULLIFIER, not tx hash: `mantle_tx` over IPC
+                    // carries only `ops` — there is NO `hash` field (the node's HTTP
+                    // block DTO adds one). Keying by hash silently produced a map
+                    // with a single ""-keyed entry, so every fee lookup missed and
+                    // 16 settled claims showed "fee unknown". The nullifier appears
+                    // in both the claim op and the LeaderRewardClaimed event.
+                    QHash<QString, QPair<QString, qint64>> feeByNf;  // nf -> (inputNoteId, change)
                     bool anyOurs = false;
                     for (const QJsonValue& tv : txs) {
                         const QJsonObject mt =
                             tv.toObject().value(QStringLiteral("mantle_tx")).toObject();
                         const QJsonArray ops = mt.value(QStringLiteral("ops")).toArray();
                         bool isOurClaim = false;
+                        QString claimNf;
                         QString inputNote;
                         qint64 change = -1;
                         for (const QJsonValue& ov : ops) {
@@ -1195,6 +1204,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                             const int code = op.value(QStringLiteral("opcode")).toInt(-1);
                             if (code == 48) {
                                 ++dbgClaimOps;
+                                claimNf = pl.value(QStringLiteral("voucher_nullifier")).toString();
                                 if (ours.contains(pl.value(QStringLiteral("pk")).toString().toLower()))
                                     isOurClaim = true;
                             } else if (code == 0) {
@@ -1210,10 +1220,29 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                         if (isOurClaim) {
                             anyOurs = true;
                             ++dbgOurClaims;
-                            feeByTx.insert(mt.value(QStringLiteral("hash")).toString(),
-                                           qMakePair(inputNote, change));
+                            if (dbgOpcodes.isEmpty()) {
+                                QStringList codes;
+                                for (const QJsonValue& ov : ops)
+                                    codes << QString::number(
+                                        ov.toObject().value(QStringLiteral("opcode")).toInt(-1));
+                                dbgOpcodes = codes.join(QLatin1Char(','));
+                                dbgTxKeys = QStringList(mt.keys()).join(QLatin1Char(','));
+                                for (const QJsonValue& ov : ops) {
+                                    const QJsonObject op = ov.toObject();
+                                    if (op.value(QStringLiteral("opcode")).toInt(-1) != 0) continue;
+                                    const QJsonObject pl =
+                                        op.value(QStringLiteral("payload")).toObject();
+                                    dbgLedgerShape = QStringLiteral("plKeys=%1 in=%2 out=%3")
+                                        .arg(QStringList(pl.keys()).join(QLatin1Char('|')))
+                                        .arg(pl.value(QStringLiteral("inputs")).toArray().size())
+                                        .arg(pl.value(QStringLiteral("outputs")).toArray().size());
+                                }
+                            }
+                            if (!claimNf.isEmpty())
+                                feeByNf.insert(claimNf, qMakePair(inputNote, change));
                         }
                     }
+                    dbgFeeMap += feeByNf.size();
                     if (!anyOurs)
                         continue;
 
@@ -1284,15 +1313,22 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                         row.insert(QStringLiteral("reward"), reward);
 
                         // Fee = input note value − change output. The block gives only
-                        // the input's id, so this needs the harvested note map; when the
-                        // note predates the map the fee stays absent and renders "—".
-                        const auto fp = feeByTx.value(txHash);
-                        if (!fp.first.isEmpty() && fp.second >= 0
-                            && noteValues.contains(fp.first)) {
-                            const qint64 in =
-                                static_cast<qint64>(noteValues.value(fp.first).toDouble());
-                            if (in >= fp.second)
-                                row.insert(QStringLiteral("fee"), in - fp.second);
+                        // the input's ID, never its value, so pricing needs the harvested
+                        // note map.
+                        //
+                        // RECORD THE INGREDIENTS, do not just compute. A block is scanned
+                        // exactly once — the watermark then moves past it forever — so
+                        // computing the fee here and discarding the inputs meant that if
+                        // the note happened not to be in the map at that instant, the fee
+                        // was unrecoverable even though the data arrived moments later.
+                        // That is what left 15 settled claims with no fee while their
+                        // input notes sat in the map. Storing the pair lets a later pass
+                        // resolve it (see the back-fill below).
+                        const auto fp = feeByNf.value(
+                            claimed.value(QStringLiteral("voucher_nullifier")).toString());
+                        if (!fp.first.isEmpty() && fp.second >= 0) {
+                            row.insert(QStringLiteral("feeInput"), fp.first);
+                            row.insert(QStringLiteral("feeChange"), fp.second);
                         }
 
                         if (rowByTx.contains(txHash)) {
@@ -1332,6 +1368,12 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             scan.insert(QStringLiteral("events"), dbgEvents);
             scan.insert(QStringLiteral("eventsFailed"), dbgEvFail);
             scan.insert(QStringLiteral("matchedEvents"), dbgMatched);
+            scan.insert(QStringLiteral("feeMapSize"), dbgFeeMap);
+            if (!dbgOpcodes.isEmpty()) {
+                scan.insert(QStringLiteral("opcodes"), dbgOpcodes);
+                scan.insert(QStringLiteral("txKeys"), dbgTxKeys);
+                scan.insert(QStringLiteral("ledgerShape"), dbgLedgerShape);
+            }
             if (!dbgEvErr.isEmpty()) {
                 scan.insert(QStringLiteral("eventsError"), dbgEvErr);
                 scan.insert(QStringLiteral("badBlockId"), dbgBadId);
@@ -1351,6 +1393,27 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                            << ") failed:" << blocks.error.toString()
                            << "- watermark held at" << from;
             }
+        }
+    }
+
+    // --- resolve any fee we now have the ingredients for -------------------
+    // Runs every pass, not just when a block is first scanned, so a fee becomes
+    // known as soon as its input note appears in the map — however long after
+    // settlement that is.
+    for (int i = 0; i < claims.size(); ++i) {
+        QJsonObject row = claims.at(i).toObject();
+        if (row.contains(QStringLiteral("fee")))
+            continue;
+        const QString in = row.value(QStringLiteral("feeInput")).toString();
+        if (in.isEmpty() || !noteValues.contains(in))
+            continue;
+        const qint64 spent = static_cast<qint64>(noteValues.value(in).toDouble());
+        const qint64 change = static_cast<qint64>(
+            row.value(QStringLiteral("feeChange")).toDouble());
+        if (spent >= change && change >= 0) {
+            row.insert(QStringLiteral("fee"), spent - change);
+            claims.replace(i, row);
+            changed = true;
         }
     }
 

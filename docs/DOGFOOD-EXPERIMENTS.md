@@ -58,8 +58,10 @@ Verdicts: **CONFIRMED** (measured) · **REFUTED** (measured, prediction wrong) �
 | E1 | The fee can be derived from the chain alone | **REFUTED** | Inputs carry an id and no value; outputs a value and no id; block events record neither. It needs a locally-tracked note map. |
 | E2 | `wallet_get_balance` supplies the note breakdown for that map | **REFUTED** | Over IPC it returns a **bare number string**, not JSON. The `notes` map exists only on the HTTP endpoint. Switched to `wallet_get_notes` — which returns an *array* with stringified values, a third shape again. |
 | E3 | Fees stay unknown only for claims whose note was spent before harvesting began | **REFUTED** | A settled claim's input note **is** in the map with the right value (9,517), change 5,344, fee 4,173 — and the row still had no fee. |
-| E4 | The fee was lost because a block is scanned once and the ingredients discarded | **REFUTED** | Storing `feeInput`/`feeChange` and resolving lazily still produced **zero** entries after a full rescan — so `feeByTx` never populates at all. |
-| E5 | The ledger op's `inputs`/`outputs` shape over IPC differs from the HTTP shape | **OPEN** | Diagnostic shipped (scanVersion 10) recording the tx's opcodes, `mantle_tx` keys and the ledger op's payload keys/sizes as seen over IPC. |
+| E4 | The fee was lost because a block is scanned once and the ingredients discarded | **REFUTED as the cause, kept as a fix** | Storing `feeInput`/`feeChange` and resolving lazily still produced zero entries — the map was never populated (see E5). The lazy resolution was kept anyway: it is correct, and it is what lets a fee appear whenever its note later shows up. |
+| E5 | The ledger op's `inputs`/`outputs` shape over IPC differs from the HTTP shape | **REFUTED — the shape was right, the KEY was wrong** | Diagnostic returned `opcodes=48,0`, `ledgerShape=plKeys=inputs\|outputs in=1 out=1` — exactly as expected. But `txKeys=ops`: **`mantle_tx` over IPC has no `hash` field** (the HTTP DTO adds one), so the map collapsed to a single `""`-keyed entry and every lookup missed. Re-keyed by `voucher_nullifier`, which both the claim op and the event carry. |
+| E6 | With the key fixed, fees resolve for claims whose input note was harvested | **CONFIRMED** | 6 of 16 resolved, every one **4,173**: `+9,535 − 4,173` and `+9,676 − 4,173` ×5. The other 10 spent their notes before harvesting began and correctly read "unknown". |
+| E7 | Both the reward and the fee vary | **REFUTED** | The **fee is constant at 4,173**; only the reward moves (9,517 / 9,535 / 9,676). The "43–44 %" figure drifts solely because the numerator changes. |
 
 ## F. Rewards and leadership
 
@@ -82,7 +84,8 @@ assuming the module's IPC surface matched**. It does not, on nearly every call:
 | wallet balance | JSON with a `notes` map | bare number string |
 | wallet notes | `{id: value}` map | array, values stringified |
 | block header | includes `id` | no `id` — computed |
-| ledger op inputs/outputs | `[id]` / `[{value}]` | **under test (E5)** |
+| ledger op inputs/outputs | `[id]` / `[{value}]` | same |
+| `mantle_tx.hash` | present | **absent — only `ops`** |
 
 And the failures were silent every time: a bare `continue`, a watermark advanced outside its success
 check, a zero read from a missing field. The rule that came out of it, and the reason this log
