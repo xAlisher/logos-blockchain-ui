@@ -34,23 +34,22 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.13`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.13)** —
-  **Leader Rewards rebuilt.** Honest voucher states ("N ready to claim", not "pending"), a permanent claims
-  ledger reconciled against the chain (older claims are recovered from it automatically), a gated Claim
-  button, and operator figures — Claimed / Unclaimed / **Cost to claim** / Blocks led / Last claim.
-  Two numbers were wrong before this: balances were **10,000x too small** (the chain's raw `u64` *is* LGO),
-  and the Balance tile reported the wrong wallet — not `leader.wallet.funding_pk`, the key that actually
-  proposes blocks and pays claim fees.
-  Previous: **v0.2.12** added Node Remote support + honest node state; **v0.2.8** the chain-recovery status.
+- **[`logos_node_1click v0.2.14`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.14)** —
+  **Claim fees now resolve.** `Cost to claim` and the per-claim lines showed "fee unknown" for every
+  settled claim; they now show real numbers (`+9,676 − 4,173 = +5,503`). The lookup was keyed by a
+  transaction hash that does not exist over IPC — `mantle_tx` carries only `ops`. The fee is
+  constant at 4,173; only the reward varies.
+  Previous: **v0.2.13** rebuilt Leader Rewards (honest voucher states, a permanent claims ledger,
+  LGO units, and the leader-key balance fix).
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.13/logos_node_1click-0.2.13-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.14/logos_node_1click-0.2.14-linux-amd64.lgx
 
 # macOS Apple Silicon / arm64 Linux — CI builds of the same commit (unsigned)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.13/logos-blockchain-ui-aarch64-darwin.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.14/logos-blockchain-ui-aarch64-darwin.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
