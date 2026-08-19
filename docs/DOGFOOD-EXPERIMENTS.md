@@ -61,7 +61,8 @@ Verdicts: **CONFIRMED** (measured) · **REFUTED** (measured, prediction wrong) �
 | E4 | The fee was lost because a block is scanned once and the ingredients discarded | **REFUTED as the cause, kept as a fix** | Storing `feeInput`/`feeChange` and resolving lazily still produced zero entries — the map was never populated (see E5). The lazy resolution was kept anyway: it is correct, and it is what lets a fee appear whenever its note later shows up. |
 | E5 | The ledger op's `inputs`/`outputs` shape over IPC differs from the HTTP shape | **REFUTED — the shape was right, the KEY was wrong** | Diagnostic returned `opcodes=48,0`, `ledgerShape=plKeys=inputs\|outputs in=1 out=1` — exactly as expected. But `txKeys=ops`: **`mantle_tx` over IPC has no `hash` field** (the HTTP DTO adds one), so the map collapsed to a single `""`-keyed entry and every lookup missed. Re-keyed by `voucher_nullifier`, which both the claim op and the event carry. |
 | E6 | With the key fixed, fees resolve for claims whose input note was harvested | **CONFIRMED** | 6 of 16 resolved, every one **4,173**: `+9,535 − 4,173` and `+9,676 − 4,173` ×5. The other 10 spent their notes before harvesting began and correctly read "unknown". |
-| E7 | Both the reward and the fee vary | **REFUTED** | The **fee is constant at 4,173**; only the reward moves (9,517 / 9,535 / 9,676). The "43–44 %" figure drifts solely because the numerator changes. |
+| E7 | Both the reward and the fee vary | **REFUTED, then NARROWED** | On wild the **fee was constant at 4,173** while the reward moved (9,517 / 9,535 / 9,676), so the "43–44 %" figure drifted solely because the numerator changed. **Corrected 2026-08-19 by E8:** the constant is per node/version, not global. |
+| E8 | The 4,173 fee is a property of the protocol, so a third node will show it too | **REFUTED** | optiplex (`blockchain_module` **0.2.2**, vs 0.2.1 on wild/sneg) charged **4,602** on all four claims, with all four rewards identical at **9,664** — a 47.6 % cost, not 43–44 %. The fee *is* constant within a node, which is why it looked protocol-wide from a single machine. Stating it as a universal constant was over-reach from one node's data. |
 
 ## F. Rewards and leadership
 
@@ -72,6 +73,56 @@ Verdicts: **CONFIRMED** (measured) · **REFUTED** (measured, prediction wrong) �
 | F3 | Claiming everything pauses block production until the next epoch | **OPEN** | Leadership filters notes to the *epoch snapshot* (`services/wallet/src/lib.rs:1099`); claiming replaces aged notes with fresh ones. After sweeping 47 claims: **0 blocks led, 0 new vouchers in 7+ h**, still epoch 30. Falsifiable prediction: it resumes when epoch 31 begins. |
 
 ---
+
+## G. Third node — optiplex, `blockchain_module` 0.2.2 (2026-08-19)
+
+A third machine, and the first on **0.2.2** rather than 0.2.1. It had been running 5½ days,
+had earned vouchers, and had **never claimed** — which made it a clean read on numbers that
+had only ever been measured on 0.2.1.
+
+**Setup before touching anything:** tip advancing ~1 slot/s, 64 peers, `Online`/`Following`,
+`leader.wallet.funding_pk` correctly set (the `logos-blockchain-ui#35` trap is absent here —
+note the file also carries an unrelated `sdp.wallet.funding_pk`, and funding *that* is the bug).
+Wallet held exactly one note of 1,000,000,000,000 — the untouched faucet note, no rewards.
+
+| # | Hypothesis | Verdict | Evidence |
+|---|---|---|---|
+| G1 | Zero proposals in the retained logs means the node stopped leading | **REFUTED — and it nearly fooled me** | The hourly files retain ~10 hours. At 8 proposals per 5½ days, the *expected* count in a 10-hour window is ~0.3, so zero is the normal reading, not a fault. The real history lives in `logoscore.out`, which never rotates. |
+| G2 | The rotating hourly logs are the only proposal source, so history before them is lost | **REFUTED** | `logoscore.out` (~400 MB, logoscore's own stdout) holds the whole run. Harvesting it recovered all 8 proposals back to 2026-08-14, four days beyond the hourly window. |
+| G3 | The fee is 4,173 on any node (see E7) | **REFUTED** | 4,602 on every one of the four claims. See E8. |
+| G4 | Rewards vary between claims | **REFUTED here** | All four rewards were identical at 9,664. On wild they varied — the difference is that these four were claimed within 35 seconds of each other, so they share their epoch conditions. Variation across time, not across claims. |
+| G5 | The transient `available=0` failure is specific to 0.2.1 | **REFUTED** | Attempt 2 of 4 failed with `Wallet API error: Wallet does not have enough funds, available=0` while the wallet held 1,000,000,000,000. Reproduces unchanged on 0.2.2. A plain retry succeeded. Evidence for `logos-blockchain-node#3336`. |
+| G6 | Every led block yields a claimable voucher | **REFUTED — second-node confirmation of module#67** | **8 proposals, 4 vouchers.** Exactly half, and no API accounts for the other four. This is the independent evidence the upstream issue was missing: wild's 113→12 gap could have been machine-specific; two machines on different module versions cannot both be a local accident. |
+
+**The claim run** — four vouchers, one at a time, 6s apart:
+
+```
+06:01:57  200  b9b36ad5…
+06:02:03  500  available=0          ← transient; wallet held 1e12
+06:02:09  200  2453a8ad…
+06:02:15  200  29fdb108…
+06:02:31  200  e04ab569…            ← retry of the failed one
+```
+
+All four settled **within ~35 seconds** of the last submission, consistent with the
+"lands within ~20 slots or never" finding from wild.
+
+**Reconciliation** — the arithmetic closes exactly, which is what makes the fee trustworthy:
+
+```
+4 rewards × 9,664          =  38,656
+faucet note 1,000,000,000,000 → 999,999,981,592
+fees                       =  18,408  → 4,602 each
+net                        =  20,248  = 4 × (9,664 − 4,602)
+balance 1,000,000,000,000  → 1,000,000,020,248 ✓
+```
+
+A **proposal harvester** now runs here every 15 minutes
+(`/home/dar/logos-harvest/harvest_proposals.py`, cron `*/15`). It reads `logoscore.out`
+incrementally by byte offset — a full pass costs 22.9s, an incremental one 0.30s — and
+snapshots vouchers, balance and reward notes alongside the proposal count, so the
+proposals-vs-vouchers gap accumulates as a time series instead of being re-derived from a log
+that has already been pruned.
 
 ## The pattern behind the REFUTED rows
 
