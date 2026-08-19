@@ -127,6 +127,11 @@ private:
     // on-chain claim without a local row is backfilled.
     QString claimsStorePath() const;
     QJsonObject loadClaimStore() const;
+    /// Claims submitted from a paired phone, written by node_remote. READ ONLY — one
+    /// writer per file is what lets the two modules share this directory without a lock.
+    /// Absent (no node_remote installed) is normal and reads as empty.
+    QString     pendingClaimsPath() const;
+    QJsonArray  loadPendingClaims() const;
     void saveClaimStore(const QJsonObject& store) const;
     void recordClaimSubmission(const QString& txHash);
     // Public keys a claim of ours can be credited to (leader funding key first,

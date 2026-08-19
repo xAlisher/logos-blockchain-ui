@@ -18,6 +18,8 @@
 #include <QJsonValue>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <QProcessEnvironment>
 #include <QSettings>
@@ -950,11 +952,52 @@ void LogosNode1clickBackend::saveClaimStore(const QJsonObject& store) const
     const QString p = claimsStorePath();
     if (p.isEmpty())
         return;
-    QFile f(p);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    // QSaveFile, NOT QFile+Truncate. Truncate empties the file on open(), so any reader
+    // landing inside the write window sees zero bytes or a partial document — a real
+    // window even with a single writer, because this runs on a 20s timer while other
+    // processes (node_remote's /v1/rewards, a person with `cat`) read the same path.
+    // QSaveFile writes a temporary beside the target and renames over it on commit, and
+    // POSIX rename is atomic: a reader gets either the whole old file or the whole new
+    // one. On failure it discards the temporary, so a full disk can no longer destroy the
+    // ledger by truncating it and then failing to write.
+    QSaveFile f(p);
+    if (!f.open(QIODevice::WriteOnly))
         return;
-    f.write(QJsonDocument(store).toJson(QJsonDocument::Compact));
+    if (f.write(QJsonDocument(store).toJson(QJsonDocument::Compact)) < 0) {
+        f.cancelWriting();
+        return;
+    }
+    f.commit();
+}
+
+QString LogosNode1clickBackend::pendingClaimsPath() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return {};
+    return QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("pending-claims.json"));
+}
+
+QJsonArray LogosNode1clickBackend::loadPendingClaims() const
+{
+    // Claims submitted from a paired phone, written by node_remote. We READ this file and
+    // never write it: one writer per file is what makes the two modules safe to run
+    // together without a lock. See node-remote/node_remote/src/pending_claims.h.
+    //
+    // ABSENT IS NORMAL AND MEANS NOTHING IS WRONG. Nobody is required to install
+    // node_remote, and without it this returns empty and every path below behaves exactly
+    // as it did before this existed.
+    const QString p = pendingClaimsPath();
+    if (p.isEmpty())
+        return {};
+    QFile f(p);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
     f.close();
+    if (!doc.isObject())
+        return {};
+    return doc.object().value(QStringLiteral("pending")).toArray();
 }
 
 QStringList LogosNode1clickBackend::ourClaimKeys() const
@@ -1064,6 +1107,30 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
     QJsonArray claims = store.value(QStringLiteral("claims")).toArray();
     const QJsonObject noteValues = store.value(QStringLiteral("noteValues")).toObject();
     const QStringList ours = ourClaimKeys();
+
+    // --- adopt claims submitted from a paired phone -----------------------
+    // node_remote records a write-ahead row when someone claims from the phone, because
+    // `leader_claim` leaves no other trace on this machine. Merging here — before
+    // reconciliation, the fee backfill and the expiry aging — means such a row travels
+    // every path below exactly as one this module wrote itself, so both surfaces show the
+    // same claim in the same state within one poll.
+    //
+    // Empty when node_remote is not installed, which is the ordinary case and changes
+    // nothing.
+    QSet<QString> adoptedTxs;
+    for (const QJsonValue& v : loadPendingClaims()) {
+        const QJsonObject row = v.toObject();
+        const QString tx = row.value(QStringLiteral("tx")).toString();
+        if (tx.isEmpty())
+            continue;
+        bool known = false;
+        for (const QJsonValue& c : claims)
+            if (c.toObject().value(QStringLiteral("tx")).toString() == tx) { known = true; break; }
+        if (known)
+            continue;               // ours already; the ledger row is the better one
+        adoptedTxs.insert(tx);
+        claims.append(row);
+    }
 
     // Index existing rows by tx so reconciliation and backfill share one path.
     QHash<QString, int> rowByTx;
@@ -1462,7 +1529,21 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         claims.removeLast();
 
     if (changed) {
-        store.insert(QStringLiteral("claims"), claims);
+        // THE HANDOFF RULE. A merged row that is still `submitted` belongs to node_remote's
+        // file — persisting it here would put the same claim in both files, and then each
+        // side would keep re-adding what the other had already counted. Once reconciliation
+        // has decided something about it (in a block, settled, or aged to expired) this
+        // ledger adopts it permanently, and node_remote drops its copy on the next read
+        // precisely because it now finds that tx here. One row, one owner, at every moment.
+        QJsonArray persist;
+        for (const QJsonValue& v : claims) {
+            const QJsonObject r = v.toObject();
+            if (adoptedTxs.contains(r.value(QStringLiteral("tx")).toString())
+                && r.value(QStringLiteral("status")).toString() == QLatin1String("submitted"))
+                continue;
+            persist.append(r);
+        }
+        store.insert(QStringLiteral("claims"), persist);
         saveClaimStore(store);
     }
 
