@@ -133,6 +133,12 @@ private:
     QString     pendingClaimsPath() const;
     QJsonArray  loadPendingClaims() const;
     void saveClaimStore(const QJsonObject& store) const;
+    // Claimable-voucher count from the node, or -1 if unknown. See the .cpp:
+    // a rise in this while claims are outstanding is direct evidence they died.
+    int claimableVoucherCount();
+    // Proposals in the durable store — a CEILING on vouchers newly earned
+    // while a claim was in flight, so leadership is never read as a release.
+    int proposalCount() const;
     void recordClaimSubmission(const QString& txHash);
     // Public keys a claim of ours can be credited to (leader funding key first,
     // then the wallet key — the module assigns them separately, see ui#35).

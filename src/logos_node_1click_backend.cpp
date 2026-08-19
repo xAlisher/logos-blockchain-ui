@@ -900,24 +900,20 @@ static constexpr int kScanChunkSlots = 8000;
 // tens of MB. The summary is labelled with historyFromSlot so a partial scan is
 // never presented as a lifetime total.
 static constexpr int kInitialLookbackSlots = 120000;
-// How long before a submitted-but-unseen claim is treated as not-included.
+// How far past a claim's submission slot LIB must advance -- and we must have
+// SCANNED -- before absence is treated as a fact rather than a wait.
 //
-// The node's rule is in BLOCKS, not slots: services/wallet/src/states.rs evicts a
-// reservation once `immutable_blocks_since_reservation >= security_param`. The old
-// constant here was a flat 20000 slots, which at this network's block rate is ~5.5 h
-// against the node's real ~1 h — so the row appeared roughly 4.5 h AFTER the voucher
-// had already become reusable, and read as a warning when it was a late receipt.
+// A claim is included within ~20 slots or never: 7 unlanded claims were absent
+// from 1,586 blocks across 6h while 40 unrelated leader-claims landed in the same
+// window. So once LIB is past the submission slot the question is already decided;
+// the margin is slack for block-rate jitter, not a waiting period.
 //
-// security_param is a consensus parameter and is not exposed by any API we can call,
-// so the block count is a constant; the SLOT budget it implies is derived per-poll
-// from the chain's own observed rate (tip slot / height), because that rate varies
-// (24-29 s/block measured). Deriving it is the point: a fixed slot number cannot
-// track a variable block rate, which is how the 20000 got so far off.
-static constexpr int kSecurityParamBlocks = 120;
-// Guards on the derived rate, so a nonsense height (0, or a fresh/resyncing node)
-// cannot collapse the window to nothing and mass-expire live claims.
-static constexpr int kMinSlotsPerBlock = 4;
-static constexpr int kMaxSlotsPerBlock = 240;
+// Calibrated against the node, not derived: on 2026-08-19 the claimable pool went
+// 0 -> 7 when LIB reached 148 slots past submission, i.e. the node had released
+// those reservations by then. Earlier versions waited 20000 slots (~5.5h) and then
+// security_param=120 blocks (~1.6h) -- both far past the point the node had already
+// answered, which is what put "Ready to claim 7" next to "Submitted 7" on screen.
+static constexpr int kDecisionMarginSlots = 200;
 // Extra slots fetched past the chunk end purely to resolve the last in-range
 // block's id from its successor's parent_block. Blocks are ~10-40 slots apart
 // here, so this comfortably contains at least one successor.
@@ -1069,6 +1065,55 @@ void LogosNode1clickBackend::rememberNoteValues(const QString& notesJson)
     saveClaimStore(store);
 }
 
+// Proposals recorded in the durable store. Used ONLY as a ceiling on how many
+// vouchers could have been newly earned while a claim was in flight, so that
+// leadership during the wait is never mistaken for a released reservation.
+// Reads the file rather than getProposals() because the caller needs a number,
+// not a list, and getProposals() also rescans logs.
+int LogosNode1clickBackend::proposalCount() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return 0;
+    QFile f(QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("proposals-history.json")));
+    if (!f.open(QIODevice::ReadOnly))
+        return 0;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    return doc.isArray() ? doc.array().size() : 0;
+}
+
+// Count of vouchers the node currently reports as claimable.
+//
+// This is the ONLY authoritative statement about a reservation that we can read.
+// A voucher held by an in-flight claim is reserved and therefore absent from this
+// list; when the node gives up on that claim it releases the reservation and the
+// voucher reappears here. So a RISE in this count, with claims outstanding, is
+// direct evidence that those claims are dead -- observed, not inferred, and it
+// arrives about an hour before any timer we could set. Measured 2026-08-19: the
+// pool went 0 -> 7 the moment LIB passed 148 slots beyond the submission slot,
+// while our 120-block timer would not have fired for another hour. The UI showed
+// "Ready to claim 7" and "Submitted 7" side by side for 54 minutes -- the same
+// seven vouchers in two states that cannot both be true.
+//
+// Returns -1 when the count is unknown, which callers MUST treat as "no evidence"
+// rather than as zero.
+int LogosNode1clickBackend::claimableVoucherCount()
+{
+    if (!m_blockchainClient || status() != BlockchainStatus::Running)
+        return -1;
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers")));
+    if (!r.success)
+        return -1;
+    const QJsonObject o = QJsonDocument::fromJson(r.value.toString().toUtf8()).object();
+    // Tolerate both shapes, as everywhere else: wrapped {vouchers:[...]} and bare [...].
+    if (o.contains(QStringLiteral("vouchers")))
+        return o.value(QStringLiteral("vouchers")).toArray().size();
+    const QJsonArray arr = QJsonDocument::fromJson(r.value.toString().toUtf8()).array();
+    return arr.isEmpty() && !o.isEmpty() ? -1 : arr.size();
+}
+
 void LogosNode1clickBackend::recordClaimSubmission(const QString& txHash)
 {
     if (txHash.isEmpty())
@@ -1091,12 +1136,21 @@ void LogosNode1clickBackend::recordClaimSubmission(const QString& txHash)
             tipSlot = slotField(info.value.toString(), "slot");
     }
 
+    // Pool level WITH this claim's reservation already held. The claim has just been
+    // accepted, so the voucher it took is no longer claimable; anything above this
+    // number later is a voucher that came back (or one newly earned -- see the
+    // proposal guard in the resolve pass).
+    const int poolAtSubmit = claimableVoucherCount();
+
     QJsonObject row;
     row.insert(QStringLiteral("tx"), txHash);
     row.insert(QStringLiteral("status"), QStringLiteral("submitted"));
     row.insert(QStringLiteral("submittedAt"),
                QDateTime::currentDateTime().toString(Qt::ISODate));
     row.insert(QStringLiteral("submittedAtSlot"), tipSlot);
+    if (poolAtSubmit >= 0)
+        row.insert(QStringLiteral("poolAtSubmit"), poolAtSubmit);
+    row.insert(QStringLiteral("proposalsAtSubmit"), proposalCount());
     claims.prepend(row);
 
     store.insert(QStringLiteral("claims"), claims);
@@ -1153,12 +1207,6 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
 
     bool changed = false;
     int libSlot = 0;
-    // Tip slot and height, read from the same get_cryptarchia_info payload as libSlot.
-    // Their ratio is the chain's own average slots-per-block, which is what turns the
-    // node's block-denominated expiry rule into a slot budget we can compare against.
-    // Declared out here because the expiry pass below is outside the reconcile block.
-    int tipSlotNow = 0;
-    int tipHeight = 0;
 
     // Slot -> wall clock, so a backfilled row can be dated. A claim recovered from
     // the chain has no local record of when it was submitted; its block's slot is
@@ -1184,10 +1232,6 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info")));
         if (info.success)
             libSlot = slotField(info.value.toString(), "lib_slot");
-        if (info.success) {
-            tipSlotNow = slotField(info.value.toString(), "slot");
-            tipHeight  = slotField(info.value.toString(), "height");
-        }
 
         // One-time rescan when the scan logic changes. The first release advanced
         // the watermark even when get_blocks failed, so an existing store can
@@ -1195,7 +1239,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         // constant whenever a fix means past ranges must be re-examined; settled
         // rows are keyed by tx hash, so a rescan re-confirms rather than
         // duplicating them.
-        constexpr int kScanVersion = 12;
+        constexpr int kScanVersion = 13;
         if (store.value(QStringLiteral("scanVersion")).toInt() < kScanVersion) {
             qInfo() << "getLeaderClaims: scan logic changed, rescanning from"
                     << store.value(QStringLiteral("historyFromSlot")).toInt();
@@ -1508,33 +1552,65 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         }
     }
 
-    // --- age out submissions that never landed ----------------------------
-    // The node evicts a reservation after security_param IMMUTABLE BLOCKS, so the
-    // budget is computed in blocks and converted to slots at the chain's own rate
-    // rather than guessed as a flat slot count. See kSecurityParamBlocks.
+    // --- resolve submissions that never landed -----------------------------
+    //
+    // Two conditions, and BOTH must hold. Neither alone is safe:
+    //
+    //   (1) DECIDABLE. LIB has passed the submission slot by kDecisionMarginSlots,
+    //       AND we have actually scanned that far. A claim is included within ~20
+    //       slots or never (measured: 7 unlanded claims were absent from 1,586
+    //       blocks over 6h), so once that window is final and read, absence is a
+    //       fact rather than a wait. The scan check matters independently: without
+    //       it, "not found" can mean "not looked", which is how a watermark bug
+    //       once marked 126k slots read that were never fetched.
+    //
+    //   (2) THE POOL AGREES. The node reports more claimable vouchers than when
+    //       this claim was submitted. A voucher held by an in-flight claim is
+    //       reserved and absent from that list, so its reappearance is the node
+    //       telling us the reservation was released -- observation, not inference.
+    //
+    // Condition 2 is skipped for rows written before poolAtSubmit existed, and
+    // when the count is unavailable; condition 1 still gates those.
+    //
+    // This replaces a timer (previously security_param blocks, before that a flat
+    // 20000 slots). The timer was not merely slow, it was incoherent: on 2026-08-19
+    // the panel showed "Ready to claim 7" beside "Submitted 7" for 54 minutes --
+    // the same seven vouchers, simultaneously available and reserved. The pool was
+    // right and the timer was still counting.
     if (libSlot > 0) {
-        int slotsPerBlock = 0;
-        if (tipHeight > 0 && tipSlotNow > 0)
-            slotsPerBlock = qBound(kMinSlotsPerBlock, tipSlotNow / tipHeight, kMaxSlotsPerBlock);
-        // No usable rate (height not yet known) means no expiring this pass. Holding a
-        // row as "submitted" for one more poll is harmless; expiring it wrongly is not.
-        if (slotsPerBlock > 0) {
-            const int budget = kSecurityParamBlocks * slotsPerBlock;
-            for (int i = 0; i < claims.size(); ++i) {
-                QJsonObject row = claims.at(i).toObject();
-                if (row.value(QStringLiteral("status")).toString() != QLatin1String("submitted"))
-                    continue;
-                const int at = row.value(QStringLiteral("submittedAtSlot")).toInt();
-                if (at > 0 && libSlot > at + budget) {
-                    row.insert(QStringLiteral("status"), QStringLiteral("expired"));
-                    // Kept for the (i) detail, not for the row body: we still have not
-                    // OBSERVED the release, we have reasoned to it. What changed is that
-                    // the user-facing claim is now about counts, which we do know.
-                    row.insert(QStringLiteral("inferred"), true);
-                    claims.replace(i, row);
-                    changed = true;
-                }
+        const int scanned = store.value(QStringLiteral("lastScannedSlot")).toInt();
+        const int poolNow = claimableVoucherCount();
+        // An upper bound on how many of the extra vouchers are newly EARNED rather
+        // than returned, so leadership during the wait cannot be mistaken for a
+        // release. Proposals are the ceiling: not every proposal yields a voucher.
+        const int proposalsNow = proposalCount();
+
+        for (int i = 0; i < claims.size(); ++i) {
+            QJsonObject row = claims.at(i).toObject();
+            if (row.value(QStringLiteral("status")).toString() != QLatin1String("submitted"))
+                continue;
+            const int at = row.value(QStringLiteral("submittedAtSlot")).toInt();
+            if (at <= 0)
+                continue;
+            const int horizon = at + kDecisionMarginSlots;
+            if (libSlot < horizon || scanned < horizon)
+                continue;                       // (1) not decidable yet
+
+            if (row.contains(QStringLiteral("poolAtSubmit")) && poolNow >= 0) {
+                const int was = row.value(QStringLiteral("poolAtSubmit")).toInt();
+                const int earned = qMax(0, proposalsNow
+                                        - row.value(QStringLiteral("proposalsAtSubmit")).toInt());
+                if (poolNow - earned <= was)
+                    continue;                   // (2) pool shows no returned voucher
+                row.insert(QStringLiteral("resolvedBy"), QStringLiteral("pool"));
+            } else {
+                row.insert(QStringLiteral("resolvedBy"), QStringLiteral("finality"));
             }
+
+            row.insert(QStringLiteral("status"), QStringLiteral("expired"));
+            row.insert(QStringLiteral("inferred"), true);
+            claims.replace(i, row);
+            changed = true;
         }
     }
 

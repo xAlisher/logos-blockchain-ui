@@ -1,7 +1,7 @@
 {
   "name": "logos_node_1click",
   "display_name": "Blockchain node",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "type": "ui_qml",
   "category": "blockchain",
   "description": "Community 1-click fork",
