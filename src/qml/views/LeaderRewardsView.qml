@@ -157,6 +157,12 @@ ScrollView {
             if (claims[i].status === "expired") n++
         return n
     }
+    readonly property int landedCount: {
+        var n = 0
+        for (var i = 0; i < claims.length; ++i)
+            if (claims[i].status === "settled") n++
+        return n
+    }
 
     // Bare number — for counts and slot numbers, which have no unit.
     function fmt(n) { return Amounts.plain(n) }
@@ -171,7 +177,7 @@ ScrollView {
     //   in_block  #ED7B58 primary  — moving, not yet final
     //   settled   #49F563 success  — done
     //   expired   #969696 tertiary — inert; a no-op, not an error, so NOT red
-    //     (shown as "Not included": what expired is the node's RESERVATION,
+    //     (shown as "Didn't land": what expired is the node's RESERVATION,
     //      not the voucher. "Expired" made users ask if they had lost money.)
     // red (error) stays reserved for a claim that actually failed.
     function statusColor(st) {
@@ -184,7 +190,7 @@ ScrollView {
     function statusLabel(st) {
         if (st === "settled")  return qsTr("Settled")
         if (st === "in_block") return qsTr("In a block")
-        if (st === "expired")  return qsTr("Not included")
+        if (st === "expired")  return qsTr("Didn't land")
         if (st === "error")    return qsTr("Failed")
         return qsTr("Submitted")
     }
@@ -426,18 +432,19 @@ ScrollView {
             }
         }
 
-        // Answer the question the ledger provokes, before anyone has to ask it.
-        // A user seeing rows marked as not-included asked "are these lost?" — the
-        // count is the answer, and it is the answer we can give without naming a
-        // voucher (see #46). Only shown when there is something to reassure about.
+        // The rows say what happened; THIS says how it is going. Two different jobs,
+        // and collapsing them was a mistake: repeating "nothing was consumed" on 34
+        // rows is accurate and useless — a 41% landing rate is not a labelling
+        // problem, it is a claims-are-not-landing problem, and the user should be
+        // told so rather than soothed. So: the rate leads, the reassurance is one
+        // clause, and the action closes. See #46.
         LogosText {
             visible: root.notIncludedCount > 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: root.notIncludedCount === 1
-                ? qsTr("1 claim was not included in a block. Nothing was consumed — %1 vouchers are ready to claim.")
-                      .arg(root.fmt(root.vouchers.length))
-                : qsTr("%1 claims were not included in a block. Nothing was consumed — %2 vouchers are ready to claim.")
+            text: qsTr("%1 of %2 claims have landed. The other %3 weren't included in a block — nothing was consumed, and %4 vouchers are still ready. Claims land far more reliably a few seconds apart.")
+                      .arg(root.fmt(root.landedCount))
+                      .arg(root.fmt(root.landedCount + root.notIncludedCount))
                       .arg(root.fmt(root.notIncludedCount))
                       .arg(root.fmt(root.vouchers.length))
             color: Theme.palette.textSecondary
@@ -548,7 +555,7 @@ ScrollView {
                                 visible: claimRow.st === "expired"
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                text: qsTr("This claim was not included in a block, so nothing was consumed — your claimable count is unchanged. The node released its reservation and the voucher can be claimed again.")
+                                text: qsTr("Not included in a block. Nothing was consumed — the voucher can be claimed again.")
                                 color: Theme.palette.textTertiary
                                 font.pixelSize: Theme.typography.secondaryText
                             }
