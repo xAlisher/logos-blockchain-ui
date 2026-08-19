@@ -119,13 +119,43 @@ ScrollView {
         return n
     }
 
-    readonly property bool canClaim: vouchers.length > 0 && balance > 0 && !claimInFlight
+    // Pacing. Claims fired in a burst land at roughly half the rate of paced ones:
+    // measured 13->6 and 12->5 submitted-to-settled when fired together, against
+    // 47/47 and 4/4 with a couple of seconds between calls. The cause is not
+    // isolated (contention over the same notes, propagation, mempool eviction are
+    // all candidates), but the correlation is strong and the cost of waiting is
+    // nil — so the button holds itself back rather than letting a burst happen.
+    // This is the cheapest fix in #46 and the only one that prevents the confusing
+    // state instead of explaining it.
+    property bool claimCoolingDown: false
+    Timer {
+        id: claimCooldown
+        interval: 2000
+        onTriggered: root.claimCoolingDown = false
+    }
+
+    readonly property bool canClaim: vouchers.length > 0 && balance > 0
+                                     && !claimInFlight && !claimCoolingDown
     readonly property string claimBlockedReason: {
         if (claimInFlight) return qsTr("Claim in flight — wait for it to be submitted.")
+        if (claimCoolingDown) return qsTr("Pacing — claims land far more reliably a couple of seconds apart.")
         if (vouchers.length === 0) return qsTr("No vouchers ready to claim.")
         if (balance === 0) return qsTr("Not enough balance to pay the claim fee.")
         if (balance < 0) return qsTr("Waiting for the wallet balance…")
         return ""
+    }
+    // Called by the view when a claim is actually submitted.
+    function startClaimCooldown() {
+        root.claimCoolingDown = true
+        claimCooldown.restart()
+    }
+
+    // Claims that never made it into a block. Counted, never linked to a voucher.
+    readonly property int notIncludedCount: {
+        var n = 0
+        for (var i = 0; i < claims.length; ++i)
+            if (claims[i].status === "expired") n++
+        return n
     }
 
     // Bare number — for counts and slot numbers, which have no unit.
@@ -140,7 +170,9 @@ ScrollView {
     //   submitted #FEBC2E warning  — waiting, nothing wrong
     //   in_block  #ED7B58 primary  — moving, not yet final
     //   settled   #49F563 success  — done
-    //   expired   #969696 tertiary — inert; costs nothing, so NOT red
+    //   expired   #969696 tertiary — inert; a no-op, not an error, so NOT red
+    //     (shown as "Not included": what expired is the node's RESERVATION,
+    //      not the voucher. "Expired" made users ask if they had lost money.)
     // red (error) stays reserved for a claim that actually failed.
     function statusColor(st) {
         if (st === "settled")  return Theme.palette.success
@@ -152,7 +184,7 @@ ScrollView {
     function statusLabel(st) {
         if (st === "settled")  return qsTr("Settled")
         if (st === "in_block") return qsTr("In a block")
-        if (st === "expired")  return qsTr("Expired")
+        if (st === "expired")  return qsTr("Not included")
         if (st === "error")    return qsTr("Failed")
         return qsTr("Submitted")
     }
@@ -189,6 +221,9 @@ ScrollView {
                 text: root.claimInFlight ? qsTr("Claiming…") : qsTr("Claim")
                 onClicked: {
                     root.claimInFlight = true
+                    // Start the cooldown at the press, not at the reply: the burst we
+                    // are preventing is press-to-press, and the reply can be seconds away.
+                    root.startClaimCooldown()
                     root.claimLeaderRewardsRequested()
                 }
             }
@@ -387,8 +422,26 @@ ScrollView {
             }
             Item { Layout.fillWidth: true }
             InfoButton {
-                text: qsTr("Every claim you have made, kept permanently. A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last irreversible block count as settled, so a chain reorg moves a claim back rather than un-settling it.")
+                text: qsTr("Every claim you have made, kept permanently. A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last irreversible block count as settled, so a chain reorg moves a claim back rather than un-settling it.\n\nA claim that is never included shows as Not included. Nothing is consumed by one — the node releases its reservation and the voucher becomes claimable again. We cannot show WHICH voucher came back: the claim call returns only a transaction hash, and a claim that never lands leaves no record on chain to match it to.")
             }
+        }
+
+        // Answer the question the ledger provokes, before anyone has to ask it.
+        // A user seeing rows marked as not-included asked "are these lost?" — the
+        // count is the answer, and it is the answer we can give without naming a
+        // voucher (see #46). Only shown when there is something to reassure about.
+        LogosText {
+            visible: root.notIncludedCount > 0
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: root.notIncludedCount === 1
+                ? qsTr("1 claim was not included in a block. Nothing was consumed — %1 vouchers are ready to claim.")
+                      .arg(root.fmt(root.vouchers.length))
+                : qsTr("%1 claims were not included in a block. Nothing was consumed — %2 vouchers are ready to claim.")
+                      .arg(root.fmt(root.notIncludedCount))
+                      .arg(root.fmt(root.vouchers.length))
+            color: Theme.palette.textSecondary
+            font.pixelSize: Theme.typography.secondaryText
         }
 
         Item {
@@ -484,13 +537,18 @@ ScrollView {
                                 onCopyRequested: function(t) { root.copyToClipboard(t) }
                             }
 
-                            // Say plainly when a status is inferred rather than seen,
-                            // and when a row came from the chain rather than from us.
+                            // State the outcome in COUNTS, not voucher identity. We cannot say
+                            // WHICH voucher came back -- leader_claim returns only a tx hash
+                            // (module#69) and an unlanded claim leaves no chain event -- but we do
+                            // not need to: the user asked whether anything was lost, and that is a
+                            // question about counts. Counts are also the privacy-safe answer; a
+                            // not-yet-published nullifier on screen is a linkable identifier.
+                            // See #46.
                             LogosText {
                                 visible: claimRow.st === "expired"
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                text: qsTr("Not seen on chain — the voucher was returned to the pool and no fee was charged. Inferred: an unlanded claim leaves nothing to observe.")
+                                text: qsTr("This claim was not included in a block, so nothing was consumed — your claimable count is unchanged. The node released its reservation and the voucher can be claimed again.")
                                 color: Theme.palette.textTertiary
                                 font.pixelSize: Theme.typography.secondaryText
                             }

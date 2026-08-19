@@ -900,10 +900,24 @@ static constexpr int kScanChunkSlots = 8000;
 // tens of MB. The summary is labelled with historyFromSlot so a partial scan is
 // never presented as a lifetime total.
 static constexpr int kInitialLookbackSlots = 120000;
-// A submitted claim not seen on chain this many finalized slots later is
-// inferred expired (the node's reservation is evicted after security_param
-// immutable blocks). Inference, not observation — the UI must say so.
-static constexpr int kExpiryLookaheadSlots = 20000;
+// How long before a submitted-but-unseen claim is treated as not-included.
+//
+// The node's rule is in BLOCKS, not slots: services/wallet/src/states.rs evicts a
+// reservation once `immutable_blocks_since_reservation >= security_param`. The old
+// constant here was a flat 20000 slots, which at this network's block rate is ~5.5 h
+// against the node's real ~1 h — so the row appeared roughly 4.5 h AFTER the voucher
+// had already become reusable, and read as a warning when it was a late receipt.
+//
+// security_param is a consensus parameter and is not exposed by any API we can call,
+// so the block count is a constant; the SLOT budget it implies is derived per-poll
+// from the chain's own observed rate (tip slot / height), because that rate varies
+// (24-29 s/block measured). Deriving it is the point: a fixed slot number cannot
+// track a variable block rate, which is how the 20000 got so far off.
+static constexpr int kSecurityParamBlocks = 120;
+// Guards on the derived rate, so a nonsense height (0, or a fresh/resyncing node)
+// cannot collapse the window to nothing and mass-expire live claims.
+static constexpr int kMinSlotsPerBlock = 4;
+static constexpr int kMaxSlotsPerBlock = 240;
 // Extra slots fetched past the chunk end purely to resolve the last in-range
 // block's id from its successor's parent_block. Blocks are ~10-40 slots apart
 // here, so this comfortably contains at least one successor.
@@ -1139,6 +1153,12 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
 
     bool changed = false;
     int libSlot = 0;
+    // Tip slot and height, read from the same get_cryptarchia_info payload as libSlot.
+    // Their ratio is the chain's own average slots-per-block, which is what turns the
+    // node's block-denominated expiry rule into a slot budget we can compare against.
+    // Declared out here because the expiry pass below is outside the reconcile block.
+    int tipSlotNow = 0;
+    int tipHeight = 0;
 
     // Slot -> wall clock, so a backfilled row can be dated. A claim recovered from
     // the chain has no local record of when it was submitted; its block's slot is
@@ -1164,6 +1184,10 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_cryptarchia_info")));
         if (info.success)
             libSlot = slotField(info.value.toString(), "lib_slot");
+        if (info.success) {
+            tipSlotNow = slotField(info.value.toString(), "slot");
+            tipHeight  = slotField(info.value.toString(), "height");
+        }
 
         // One-time rescan when the scan logic changes. The first release advanced
         // the watermark even when get_blocks failed, so an existing store can
@@ -1171,7 +1195,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         // constant whenever a fix means past ranges must be re-examined; settled
         // rows are keyed by tx hash, so a rescan re-confirms rather than
         // duplicating them.
-        constexpr int kScanVersion = 11;
+        constexpr int kScanVersion = 12;
         if (store.value(QStringLiteral("scanVersion")).toInt() < kScanVersion) {
             qInfo() << "getLeaderClaims: scan logic changed, rescanning from"
                     << store.value(QStringLiteral("historyFromSlot")).toInt();
@@ -1485,18 +1509,31 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
     }
 
     // --- age out submissions that never landed ----------------------------
-    // Inference, not observation: an unlanded claim produces nothing to see.
+    // The node evicts a reservation after security_param IMMUTABLE BLOCKS, so the
+    // budget is computed in blocks and converted to slots at the chain's own rate
+    // rather than guessed as a flat slot count. See kSecurityParamBlocks.
     if (libSlot > 0) {
-        for (int i = 0; i < claims.size(); ++i) {
-            QJsonObject row = claims.at(i).toObject();
-            if (row.value(QStringLiteral("status")).toString() != QLatin1String("submitted"))
-                continue;
-            const int at = row.value(QStringLiteral("submittedAtSlot")).toInt();
-            if (at > 0 && libSlot > at + kExpiryLookaheadSlots) {
-                row.insert(QStringLiteral("status"), QStringLiteral("expired"));
-                row.insert(QStringLiteral("inferred"), true);
-                claims.replace(i, row);
-                changed = true;
+        int slotsPerBlock = 0;
+        if (tipHeight > 0 && tipSlotNow > 0)
+            slotsPerBlock = qBound(kMinSlotsPerBlock, tipSlotNow / tipHeight, kMaxSlotsPerBlock);
+        // No usable rate (height not yet known) means no expiring this pass. Holding a
+        // row as "submitted" for one more poll is harmless; expiring it wrongly is not.
+        if (slotsPerBlock > 0) {
+            const int budget = kSecurityParamBlocks * slotsPerBlock;
+            for (int i = 0; i < claims.size(); ++i) {
+                QJsonObject row = claims.at(i).toObject();
+                if (row.value(QStringLiteral("status")).toString() != QLatin1String("submitted"))
+                    continue;
+                const int at = row.value(QStringLiteral("submittedAtSlot")).toInt();
+                if (at > 0 && libSlot > at + budget) {
+                    row.insert(QStringLiteral("status"), QStringLiteral("expired"));
+                    // Kept for the (i) detail, not for the row body: we still have not
+                    // OBSERVED the release, we have reasoned to it. What changed is that
+                    // the user-facing claim is now about counts, which we do know.
+                    row.insert(QStringLiteral("inferred"), true);
+                    claims.replace(i, row);
+                    changed = true;
+                }
             }
         }
     }
