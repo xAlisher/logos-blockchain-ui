@@ -38,7 +38,7 @@ Item {
     // Not read from metadata.json at runtime on purpose: the file IS deployed beside the
     // plugin, but no shipped module reads JSON from QML, and sandbox file/network access
     // fails SILENTLY. That would trade a stale version for a blank one.
-    property string moduleVersion: "0.2.14"
+    property string moduleVersion: "0.2.15"
 
     // ── Blend status (fed from BlockchainView → backend.blendStatus/lastBlendEvent) ──
     // Label carries the Blend state only (node state is in the status block above);
