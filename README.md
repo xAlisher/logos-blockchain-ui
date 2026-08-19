@@ -34,27 +34,31 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.14`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.14)** —
-  **Claim fees now resolve.** `Cost to claim` and the per-claim lines showed "fee unknown" for every
-  settled claim; they now show real numbers (`+9,676 − 4,173 = +5,503`). The lookup was keyed by a
-  transaction hash that does not exist over IPC — `mantle_tx` carries only `ops`. The fee is
-  constant at 4,173; only the reward varies.
-  Previous: **v0.2.13** rebuilt Leader Rewards (honest voucher states, a permanent claims ledger,
-  LGO units, and the leader-key balance fix).
+- **[`logos_node_1click v0.2.15`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.15)** —
+  **Claims made from a paired phone now show up here.** [Node Remote](https://github.com/xAlisher/node-remote)
+  can submit a leader claim from your phone; a claim leaves no trace on the machine, so without this
+  it stayed invisible on the desktop for the ~2h until chain backfill found it. It now appears as
+  **Submitted** within one poll. Neither module depends on the other — this behaves exactly as before
+  if you do not have Node Remote installed.
+  Also: the claims ledger is now written **atomically** (`QSaveFile`). It previously used truncate-then-write,
+  which empties the file on open — so any reader landing in that window saw zero bytes, and a failed
+  write could destroy the ledger outright. That was a real window even with a single writer.
+  Previous: **v0.2.14** made claim fees resolve; **v0.2.13** rebuilt Leader Rewards (honest voucher
+  states, a permanent claims ledger, LGO units, and the leader-key balance fix).
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.14/logos_node_1click-0.2.14-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.15/logos_node_1click-0.2.15-linux-amd64.lgx
 
 # macOS Apple Silicon / arm64 Linux — CI builds of the same commit (unsigned)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.14/logos-blockchain-ui-aarch64-darwin.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.15/logos-blockchain-ui-aarch64-darwin.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
 
-Requires a **0.2.1 `blockchain_module`** at runtime (both are on the `modules.alisher.xyz` catalog).
+Requires a **0.2.2 `blockchain_module`** at runtime (both are on the [apps.alisher.xyz](https://apps.alisher.xyz) catalog).
 
 ## Standalone App Quickstart
 
