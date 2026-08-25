@@ -1044,8 +1044,14 @@ Rectangle {
                     leaderRewardsView.slotNow = slot
                     if (!leaderRewardsView.autoClaim) return
                     if (leaderRewardsView.claimInFlight) return
-                    if ((slot % 36000) >= 180) return          // outside the claim window
+                    // 600s window, not 180: vouchers SURFACE 2-5 min after the
+                    // tick (the wallet needs the new snapshot before the pool
+                    // shows them) — measured 08-24 23:04 and again at the 08-25
+                    // 19:00 tick, where a 180s window closed before the pool
+                    // filled and two vouchers sat unclaimed for 10 h.
+                    if ((slot % 36000) >= 600) return          // outside the claim window
                     if (root.voucherCount <= 0) return
+                    root.refreshClaimableVouchers()            // pool moves fast in the window
                     leaderRewardsView.claimInFlight = true
                     leaderRewardsView.claimLeaderRewardsRequested()
                 },
