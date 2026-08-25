@@ -1663,9 +1663,18 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         for (int i = 0; i < claims.size() && budget > 0 && !curl.isEmpty(); ++i) {
             QJsonObject row = claims.at(i).toObject();
             const QString st = row.value(QStringLiteral("status")).toString();
-            if (st != QLatin1String("checking") && st != QLatin1String("expired"))
-                continue;
-            if (row.value(QStringLiteral("verifiedBy")).toString() == QLatin1String("explorer"))
+            // Eligible: unresolved rows awaiting a verdict, AND explorer-settled
+            // rows still missing their reward (re-queried so the block-events
+            // recovery below can price them).
+            const bool unresolved = (st == QLatin1String("checking")
+                                     || st == QLatin1String("expired"))
+                                    && row.value(QStringLiteral("verifiedBy")).toString()
+                                           != QLatin1String("explorer");
+            const bool amountMissing = st == QLatin1String("settled")
+                                       && row.value(QStringLiteral("verifiedBy")).toString()
+                                              == QLatin1String("explorer")
+                                       && !row.contains(QStringLiteral("reward"));
+            if (!unresolved && !amountMissing)
                 continue;
             const QString tx = row.value(QStringLiteral("tx")).toString();
             if (tx.size() != 64)
@@ -1682,13 +1691,62 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                     break;  // explorer unreachable — leave every row as "checking"
             }
             int code = 0;
-            httpGet(base + QStringLiteral("/transactions/") + tx
+            const QString body = httpGet(base + QStringLiteral("/transactions/") + tx
                         + QStringLiteral("?fork=") + QString::number(s_forkId), &code);
             --budget;
             if (code == 200) {
                 row.insert(QStringLiteral("status"), QStringLiteral("settled"));
                 row.insert(QStringLiteral("verifiedBy"), QStringLiteral("explorer"));
                 row.remove(QStringLiteral("inferred"));
+                // The explorer payload names the BLOCK; the node has that block
+                // even though the scan's watermark moved past it (that's how the
+                // row got lost). One targeted get_block_events recovers the
+                // reward; the tx's LedgerTransfer op carries the fee ingredients.
+                const QJsonObject txo = QJsonDocument::fromJson(body.toUtf8()).object();
+                const QString blockId = txo.value(QStringLiteral("block_hash")).toString();
+                if (!blockId.isEmpty())
+                    row.insert(QStringLiteral("block"), blockId);
+                for (const QJsonValue& ov : txo.value(QStringLiteral("operations")).toArray()) {
+                    const QJsonObject c = ov.toObject().value(QStringLiteral("content")).toObject();
+                    const QString type = c.value(QStringLiteral("type")).toString();
+                    if (type == QLatin1String("LeaderClaim")) {
+                        row.insert(QStringLiteral("voucherNf"),
+                                   c.value(QStringLiteral("voucher_nullifier")).toString());
+                    } else if (type == QLatin1String("LedgerTransfer")) {
+                        const QJsonArray in = c.value(QStringLiteral("inputs")).toArray();
+                        const QJsonArray outs = c.value(QStringLiteral("outputs")).toArray();
+                        if (in.size() == 1 && outs.size() == 1) {
+                            row.insert(QStringLiteral("feeInput"), in.at(0).toString());
+                            row.insert(QStringLiteral("feeChange"),
+                                       outs.at(0).toObject().value(QStringLiteral("value")).toDouble());
+                        }
+                    }
+                }
+                if (!blockId.isEmpty() && !row.contains(QStringLiteral("reward"))) {
+                    const LogosResult ev = result::toLogosResult(
+                        m_blockchainClient->invokeRemoteMethod(
+                            BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_block_events"), blockId));
+                    if (ev.success) {
+                        const QJsonArray events =
+                            QJsonDocument::fromJson(ev.value.toString().toUtf8()).array();
+                        for (const QJsonValue& evv : events) {
+                            const QJsonObject etx =
+                                evv.toObject().value(QStringLiteral("Tx")).toObject();
+                            if (etx.value(QStringLiteral("tx_hash")).toString() != tx)
+                                continue;
+                            const QJsonObject claimed =
+                                etx.value(QStringLiteral("payload")).toObject()
+                                   .value(QStringLiteral("LeaderRewardClaimed")).toObject();
+                            if (claimed.isEmpty())
+                                continue;
+                            row.insert(QStringLiteral("reward"),
+                                       claimed.value(QStringLiteral("utxo")).toObject()
+                                              .value(QStringLiteral("note")).toObject()
+                                              .value(QStringLiteral("value")).toDouble());
+                            break;
+                        }
+                    }
+                }
             } else if (code == 404) {
                 row.insert(QStringLiteral("status"), QStringLiteral("failed"));
                 row.insert(QStringLiteral("verifiedBy"), QStringLiteral("explorer"));
