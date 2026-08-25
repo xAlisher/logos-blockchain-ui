@@ -9,7 +9,7 @@
     # no blockchain_module files and the IPC interface comes from our own
     # src/BlockchainBackend.rep — but a pin reading 0.2.1 while 0.2.2 serves every call is a
     # trap for whoever reads it next.
-    blockchain_module.url = "github:logos-blockchain/logos-blockchain-module?ref=0.2.2";
+    blockchain_module.url = "github:logos-blockchain/logos-blockchain-module?ref=0.2.3";
   };
 
   outputs = inputs@{ logos-module-builder, ... }:
