@@ -1649,6 +1649,15 @@ Rectangle {
                                 return isNaN(n) ? -1 : n
                             }
 
+                            onClearClaimsRequested: function() {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.clearLeaderClaims(),
+                                    function(result) { root.refreshLeaderClaims() },
+                                    function(error) { /* list stays; user can retry */ }
+                                )
+                            }
+
                             onClaimLeaderRewardsRequested: function() {
                                 if (!root.backend) { leaderRewardsView.claimInFlight = false; return }
                                 logos.watch(

@@ -68,6 +68,7 @@ public slots:
     // Persistent leader-claim ledger: local write-ahead rows reconciled against the
     // chain. Returns { claims: [...], summary: {...} } as a JSON string in `value`.
     QVariantMap getLeaderClaims() override;
+    QVariantMap clearLeaderClaims() override;
     // Blocks THIS node proposed, parsed from the node's own log (the authoritative
     // "my proposals" — leadership is private on-chain so a leader_key match can't work).
     QVariantMap getProposals() override;

@@ -38,6 +38,10 @@ class BlockchainBackend
     // Persistent leader-claim ledger. Returns {claims:[…], summary:{…}} — the local
     // write-ahead rows reconciled against the chain. See docs/VOUCHER-STATE-MAP.md.
     SLOT(QVariantMap getLeaderClaims())
+    // Clear the VISIBLE claims list (#50). Rows move to the store's `archived`
+    // array, never deleted: totals, backfill suppression and the alarm's
+    // failure counting all look through the archive.
+    SLOT(QVariantMap clearLeaderClaims())
     SLOT(QVariantMap getProposals())
     SLOT(QVariantMap generateConfig(QString outputPath, QStringList initialPeers, int netPort, int blendPort, QString httpAddr, QString externalAddress, bool noPublicIpCheck, int deploymentMode, QString deploymentConfigPath, QString statePath))
     SLOT(QVariantMap getNotes(QString walletAddressHex, QString optionalTipHex))

@@ -1194,6 +1194,9 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         bool known = false;
         for (const QJsonValue& c : claims)
             if (c.toObject().value(QStringLiteral("tx")).toString() == tx) { known = true; break; }
+        // Archived rows are known too — a cleared claim must not be re-adopted (#50).
+        for (const QJsonValue& c : store.value(QStringLiteral("archived")).toArray())
+            if (c.toObject().value(QStringLiteral("tx")).toString() == tx) { known = true; break; }
         if (known)
             continue;               // ours already; the ledger row is the better one
         adoptedTxs.insert(tx);
@@ -1204,6 +1207,13 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
     QHash<QString, int> rowByTx;
     for (int i = 0; i < claims.size(); ++i)
         rowByTx.insert(claims.at(i).toObject().value(QStringLiteral("tx")).toString(), i);
+
+    // Cleared rows (#50). Archived is still KNOWN: without this set the chain
+    // scan would backfill every settled claim the user just cleared.
+    QSet<QString> archivedTx;
+    const QJsonArray archived = store.value(QStringLiteral("archived")).toArray();
+    for (const QJsonValue& v : archived)
+        archivedTx.insert(v.toObject().value(QStringLiteral("tx")).toString());
 
     bool changed = false;
     int libSlot = 0;
@@ -1434,6 +1444,8 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                         const qint64 reward =
                             static_cast<qint64>(note.value(QStringLiteral("value")).toDouble());
 
+                        if (!rowByTx.contains(txHash) && archivedTx.contains(txHash))
+                            continue;  // cleared by the user — stay cleared (#50)
                         QJsonObject row = rowByTx.contains(txHash)
                             ? claims.at(rowByTx.value(txHash)).toObject()
                             : QJsonObject{{QStringLiteral("tx"), txHash},
@@ -1832,6 +1844,17 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         }
     }
 
+    // The alarm looks THROUGH the archive (#50): clearing the list must not
+    // silence a live failure streak.
+    for (const QJsonValue& v : store.value(QStringLiteral("archived")).toArray()) {
+        const QJsonObject r = v.toObject();
+        if (r.value(QStringLiteral("status")).toString() != QLatin1String("failed"))
+            continue;
+        const int at = r.value(QStringLiteral("submittedAtSlot")).toInt();
+        if (at > 0 && libSlot > 0 && libSlot - at < 72000)
+            ++failedVerified;
+    }
+
     QJsonObject summary;
     summary.insert(QStringLiteral("settled"), settled);
     summary.insert(QStringLiteral("inFlight"), inFlight);
@@ -1864,6 +1887,29 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
     res.insert(QStringLiteral("success"), true);
     res.insert(QStringLiteral("value"),
                QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Compact)));
+    return res;
+}
+
+// Clear the visible claims list (#50): move every row into the store's
+// `archived` array. Nothing is deleted — totals, the chain-scan backfill
+// suppression and the alarm's recent-failure counting all read the archive,
+// so a clear tidies the view without erasing evidence or silencing a streak.
+QVariantMap LogosNode1clickBackend::clearLeaderClaims()
+{
+    QJsonObject store = loadClaimStore();
+    QJsonArray claims = store.value(QStringLiteral("claims")).toArray();
+    QJsonArray archived = store.value(QStringLiteral("archived")).toArray();
+    const int moved = claims.size();
+    for (const QJsonValue& v : claims)
+        archived.append(v);
+    store.insert(QStringLiteral("archived"), archived);
+    store.insert(QStringLiteral("claims"), QJsonArray());
+    store.insert(QStringLiteral("clearedAt"),
+                 QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    saveClaimStore(store);
+    QVariantMap res;
+    res.insert(QStringLiteral("success"), true);
+    res.insert(QStringLiteral("value"), QString::number(moved));
     return res;
 }
 

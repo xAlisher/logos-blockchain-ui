@@ -45,7 +45,41 @@ ScrollView {
     property bool claimInFlight: false
 
     signal claimLeaderRewardsRequested()
+    signal clearClaimsRequested()
     signal copyToClipboard(string text)
+
+    Dialog {
+        id: clearConfirm
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: Math.min(440, root.width - 2 * Theme.spacing.large)
+        padding: Theme.spacing.large
+        background: Rectangle {
+            color: Theme.palette.backgroundSecondary
+            radius: Theme.spacing.radiusLarge
+            border.color: Theme.palette.border
+            border.width: 1
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing.medium
+            LogosText {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("Clear the claims list? The rows are archived, not deleted — totals and failure alerts still count them, and cleared claims will not reappear.")
+                font.pixelSize: Theme.typography.secondaryText
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: Theme.spacing.medium
+                CtaButton { compact: true; text: qsTr("Cancel"); onClicked: clearConfirm.close() }
+                CtaButton {
+                    compact: true
+                    text: qsTr("Clear log")
+                    onClicked: { clearConfirm.close(); root.clearClaimsRequested() }
+                }
+            }
+        }
+    }
 
     // ---- verified-feed additions (#47) ----
     // Auto-claim owns the button: claims fire in the first minutes after each
@@ -512,6 +546,15 @@ ScrollView {
                 font.weight: Theme.typography.weightMedium
             }
             Item { Layout.fillWidth: true }
+            // Clear = archive (#50): the list empties, the record survives, and
+            // the alarm still counts archived failures. Far-right per request.
+            CtaButton {
+                Layout.alignment: Qt.AlignVCenter
+                compact: true
+                visible: root.claims.length > 0
+                text: qsTr("Clear log")
+                onClicked: clearConfirm.open()
+            }
             InfoButton {
                 text: qsTr("Every claim you have made, kept permanently. A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last irreversible block count as settled, so a chain reorg moves a claim back rather than un-settling it.\n\nA claim that is never included shows as Not included. Nothing is consumed by one — the node releases its reservation and the voucher becomes claimable again. We cannot show WHICH voucher came back: the claim call returns only a transaction hash, and a claim that never lands leaves no record on chain to match it to.")
             }
