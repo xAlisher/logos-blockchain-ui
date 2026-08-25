@@ -974,18 +974,50 @@ Rectangle {
         }
     }
 
-    // Wallet's claimable ("pending") vouchers. Auto-refreshed on every incoming
-    // block, and once when the node starts running.
+    // Wallet's claimable ("pending") vouchers.
+    //
+    // Polled while Running. A one-shot on the Running transition is easy to miss
+    // (the UI often attaches after the node is already up) and a one-shot at
+    // start can fire before the wallet is ready — the same race that emptied the
+    // balance tile until it grew a retry. Block-model inserts are a bonus, not a
+    // schedule: newBlock can fail to reach this replica while height still
+    // ticks via getCryptarchiaInfo, and then Ready to claim stays 0 even though
+    // GET /leader/claim/vouchers lists the vouchers.
     property string claimableVouchersJson: ""
+
+    // claimableVouchersJson is a string that JSON.parse must accept. QtRO can
+    // hand back either the module's JSON string or an already-parsed object
+    // (same trap as VOUCHER-STATE-MAP §7). Assigning an object to a string
+    // property becomes "[object Object]" and the count silently drops to 0.
+    function asJsonString(value) {
+        if (value === undefined || value === null)
+            return ""
+        if (typeof value === "string")
+            return value
+        try { return JSON.stringify(value) } catch (e) { return "" }
+    }
 
     function refreshClaimableVouchers() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
         logos.watch(
             root.backend.getClaimableVouchers(),
-            function(result) { if (result.success) root.claimableVouchersJson = result.value },
+            function(result) {
+                if (!result.success)
+                    return
+                var s = asJsonString(result.value)
+                if (s.length)
+                    root.claimableVouchersJson = s
+            },
             function(error) { /* keep last known list on transient errors */ }
         )
+    }
+
+    Timer {
+        interval: 5000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: root.refreshClaimableVouchers()
     }
 
     // Blocks this node proposed, parsed from the node's own log (getProposals) — the
