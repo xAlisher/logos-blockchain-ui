@@ -1764,7 +1764,13 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         } else if (st == QLatin1String("checking") || st == QLatin1String("expired")) {
             ++checking;
         } else if (st == QLatin1String("failed")) {
-            ++failedVerified;
+            // Alarm only on RECENT verified failures (last 2 epochs). Historical
+            // ones — e.g. the pre-rescan dead retries — are records, not a
+            // condition; alarming on them would tell an operator to rescan a
+            // node that is already healthy.
+            const int at = r.value(QStringLiteral("submittedAtSlot")).toInt();
+            if (at > 0 && libSlot > 0 && libSlot - at < 72000)
+                ++failedVerified;
         }
     }
 
