@@ -47,6 +47,31 @@ ScrollView {
     signal claimLeaderRewardsRequested()
     signal copyToClipboard(string text)
 
+    // ---- verified-feed additions (#47) ----
+    // Auto-claim owns the button: claims fire in the first minutes after each
+    // epoch tick (the first moment a voucher's proof can land, and the moment
+    // that costs no leadership — fee notes are already in this epoch's
+    // eligibility snapshot). The manual button only returns if this is off.
+    property bool autoClaim: true
+    // Current chain slot, pushed by the parent's scheduler poll. Slots are
+    // seconds since genesis; epochs are 36,000 slots (10 h), boundaries at
+    // N*36000 — measured on this testnet (redteam 08-24, epoch 46 at 1,656,001).
+    property real slotNow: -1
+    readonly property real secsToTick: slotNow >= 0 ? (36000 - (slotNow % 36000)) : -1
+    readonly property string nextTickText: {
+        if (root.secsToTick < 0) return ""
+        var h = Math.floor(root.secsToTick / 3600)
+        var m = Math.floor((root.secsToTick % 3600) / 60)
+        return h > 0 ? qsTr("~%1h %2m").arg(h).arg(m) : qsTr("~%1m").arg(m)
+    }
+    // Explorer-verified-absent claims. >=2 is the stale-wallet-state signature
+    // (08-24 incident): the wallet is offering state the chain disagrees with,
+    // and a rescan rebuilds it. Never alarmed on inference.
+    readonly property int failedVerified: root.summary ? (root.summary.failedVerified || 0) : 0
+    function openExplorerTx(tx) {
+        Qt.openUrlExternally("https://testnet.blockchain.logos.co/web/explorer/transactions/" + tx)
+    }
+
     function setLeaderClaimResult(text) {
         root._lastResult = text
     }
@@ -154,7 +179,7 @@ ScrollView {
     readonly property int notIncludedCount: {
         var n = 0
         for (var i = 0; i < claims.length; ++i)
-            if (claims[i].status === "expired") n++
+            if (claims[i].status === "failed") n++   // explorer-verified absent only
         return n
     }
     readonly property int landedCount: {
@@ -180,19 +205,25 @@ ScrollView {
     //     (shown as "Didn't land": what expired is the node's RESERVATION,
     //      not the voucher. "Expired" made users ask if they had lost money.)
     // red (error) stays reserved for a claim that actually failed.
+    // Vocabulary (#47, post 08-25 audit): a verdict is only ever an OBSERVATION.
+    //   settled  -> "Paid"       (seen in a block, or explorer-verified)
+    //   checking -> "Confirming" (pool inference suspects a miss; explorer will decide)
+    //   failed   -> "Failed"     (explorer VERIFIED the tx absent — the only red)
+    //   expired  -> legacy rows, rendered as "Confirming" until re-verified
     function statusColor(st) {
         if (st === "settled")  return Theme.palette.success
         if (st === "in_block") return Theme.palette.primary
-        if (st === "expired")  return Theme.palette.textTertiary
-        if (st === "error")    return Theme.palette.error
+        if (st === "checking" || st === "expired") return Theme.palette.textTertiary
+        if (st === "failed" || st === "error") return Theme.palette.error
         return Theme.palette.warning
     }
     function statusLabel(st) {
-        if (st === "settled")  return qsTr("Settled")
+        if (st === "settled")  return qsTr("Paid")
         if (st === "in_block") return qsTr("In a block")
-        if (st === "expired")  return qsTr("Didn't land")
+        if (st === "checking" || st === "expired") return qsTr("Confirming…")
+        if (st === "failed")   return qsTr("Failed (verified)")
         if (st === "error")    return qsTr("Failed")
-        return qsTr("Submitted")
+        return qsTr("Claiming…")
     }
 
     // The page outgrows the pane once the claims ledger fills, so the whole
@@ -220,9 +251,13 @@ ScrollView {
             // Sized and styled like the header's "Fund the node". Sitting beside
             // the heading keeps the tiles pure stats, so the number stays centred
             // with nothing hanging off it.
+            // The button is owned by the scheduler (#47): visible only when
+            // auto-claim is off. With it on, the line below says when the next
+            // claim window opens — there is nothing to press on a healthy node.
             CtaButton {
                 Layout.alignment: Qt.AlignVCenter
                 compact: true
+                visible: !root.autoClaim
                 enabled: root.canClaim
                 text: root.claimInFlight ? qsTr("Claiming…") : qsTr("Claim")
                 onClicked: {
@@ -233,7 +268,55 @@ ScrollView {
                     root.claimLeaderRewardsRequested()
                 }
             }
+            LogosText {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.autoClaim
+                text: root.claimInFlight
+                      ? qsTr("Claiming…")
+                      : (root.nextTickText.length > 0
+                         ? qsTr("Auto-claims at epoch start · next in %1").arg(root.nextTickText)
+                         : qsTr("Auto-claims at epoch start"))
+                color: Theme.palette.textTertiary
+                font.pixelSize: Theme.typography.secondaryText
+            }
             Item { Layout.fillWidth: true }
+        }
+
+        // ======================= ALARM (verified anomalies only) =======================
+        // Appears ONLY when the explorer has confirmed >=2 claims absent from the
+        // chain — the stale-wallet-state signature. Inference never alarms.
+        Rectangle {
+            visible: root.failedVerified >= 2
+            Layout.fillWidth: true
+            implicitHeight: alarmCol.implicitHeight + 2 * Theme.spacing.medium
+            color: Theme.palette.backgroundSecondary
+            radius: Theme.spacing.radiusMedium
+            border.color: Theme.palette.error
+            border.width: 1
+            ColumnLayout {
+                id: alarmCol
+                anchors.fill: parent
+                anchors.margins: Theme.spacing.medium
+                spacing: Theme.spacing.small
+                LogosText {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("%n claim(s) verified absent on chain.", "", root.failedVerified)
+                          + " " + qsTr("Your node's wallet state may be stale — a rescan rebuilds it from the chain. Keys and balance are untouched (~40 min resync).")
+                    color: Theme.palette.error
+                    font.pixelSize: Theme.typography.secondaryText
+                }
+                LogosText {
+                    text: qsTr("Open the rescan guide ↗")
+                    color: Theme.palette.primary
+                    font.pixelSize: Theme.typography.secondaryText
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Qt.openUrlExternally("https://github.com/xAlisher/logos-blockchain-ui/blob/master/docs/RESCAN.md")
+                    }
+                }
+            }
         }
 
         // GridLayout, not RowLayout: a RowLayout cannot wrap, so at narrow widths
@@ -552,12 +635,40 @@ ScrollView {
                             // not-yet-published nullifier on screen is a linkable identifier.
                             // See #46.
                             LogosText {
-                                visible: claimRow.st === "expired"
+                                visible: claimRow.st === "expired" || claimRow.st === "checking"
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                text: qsTr("Not included in a block. Nothing was consumed — the voucher can be claimed again.")
+                                text: qsTr("Not seen by this node's scan yet — being verified against the chain. No verdict until the chain answers.")
                                 color: Theme.palette.textTertiary
                                 font.pixelSize: Theme.typography.secondaryText
+                            }
+                            LogosText {
+                                visible: claimRow.st === "failed"
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Verified absent from the chain. Nothing was consumed — the voucher was released and no fee was charged.")
+                                color: Theme.palette.textTertiary
+                                font.pixelSize: Theme.typography.secondaryText
+                            }
+                            LogosText {
+                                visible: claimRow.st === "settled" && modelData.verifiedBy === "explorer"
+                                          && !(modelData.reward > 0)
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Verified paid on chain (amount not yet recovered by the local scan — the balance already includes it).")
+                                color: Theme.palette.textTertiary
+                                font.pixelSize: Theme.typography.secondaryText
+                            }
+                            LogosText {
+                                visible: !!modelData.tx && (claimRow.st === "settled" || claimRow.st === "failed")
+                                text: qsTr("View on explorer ↗")
+                                color: Theme.palette.primary
+                                font.pixelSize: Theme.typography.secondaryText
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.openExplorerTx(modelData.tx)
+                                }
                             }
                             LogosText {
                                 visible: claimRow.st === "submitted"

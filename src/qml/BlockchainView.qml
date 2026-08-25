@@ -1022,6 +1022,38 @@ Rectangle {
         onTriggered: root.refreshLeaderClaims()
     }
 
+    // Epoch-scheduled auto-claim (#47). Claims fire in the first ~3 min after an
+    // epoch tick — the first moment a voucher's proof can land (the ledger
+    // snapshots vouchers once per epoch start) and the moment that costs no
+    // leadership (fee notes are already in this epoch's eligibility snapshot;
+    // the A/B run 08-24/25: 8/8 settled 85 s after the tick). One claim per
+    // 30 s poll — the pacing that measured 47/47 landed vs ~50% in bursts.
+    Timer {
+        interval: 30000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: {
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (!result.success) return
+                    var info = null
+                    try { info = JSON.parse(result.value) } catch (e) { return }
+                    var slot = info && info.cryptarchia_info ? info.cryptarchia_info.slot : -1
+                    if (!(slot > 0)) return
+                    leaderRewardsView.slotNow = slot
+                    if (!leaderRewardsView.autoClaim) return
+                    if (leaderRewardsView.claimInFlight) return
+                    if ((slot % 36000) >= 180) return          // outside the claim window
+                    if (root.voucherCount <= 0) return
+                    leaderRewardsView.claimInFlight = true
+                    leaderRewardsView.claimLeaderRewardsRequested()
+                },
+                function(error) { /* keep last */ }
+            )
+        }
+    }
+
     // Count of claimable leadership vouchers (blocks led, rewards pending).
     readonly property int voucherCount: {
         try {

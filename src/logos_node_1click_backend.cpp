@@ -1272,6 +1272,12 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
 
             int dbgBlocks = 0, dbgClaimOps = 0, dbgOurClaims = 0;
             int dbgEvents = 0, dbgEvFail = 0, dbgMatched = 0;
+            // Earliest slot whose get_block_events failed. The watermark must not
+            // pass it: a block scanned once is never re-read, so advancing past a
+            // failed-events block loses its settlements FOREVER — the 08-25 audit
+            // found 20 landed claims mislabeled exactly this way (12 "expired",
+            // 8 stuck "submitted") while their rewards sat in the balance.
+            int firstFailedSlot = -1;
             QString dbgEvErr, dbgBadId, dbgHdrKeys;
             int dbgFeeMap = 0;
             QString dbgOpcodes, dbgTxKeys, dbgLedgerShape;
@@ -1398,6 +1404,11 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                             dbgHdrKeys = QStringList(hdr.keys()).join(QLatin1Char(','));
                         }
                         ++dbgEvFail;
+                        {
+                            const int fs = hdr.value(QStringLiteral("slot")).toInt();
+                            if (firstFailedSlot < 0 || fs < firstFailedSlot)
+                                firstFailedSlot = fs;
+                        }
                         continue;
                     }
 
@@ -1521,7 +1532,14 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             changed = true;
 
             if (blocks.success) {
-                store.insert(QStringLiteral("lastScannedSlot"), to);
+                // Hold the watermark BEFORE the earliest block whose events failed,
+                // so that block is re-read next pass instead of its settlements
+                // being lost (see firstFailedSlot above).
+                const int upTo = (firstFailedSlot > 0 && firstFailedSlot <= to)
+                                     ? firstFailedSlot - 1
+                                     : to;
+                if (upTo > from)
+                    store.insert(QStringLiteral("lastScannedSlot"), upTo);
                 changed = true;
             } else {
                 qWarning() << "getLeaderClaims: get_blocks(" << (from + 1) << "," << to
@@ -1607,8 +1625,76 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                 row.insert(QStringLiteral("resolvedBy"), QStringLiteral("finality"));
             }
 
-            row.insert(QStringLiteral("status"), QStringLiteral("expired"));
+            // "checking", NOT a terminal verdict. The pool inference produced 20
+            // false "expired" labels on landed claims (08-25 explorer audit) — it
+            // is a hint that the claim MAY have died, and the explorer pass below
+            // delivers the observed verdict: settled (found) or failed (absent).
+            row.insert(QStringLiteral("status"), QStringLiteral("checking"));
             row.insert(QStringLiteral("inferred"), true);
+            claims.replace(i, row);
+            changed = true;
+        }
+    }
+
+    // --- verify unresolved claims against the public explorer ----------------
+    // Settlement truth is OBSERVED, never inferred (#47). The explorer indexes
+    // the canonical chain independently of this node's wallet-scan state — the
+    // state whose stall caused the 08-21→08-24 incident. Rows in "checking"
+    // (and legacy "expired") get a tx-by-hash lookup: found → settled (the block
+    // scan backfills reward/fee when it catches up), verified absent → failed.
+    // Explorer unreachable → stays "checking"; never guess.
+    {
+        const QString curl = resolveCurl();
+        int budget = 6;  // keep each ledger pass cheap; the 20s timer drains the queue
+        static qint64 s_forkFetchedAtMs = 0;
+        static int s_forkId = -1;
+        const QString base = QStringLiteral("https://testnet.blockchain.logos.co/web/explorer/api/v1");
+        const auto httpGet = [&curl](const QString& url, int* codeOut) -> QString {
+            QProcess p;
+            p.setProcessEnvironment(curlEnv());
+            p.start(curl, {QStringLiteral("-s"), QStringLiteral("-m"), QStringLiteral("8"),
+                           QStringLiteral("-w"), QStringLiteral("\n%{http_code}"), url});
+            if (!p.waitForFinished(10000)) { p.kill(); *codeOut = -1; return QString(); }
+            const QString out = QString::fromUtf8(p.readAllStandardOutput());
+            const int nl = out.lastIndexOf(QLatin1Char('\n'));
+            *codeOut = out.mid(nl + 1).trimmed().toInt();
+            return out.left(qMax(0, nl));
+        };
+        for (int i = 0; i < claims.size() && budget > 0 && !curl.isEmpty(); ++i) {
+            QJsonObject row = claims.at(i).toObject();
+            const QString st = row.value(QStringLiteral("status")).toString();
+            if (st != QLatin1String("checking") && st != QLatin1String("expired"))
+                continue;
+            if (row.value(QStringLiteral("verifiedBy")).toString() == QLatin1String("explorer"))
+                continue;
+            const QString tx = row.value(QStringLiteral("tx")).toString();
+            if (tx.size() != 64)
+                continue;
+            if (s_forkId < 0 || QDateTime::currentMSecsSinceEpoch() - s_forkFetchedAtMs > 60000) {
+                int code = 0;
+                const QString body = httpGet(base + QStringLiteral("/fork-choice"), &code);
+                if (code == 200) {
+                    s_forkId = QJsonDocument::fromJson(body.toUtf8())
+                                   .object().value(QStringLiteral("fork")).toInt(-1);
+                    s_forkFetchedAtMs = QDateTime::currentMSecsSinceEpoch();
+                }
+                if (s_forkId < 0)
+                    break;  // explorer unreachable — leave every row as "checking"
+            }
+            int code = 0;
+            httpGet(base + QStringLiteral("/transactions/") + tx
+                        + QStringLiteral("?fork=") + QString::number(s_forkId), &code);
+            --budget;
+            if (code == 200) {
+                row.insert(QStringLiteral("status"), QStringLiteral("settled"));
+                row.insert(QStringLiteral("verifiedBy"), QStringLiteral("explorer"));
+                row.remove(QStringLiteral("inferred"));
+            } else if (code == 404) {
+                row.insert(QStringLiteral("status"), QStringLiteral("failed"));
+                row.insert(QStringLiteral("verifiedBy"), QStringLiteral("explorer"));
+            } else {
+                continue;  // transient — retry on a later pass
+            }
             claims.replace(i, row);
             changed = true;
         }
@@ -1662,7 +1748,7 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
 
     // --- summary ----------------------------------------------------------
     qint64 claimed = 0, fees = 0;
-    int settled = 0, inFlight = 0, feesKnown = 0;
+    int settled = 0, inFlight = 0, feesKnown = 0, checking = 0, failedVerified = 0;
     for (const QJsonValue& v : claims) {
         const QJsonObject r = v.toObject();
         const QString st = r.value(QStringLiteral("status")).toString();
@@ -1675,12 +1761,21 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             }
         } else if (st == QLatin1String("submitted") || st == QLatin1String("in_block")) {
             ++inFlight;
+        } else if (st == QLatin1String("checking") || st == QLatin1String("expired")) {
+            ++checking;
+        } else if (st == QLatin1String("failed")) {
+            ++failedVerified;
         }
     }
 
     QJsonObject summary;
     summary.insert(QStringLiteral("settled"), settled);
     summary.insert(QStringLiteral("inFlight"), inFlight);
+    summary.insert(QStringLiteral("checking"), checking);
+    // Claims the EXPLORER confirmed absent — the only verdict that may alarm.
+    // >=2 of these is the stale-wallet-state signature (08-24 incident) and the
+    // UI surfaces the rescan remedy.
+    summary.insert(QStringLiteral("failedVerified"), failedVerified);
     summary.insert(QStringLiteral("claimed"), claimed);
     summary.insert(QStringLiteral("fees"), fees);
     // Net is only honest when every settled row has a known fee; otherwise the
