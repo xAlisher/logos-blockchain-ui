@@ -68,8 +68,10 @@ ScrollView {
     // (08-24 incident): the wallet is offering state the chain disagrees with,
     // and a rescan rebuilds it. Never alarmed on inference.
     readonly property int failedVerified: root.summary ? (root.summary.failedVerified || 0) : 0
-    function openExplorerTx(tx) {
-        Qt.openUrlExternally("https://testnet.blockchain.logos.co/web/explorer/transactions/" + tx)
+    // Copy, not open: an unrequested browser launch from a desktop app is jarring,
+    // and half the time the link is headed to a chat anyway (Alisher, 08-25).
+    function explorerTxUrl(tx) {
+        return "https://testnet.blockchain.logos.co/web/explorer/transactions/" + tx
     }
 
     function setLeaderClaimResult(text) {
@@ -660,14 +662,19 @@ ScrollView {
                                 font.pixelSize: Theme.typography.secondaryText
                             }
                             LogosText {
+                                id: explorerCopy
                                 visible: !!modelData.tx && (claimRow.st === "settled" || claimRow.st === "failed")
-                                text: qsTr("View on explorer ↗")
-                                color: Theme.palette.primary
+                                text: explorerCopyReset.running ? qsTr("Link copied ✓") : qsTr("Copy explorer link")
+                                color: explorerCopyReset.running ? Theme.palette.success : Theme.palette.primary
                                 font.pixelSize: Theme.typography.secondaryText
+                                Timer { id: explorerCopyReset; interval: 1500 }
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.openExplorerTx(modelData.tx)
+                                    onClicked: {
+                                        root.copyToClipboard(root.explorerTxUrl(modelData.tx))
+                                        explorerCopyReset.restart()
+                                    }
                                 }
                             }
                             LogosText {
