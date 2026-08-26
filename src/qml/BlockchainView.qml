@@ -1039,7 +1039,11 @@ Rectangle {
                     if (!result.success) return
                     var info = null
                     try { info = JSON.parse(result.value) } catch (e) { return }
-                    var slot = info && info.cryptarchia_info ? info.cryptarchia_info.slot : -1
+                    // Prefer the clock slot from /time/info (#51) — the
+                    // cryptarchia slot is the TIP's slot and trails by a block.
+                    var slot = (info && info.time_info && info.time_info.current_slot > 0)
+                               ? info.time_info.current_slot
+                               : (info && info.cryptarchia_info ? info.cryptarchia_info.slot : -1)
                     if (!(slot > 0)) return
                     leaderRewardsView.slotNow = slot
                     if (!leaderRewardsView.autoClaim) return
