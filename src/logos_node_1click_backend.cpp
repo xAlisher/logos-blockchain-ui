@@ -1881,7 +1881,29 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
     summary.insert(QStringLiteral("checking"), checking);
     // Claims the EXPLORER confirmed absent — the only verdict that may alarm.
     // >=2 of these is the stale-wallet-state signature (08-24 incident) and the
-    // UI surfaces the rescan remedy.
+    // UI surfaces the rescan remedy — UNLESS a claim SETTLED in the same window:
+    // stale wallet state cannot settle anything, so one recent settle disproves
+    // the diagnosis (26 Aug: three fee-priced-out claims false-alarmed a healthy
+    // node that had settled a claim the same hour).
+    {
+        bool recentSettle = false;
+        const auto settledRecently = [&](const QJsonArray& rows) {
+            for (const QJsonValue& v : rows) {
+                const QJsonObject r = v.toObject();
+                if (r.value(QStringLiteral("status")).toString() != QLatin1String("settled"))
+                    continue;
+                const int at = r.value(QStringLiteral("slot")).toInt(
+                    r.value(QStringLiteral("submittedAtSlot")).toInt());
+                if (at > 0 && libSlot > 0 && libSlot - at < 72000)
+                    return true;
+            }
+            return false;
+        };
+        recentSettle = settledRecently(claims)
+                       || settledRecently(store.value(QStringLiteral("archived")).toArray());
+        if (recentSettle)
+            failedVerified = 0;
+    }
     summary.insert(QStringLiteral("failedVerified"), failedVerified);
     summary.insert(QStringLiteral("claimed"), claimed);
     summary.insert(QStringLiteral("fees"), fees);
