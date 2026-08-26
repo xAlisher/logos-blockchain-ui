@@ -731,7 +731,9 @@ ScrollView {
                             }
                             LogosText {
                                 id: explorerCopy
-                                visible: !!modelData.tx && (claimRow.st === "settled" || claimRow.st === "failed"
+                                // Not on failed rows: verified-absent means the explorer
+                                // has no page for this tx — the link could only 404.
+                                visible: !!modelData.tx && (claimRow.st === "settled"
                                                             || claimRow.st === "in_block")
                                 text: explorerCopyReset.running ? qsTr("Link copied ✓") : qsTr("Copy explorer link")
                                 color: explorerCopyReset.running ? Theme.palette.success : Theme.palette.primary
