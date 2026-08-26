@@ -240,25 +240,27 @@ ScrollView {
     //   expired   #969696 tertiary — inert; a no-op, not an error, so NOT red
     //     (shown as "Didn't land": what expired is the node's RESERVATION,
     //      not the voucher. "Expired" made users ask if they had lost money.)
-    // red (error) stays reserved for a claim that actually failed.
     // Vocabulary (#47, post 08-25 audit): a verdict is only ever an OBSERVATION.
     //   settled  -> "Paid"       (seen in a block, or explorer-verified)
     //   checking -> "Confirming" (pool inference suspects a miss; explorer will decide)
-    //   failed   -> "Failed"     (explorer VERIFIED the tx absent — the only red)
+    //   failed   -> "Failed"     (explorer verified the tx absent). GRAY, not red
+    //     (26 Aug): under fee-market movement a priced-out claim is EXPECTED
+    //     behavior — nothing consumed, voucher released, no fee. Red made a
+    //     healthy node look broken; the rescan banner is the only red left.
     //   expired  -> legacy rows, rendered as "Confirming" until re-verified
     function statusColor(st) {
         if (st === "settled")  return Theme.palette.success
         if (st === "in_block") return Theme.palette.primary
-        if (st === "checking" || st === "expired") return Theme.palette.textTertiary
-        if (st === "failed" || st === "error") return Theme.palette.error
+        if (st === "checking" || st === "expired" || st === "failed")
+            return Theme.palette.textTertiary
+        if (st === "error") return Theme.palette.error
         return Theme.palette.warning
     }
     function statusLabel(st) {
         if (st === "settled")  return qsTr("Paid")
         if (st === "in_block") return qsTr("In a block")
         if (st === "checking" || st === "expired") return qsTr("Confirming…")
-        if (st === "failed")   return qsTr("Failed (verified)")
-        if (st === "error")    return qsTr("Failed")
+        if (st === "failed" || st === "error") return qsTr("Failed")
         return qsTr("Claiming…")
     }
 
