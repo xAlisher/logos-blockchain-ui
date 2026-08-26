@@ -1028,11 +1028,23 @@ Rectangle {
     // leadership (fee notes are already in this epoch's eligibility snapshot;
     // the A/B run 08-24/25: 8/8 settled 85 s after the tick). One claim per
     // 30 s poll — the pacing that measured 47/47 landed vs ~50% in bursts.
+    // Watchdog + catch-up state (2026-08-26: the 05:00 tick was silently missed
+    // while vouchers sat claimable — a stuck claimInFlight has no other escape,
+    // and an app closed at tick time never claimed at all until the next tick).
+    property double _claimStartedAt: 0
+    property int _voucherIdlePolls: 0
     Timer {
         interval: 30000; repeat: true; triggeredOnStart: true
         running: root.ready && root.backend
                  && root.backend.status === BlockchainBackend.Running
         onTriggered: {
+            // Watchdog: a claim round-trip is seconds; a flag held >3 min means
+            // the reply was lost — reset it or the scheduler is dead forever.
+            if (leaderRewardsView.claimInFlight && root._claimStartedAt > 0
+                && Date.now() - root._claimStartedAt > 180000) {
+                leaderRewardsView.claimInFlight = false
+                root._claimStartedAt = 0
+            }
             logos.watch(
                 root.backend.getCryptarchiaInfo(),
                 function(result) {
@@ -1053,10 +1065,25 @@ Rectangle {
                     // shows them) — measured 08-24 23:04 and again at the 08-25
                     // 19:00 tick, where a 180s window closed before the pool
                     // filled and two vouchers sat unclaimed for 10 h.
-                    if ((slot % 36000) >= 600) return          // outside the claim window
-                    if (root.voucherCount <= 0) return
+                    var inWindow = (slot % 36000) < 600
+                    if (root.voucherCount <= 0) {
+                        root._voucherIdlePolls = 0
+                        return
+                    }
+                    // Catch-up: vouchers persistently claimable OUTSIDE the
+                    // window (app was closed at tick time, or the window was
+                    // missed) still get claimed after ~10 min of stability —
+                    // claims are valid all epoch; only the tick is optimal.
+                    if (!inWindow) {
+                        root._voucherIdlePolls += 1
+                        if (root._voucherIdlePolls < 20) return
+                    } else {
+                        root._voucherIdlePolls = 0
+                    }
                     root.refreshClaimableVouchers()            // pool moves fast in the window
                     leaderRewardsView.claimInFlight = true
+                    root._claimStartedAt = Date.now()
+                    root._voucherIdlePolls = 0
                     leaderRewardsView.claimLeaderRewardsRequested()
                 },
                 function(error) { /* keep last */ }
