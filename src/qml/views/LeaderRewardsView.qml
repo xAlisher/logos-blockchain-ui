@@ -487,9 +487,16 @@ ScrollView {
                             },
                             {
                                 k: qsTr("Last claim"),
-                                v: root._lastSettled
-                                    ? String(root._lastSettled.settledAt || "").replace("T", " ").substring(11, 16)
-                                    : "—",
+                                // settledAt is stamped by the chain scan only; an
+                                // explorer-verdicted settle has none — fall back to
+                                // the submission time rather than an empty tile.
+                                v: (function() {
+                                    if (!root._lastSettled) return "—"
+                                    var t = String(root._lastSettled.settledAt
+                                                   || root._lastSettled.submittedAt || "")
+                                                .replace("T", " ").substring(11, 16)
+                                    return t.length ? t : "—"
+                                })(),
                                 sub: root._lastSettled
                                     ? qsTr("+%1").arg(root.fmtLgo(root._lastSettled.reward))
                                     : ""
@@ -646,6 +653,7 @@ ScrollView {
                                 Item { Layout.fillWidth: true }
                                 LogosText {
                                     visible: claimRow.st === "settled"
+                                             || (claimRow.st === "in_block" && modelData.reward > 0)
                                     text: modelData.fee > 0
                                         ? qsTr("+%1 − %2 = +%3 LGO")
                                             .arg(root.fmt(modelData.reward))
@@ -696,6 +704,21 @@ ScrollView {
                                 font.pixelSize: Theme.typography.secondaryText
                             }
                             LogosText {
+                                visible: claimRow.st === "in_block"
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                text: {
+                                    var mins = -1
+                                    if (modelData.slot > 0 && root.summary && root.summary.libSlot > 0)
+                                        mins = Math.max(0, Math.round((modelData.slot - root.summary.libSlot) / 60))
+                                    return mins > 1
+                                        ? qsTr("Verified in a block at the chain tip — finalizing (~%1 min). The reward shows in the balance already.").arg(mins)
+                                        : qsTr("Verified in a block — finalizing any moment.")
+                                }
+                                color: Theme.palette.textTertiary
+                                font.pixelSize: Theme.typography.secondaryText
+                            }
+                            LogosText {
                                 visible: claimRow.st === "settled" && modelData.verifiedBy === "explorer"
                                           && !(modelData.reward > 0)
                                 Layout.fillWidth: true
@@ -706,7 +729,8 @@ ScrollView {
                             }
                             LogosText {
                                 id: explorerCopy
-                                visible: !!modelData.tx && (claimRow.st === "settled" || claimRow.st === "failed")
+                                visible: !!modelData.tx && (claimRow.st === "settled" || claimRow.st === "failed"
+                                                            || claimRow.st === "in_block")
                                 text: explorerCopyReset.running ? qsTr("Link copied ✓") : qsTr("Copy explorer link")
                                 color: explorerCopyReset.running ? Theme.palette.success : Theme.palette.primary
                                 font.pixelSize: Theme.typography.secondaryText

@@ -27,4 +27,4 @@ if [ -d "$SRC/qml" ]; then
   echo "  qml/ ($(find "$DEST/qml" -name '*.qml' | wc -l) files)"
 fi
 chmod -R u+w "$DEST"
-echo "done — restart Basecamp to load 0.2.19"
+echo "done — restart Basecamp to load 0.2.20"

@@ -1706,7 +1706,16 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                                        && row.value(QStringLiteral("verifiedBy")).toString()
                                               == QLatin1String("explorer")
                                        && !row.contains(QStringLiteral("reward"));
-            if (!unresolved && !amountMissing)
+            // In-flight rows get promoted to "in a block, finalizing" the moment
+            // the explorer sees them at the tip — true reassurance instead of an
+            // anxious hour of "Claiming…" while finality catches up (26 Aug).
+            // Give propagation ~2 min first; a 404 here means "not yet", never
+            // "dead", so it leaves the row untouched.
+            const bool inFlight = st == QLatin1String("submitted")
+                && QDateTime::fromString(row.value(QStringLiteral("submittedAt")).toString(),
+                                         Qt::ISODate)
+                       .secsTo(QDateTime::currentDateTime()) > 120;
+            if (!unresolved && !amountMissing && !inFlight)
                 continue;
             const QString tx = row.value(QStringLiteral("tx")).toString();
             if (tx.size() != 64)
@@ -1726,8 +1735,17 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
             const QString body = httpGet(base + QStringLiteral("/transactions/") + tx
                         + QStringLiteral("?fork=") + QString::number(s_forkId), &code);
             --budget;
+            if (code == 404 && st == QLatin1String("submitted"))
+                continue;  // not in a block YET — leave the row alone
             if (code == 200) {
-                row.insert(QStringLiteral("status"), QStringLiteral("settled"));
+                // A submitted row seen at the TIP is "in a block, finalizing" —
+                // not settled (finality pending), but the reward/fee recovery
+                // below applies just the same: the node has the tip block, and
+                // the balance has already counted it. The finality scan flips
+                // in_block → settled later.
+                const bool preFinal = st == QLatin1String("submitted");
+                row.insert(QStringLiteral("status"),
+                           preFinal ? QStringLiteral("in_block") : QStringLiteral("settled"));
                 row.insert(QStringLiteral("verifiedBy"), QStringLiteral("explorer"));
                 row.remove(QStringLiteral("inferred"));
                 // The explorer payload names the BLOCK; the node has that block
@@ -1738,6 +1756,18 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
                 const QString blockId = txo.value(QStringLiteral("block_hash")).toString();
                 if (!blockId.isEmpty())
                     row.insert(QStringLiteral("block"), blockId);
+                if (preFinal && !blockId.isEmpty() && !row.contains(QStringLiteral("slot"))) {
+                    // Block slot → the QML computes the finalize ETA against LIB.
+                    int bc = 0;
+                    const QString bb = httpGet(base + QStringLiteral("/blocks/") + blockId
+                        + QStringLiteral("?fork=") + QString::number(s_forkId), &bc);
+                    if (bc == 200) {
+                        const double bslot = QJsonDocument::fromJson(bb.toUtf8())
+                                                 .object().value(QStringLiteral("slot")).toDouble();
+                        if (bslot > 0)
+                            row.insert(QStringLiteral("slot"), bslot);
+                    }
+                }
                 for (const QJsonValue& ov : txo.value(QStringLiteral("operations")).toArray()) {
                     const QJsonObject c = ov.toObject().value(QStringLiteral("content")).toObject();
                     const QString type = c.value(QStringLiteral("type")).toString();
@@ -1890,7 +1920,10 @@ QVariantMap LogosNode1clickBackend::getLeaderClaims()
         const auto settledRecently = [&](const QJsonArray& rows) {
             for (const QJsonValue& v : rows) {
                 const QJsonObject r = v.toObject();
-                if (r.value(QStringLiteral("status")).toString() != QLatin1String("settled"))
+                const QString rs = r.value(QStringLiteral("status")).toString();
+                // in_block counts too: a stale wallet's claims cannot land in a
+                // block any more than they can settle.
+                if (rs != QLatin1String("settled") && rs != QLatin1String("in_block"))
                     continue;
                 const int at = r.value(QStringLiteral("slot")).toInt(
                     r.value(QStringLiteral("submittedAtSlot")).toInt());
