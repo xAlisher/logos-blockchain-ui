@@ -573,29 +573,23 @@ QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
                 r.error = real;
         }
     }
-    // Merge the node's /time/info (#51): cryptarchia_info.slot is the TIP's slot
-    // (trails the clock by up to one block); time_info carries the true clock —
-    // current_slot, current_epoch, genesis, slot duration. The scheduler and the
-    // dashboard read time_info first and fall back to the tip slot.
-    if (r.success) {
-        const QString curl = resolveCurl();
-        if (!curl.isEmpty()) {
-            QProcess p;
-            p.setProcessEnvironment(curlEnv());
-            p.start(curl, {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
-                           QStringLiteral("http://127.0.0.1:8080/time/info")});
-            if (p.waitForFinished(4000)) {
-                const QJsonObject ti =
-                    QJsonDocument::fromJson(p.readAllStandardOutput()).object();
-                if (ti.contains(QStringLiteral("current_slot"))) {
-                    QJsonObject payload =
-                        QJsonDocument::fromJson(r.value.toString().toUtf8()).object();
-                    payload.insert(QStringLiteral("time_info"), ti);
-                    r.value = QString::fromUtf8(
-                        QJsonDocument(payload).toJson(QJsonDocument::Compact));
-                }
-            } else {
-                p.kill();
+    // Merge the module's get_time_info (#51): cryptarchia_info.slot is the TIP's
+    // slot (trails the clock by up to one block); time_info carries the true
+    // clock — current_slot, current_epoch, genesis, slot duration. IPC, not curl:
+    // the module method exists on 0.2.2 and 0.2.3 (surface diff is empty) and
+    // getLeaderClaims already consumes it for slot→wall-clock dating.
+    if (r.success && m_blockchainClient) {
+        const LogosResult ti = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+            BLOCKCHAIN_MODULE_NAME, QStringLiteral("get_time_info")));
+        if (ti.success) {
+            const QJsonObject tio =
+                QJsonDocument::fromJson(ti.value.toString().toUtf8()).object();
+            if (tio.contains(QStringLiteral("current_slot"))) {
+                QJsonObject payload =
+                    QJsonDocument::fromJson(r.value.toString().toUtf8()).object();
+                payload.insert(QStringLiteral("time_info"), tio);
+                r.value = QString::fromUtf8(
+                    QJsonDocument(payload).toJson(QJsonDocument::Compact));
             }
         }
     }
