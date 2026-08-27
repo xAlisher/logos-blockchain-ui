@@ -34,31 +34,32 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.15`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.15)** —
-  **Claims made from a paired phone now show up here.** [Node Remote](https://github.com/xAlisher/node-remote)
-  can submit a leader claim from your phone; a claim leaves no trace on the machine, so without this
-  it stayed invisible on the desktop for the ~2h until chain backfill found it. It now appears as
-  **Submitted** within one poll. Neither module depends on the other — this behaves exactly as before
-  if you do not have Node Remote installed.
-  Also: the claims ledger is now written **atomically** (`QSaveFile`). It previously used truncate-then-write,
-  which empties the file on open — so any reader landing in that window saw zero bytes, and a failed
-  write could destroy the ledger outright. That was a real window even with a single writer.
-  Previous: **v0.2.14** made claim fees resolve; **v0.2.13** rebuilt Leader Rewards (honest voucher
-  states, a permanent claims ledger, LGO units, and the leader-key balance fix).
+- **[`logos_node_1click v0.2.20`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.20)** —
+  **the verified feed.** Leader Rewards stops inferring and starts verifying: the explorer delivers
+  the only verdicts (**Paid** with recovered reward/fee, or **Failed** — gray, because a priced-out
+  claim is expected behavior; red is reserved for the rescan alarm), pool inference only ever says
+  *Confirming…*, and a claim seen at the chain tip shows **"In a block — finalizing (~N min)"** with
+  its reward before finality. The panel is buttonless: an epoch scheduler auto-claims in the tick
+  window (13/13 tick-window settles measured, vs mid-epoch claims priced out), with a watchdog and
+  a catch-up for apps closed at tick time. ≥2 verified-absent claims raise the stale-wallet-state
+  alarm with the operator remedy (`docs/RESCAN.md`); any recent landing vetoes it. Clear-log
+  archives instead of deleting. Module pin: **blockchain_module 0.2.3**, wall-clock via `/time/info`.
+  Previous: **v0.2.15** adopted phone claims + atomic ledger writes; **v0.2.14** made claim fees
+  resolve; **v0.2.13** rebuilt Leader Rewards (honest voucher states, permanent claims ledger).
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.15/logos_node_1click-0.2.15-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.20/logos_node_1click-0.2.20-linux-amd64.lgx
 
 # macOS Apple Silicon / arm64 Linux — CI builds of the same commit (unsigned)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.15/logos-blockchain-ui-aarch64-darwin.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.20/logos-blockchain-ui-aarch64-darwin.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
 
-Requires a **0.2.2 `blockchain_module`** at runtime (both are on the [apps.alisher.xyz](https://apps.alisher.xyz) catalog).
+Requires a **0.2.3 `blockchain_module`** at runtime (both are on the [apps.alisher.xyz](https://apps.alisher.xyz) catalog).
 
 ## Standalone App Quickstart
 
