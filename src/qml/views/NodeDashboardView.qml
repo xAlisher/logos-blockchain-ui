@@ -432,7 +432,9 @@ Item {
                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.copyText(root._versionLine) }
                     }
                     Item { Layout.fillWidth: true }
-                    LogosLink { text: qsTr("Legal disclaimer"); font.pixelSize: Theme.typography.secondaryText; onActivated: legalModal.open() }
+                    LogosLink { text: qsTr("Legal disclaimer"); font.pixelSize: Theme.typography.secondaryText
+                                linkColor: Theme.palette.textTertiary; hoverColor: Theme.palette.textSecondary; underline: false
+                                onActivated: legalModal.open() }
                 }
             }
             // Blocks table moved to its own top-level "Blocks" tab (BlockchainView).
