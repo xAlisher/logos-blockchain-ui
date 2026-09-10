@@ -239,8 +239,10 @@ Item {
                 for (var i = 0; i < n; i++) {
                     var x = xOf(i)
                     if (reached >= 0 && i < reached) {
-                        ctx.strokeStyle = done; ctx.lineWidth = 2
-                        ctx.beginPath(); ctx.moveTo(x - 4, cy); ctx.lineTo(x - 1, cy + 3.5); ctx.lineTo(x + 5, cy - 4); ctx.stroke()
+                        // done = green check on a grey disc
+                        ctx.fillStyle = Theme.palette.textMuted; ctx.beginPath(); ctx.arc(x, cy, 8, 0, Math.PI * 2); ctx.fill()
+                        ctx.strokeStyle = green; ctx.lineWidth = 2
+                        ctx.beginPath(); ctx.moveTo(x - 3.5, cy); ctx.lineTo(x - 1, cy + 2.5); ctx.lineTo(x + 4, cy - 3); ctx.stroke()
                     } else if (reached >= 0 && i === reached) {
                         ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.fill()
                         ctx.strokeStyle = transitioning ? yellow : green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.stroke()
@@ -291,7 +293,7 @@ Item {
         property bool dots: false                 // animate a reserved-width "…" after the value
         property bool flash: !hero                // flash green on value change (live grid tiles)
         readonly property int _vsize: hero ? 32 : 24
-        backgroundColor: hero ? Qt.rgba(tint.r, tint.g, tint.b, 0.12) : Theme.palette.surfaceRaised
+        backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: hero ? 124 : 108
         contentItem: ColumnLayout {
