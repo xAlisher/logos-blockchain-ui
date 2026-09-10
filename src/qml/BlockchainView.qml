@@ -468,44 +468,47 @@ Rectangle {
         // left nav. Same idiom as basecamp's Settings/AppManager sidebars —
         // LogosListView + LogosItemDelegate; the design system has no packaged
         // sidebar component.
-        RowLayout {
+        ColumnLayout {
             id: opPage
             spacing: Theme.spacing.medium
 
-            // Selected section. The nav model above and the StackLayout's
-            // children are index-for-index: 0 Dashboard · 1 Accounts ·
-            // 2 Leader Rewards · 3 Explorer · 4 Transfer · 5 Channel Deposit.
-            // Reorder one and you must reorder the other.
             property int sectionIndex: 0
+            readonly property bool nodeRunning: root.backend ? root.backend.status === BlockchainBackend.Running : false
+            readonly property bool canStart: root.backend && !!root.backend.userConfig && (root.backend.status === BlockchainBackend.NotStarted || root.backend.status === BlockchainBackend.Stopped)
+            readonly property bool canStop: root.backend && (root.backend.status === BlockchainBackend.Running || root.backend.status === BlockchainBackend.Error)
+            onNodeRunningChanged: { if (!nodeRunning && sectionIndex !== 0) sectionIndex = 0 }
 
-            readonly property bool nodeRunning: root.backend
-                ? root.backend.status === BlockchainBackend.Running
-                : false
-
-            // Wallet operations require a running node. If the node stops while
-            // Operations or Explorer is open, fall back to Dashboard so the
-            // user isn't stranded on a disabled section.
-            onNodeRunningChanged: {
-                if (!nodeRunning)
-                    opPage.sectionIndex = 0
+            // app header (was inside NodeDashboardView; hoisted so it persists across tabs)
+            RowLayout {
+                Layout.fillWidth: true; Layout.margins: Theme.spacing.large; spacing: Theme.spacing.medium
+                LogosText { text: "\u03bb"; color: Theme.palette.text; font.pixelSize: 24; font.weight: Theme.typography.weightBold }
+                LogosText { text: qsTr("Blockchain Node"); color: Theme.palette.text; font.pixelSize: 21; font.weight: Theme.typography.weightBold }
+                Item { Layout.fillWidth: true }
+                LogosButton { text: qsTr("Start Empowering"); enabled: opPage.nodeRunning }
+                LogosButton {
+                    text: opPage.nodeRunning ? qsTr("Stop Node") : qsTr("Start Node")
+                    variant: LogosButton.Variant.Primary
+                    enabled: opPage.nodeRunning ? opPage.canStop : opPage.canStart
+                    onClicked: {
+                        if (!root.backend) return
+                        if (opPage.nodeRunning) root.backend.stopBlockchain()
+                        else root.backend.startBlockchain()
+                    }
+                }
             }
 
-            SectionNav {
-                id: sectionsList
-
-                // Index-for-index with operationStack's children below.
-                sections: [
-                    { label: qsTr("Dashboard"), icon: "dashboard.svg", needsNode: false },
-                    { label: qsTr("Accounts"), icon: "accounts.svg", needsNode: true },
-                    { label: qsTr("Leader Rewards"), icon: "open-arm-line.svg", needsNode: true },
-                    { label: qsTr("Explorer"), icon: "global-line.svg", needsNode: true },
-                    { label: qsTr("Transfer"), icon: "", needsNode: true },
-                    { label: qsTr("Channel Deposit"), icon: "", needsNode: true }
-                ]
-                nodeRunning: opPage.nodeRunning
-                iconDir: Qt.resolvedUrl("icons/")
+            // top tab nav (replaces the left SectionNav; index-for-index with operationStack)
+            LogosTabBar {
+                id: sectionTabs
+                Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large
                 currentIndex: opPage.sectionIndex
-                onSectionActivated: (index) => opPage.sectionIndex = index
+                onCurrentIndexChanged: opPage.sectionIndex = currentIndex
+                LogosTabButton { text: qsTr("Dashboard") }
+                LogosTabButton { text: qsTr("Accounts"); enabled: opPage.nodeRunning }
+                LogosTabButton { text: qsTr("Rewards"); enabled: opPage.nodeRunning }
+                LogosTabButton { text: qsTr("Explorer"); enabled: opPage.nodeRunning }
+                LogosTabButton { text: qsTr("Transfer"); enabled: opPage.nodeRunning }
+                LogosTabButton { text: qsTr("Channel Deposit"); enabled: opPage.nodeRunning }
             }
 
             StackLayout {
@@ -514,37 +517,25 @@ Rectangle {
                 Layout.fillHeight: true
                 currentIndex: opPage.sectionIndex
 
-                // ---- Section 0: Dashboard ----
-                ColumnLayout {
-                    spacing: Theme.spacing.large
-
-                    NodeDashboardView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        status: root.backend ? root.backend.status : -1
-                        nodeRecovering: !!root.backend && root.backend.nodeRecovering
-                        lastErrorMessage: root.cryptarchiaInfoError || (root.backend ? root.backend.lastErrorMessage : "")
-                        infoJson: root.cryptarchiaInfoJson
-                        timeInfoJson: root.timeInfoJson
-                        peerId: root.peerId
-                    }
-
-                    BlocksView {
-                        Layout.fillWidth: true
-                        emptyText: !opPage.nodeRunning
-                                   ? qsTr("Start the node to see blocks arrive.")
-                                   : root.cryptarchiaInfoJson.length === 0
-                                     ? qsTr("Waiting for the node to report its state...")
-                                     : qsTr("Waiting for the next block. Only blocks produced from now on are listed.")
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: 150
-
-                        blockModel: root.blockModel
-                        onClearRequested: if (root.backend) root.backend.clearBlocks()
-                        onCopyToClipboard: (text) => {
-                            root.copyText(text)
-                        }
-                    }
+                // ---- Section 0: Dashboard (blocks folded in) ----
+                NodeDashboardView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    status: root.backend ? root.backend.status : -1
+                    nodeRecovering: !!root.backend && root.backend.nodeRecovering
+                    lastErrorMessage: root.cryptarchiaInfoError || (root.backend ? root.backend.lastErrorMessage : "")
+                    infoJson: root.cryptarchiaInfoJson
+                    timeInfoJson: root.timeInfoJson
+                    peerId: root.peerId
+                    nodeRunning: opPage.nodeRunning
+                    blockModel: root.blockModel
+                    blocksEmptyText: !opPage.nodeRunning
+                                     ? qsTr("Start the node to see blocks arrive.")
+                                     : root.cryptarchiaInfoJson.length === 0
+                                       ? qsTr("Waiting for the node to report its state...")
+                                       : qsTr("Waiting for the next block. Only blocks produced from now on are listed.")
+                    onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
+                    onCopyText: (t) => root.copyText(t)
                 }
 
                 // ---- Sections 1-4: wallet operations, one per nav entry ----
