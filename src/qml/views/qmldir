@@ -14,3 +14,6 @@ GenerateConfigView 1.0 GenerateConfigView.qml
 ConfigChoiceView 1.0 ConfigChoiceView.qml
 SetConfigPathView 1.0 SetConfigPathView.qml
 ChannelDepositView 1.0 ChannelDepositView.qml
+InfoModal 1.0 InfoModal.qml
+SettingsView 1.0 SettingsView.qml
+LegalDisclaimerModal 1.0 LegalDisclaimerModal.qml

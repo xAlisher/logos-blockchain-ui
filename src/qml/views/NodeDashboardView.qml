@@ -1,455 +1,481 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
-
+import QtQuick.Controls as QQC
 import Logos.Theme
 import Logos.Controls
+import Logos.BlockchainBackend 1.0
+import "infoContent.js" as InfoContent
 
-import "../controls"
-
-import "../amounts.js" as Amounts
-
-// Node dashboard (one-click UX #13). Status-first: a state-tinted status block
-// (Stop control + Testnet badge + Peer ID line), a row of stat tiles
-// (Slot / Height / Balance / Peers) and the Tip / LIB chain refs — all copyable.
-// Design tokens only; never the non-existent `Theme.palette.orange`.
+// Dashboard CONTENT (epic #56): Status/Blend hero pair + 4×3 metric grid + real Blocks table.
+// Header + top-tab nav live in BlockchainView (persist across tabs). HONEST: fields with no real
+// backend value show "—"; only wired data (status, slot/height/tip/lib, peerId) is real. Blocks are
+// real (blockModel). Blend/Peers/CPU/RAM/Empowering/Proposed/Stake/Earned have no API yet → "—".
 Item {
     id: root
+    implicitWidth: 1040
+    implicitHeight: 760
+    readonly property int _minCard: 210     // min card width; cards wrap to next line below this
+    readonly property int _heroMin: 340
 
-    property int    statusEnum: -1
-    property string statusText: ""
-    property color  statusColor: Theme.palette.textSecondary
-    property bool   isRunning: false
-    property string errorText: ""
-    property string peerId: ""
-    // Chain-recovery (block replay after an unclean restart) — fed from BlockchainView.
-    property bool   recoveryActive: false
-    property int    recoveryBlocks: 0
-    property string infoJson: ""
-    property string balanceText: "0"
-    // leader.wallet.funding_pk — named in the Balance tooltip so the
-    // reader knows which wallet the figure describes.
-    property string leaderKey: ""
-    // Kept in sync with metadata.json BY THE BUILD, not by hand: CMake compares this literal
-    // against metadata.json and fails the configure step if they disagree. The previous
-    // "keep in sync" comment drifted three releases — the UI still said 0.2.6 while the
-    // module shipped as 0.2.12 — because a comment cannot enforce anything.
-    //
-    // Not read from metadata.json at runtime on purpose: the file IS deployed beside the
-    // plugin, but no shipped module reads JSON from QML, and sandbox file/network access
-    // fails SILENTLY. That would trade a stale version for a blank one.
+    // ── WIRED (real backend, fed by BlockchainView) ──
+    property int status: -1                                  // backend.status (-1 = not connected)
+    property bool nodeRecovering: false
+    property string lastErrorMessage: ""
+    property string infoJson: ""                             // get_cryptarchia_info
+    property string timeInfoJson: ""                         // get_time_info
+    property string peerId: ""                               // getPeerId
+    property var blockModel: null                            // real blocks
+    property bool nodeRunning: false
+    property string blocksEmptyText: qsTr("Start the node to see blocks arrive.")
+    signal clearBlocksRequested()
+    signal copyText(string t)
+
+    // Version footer. This fork ships ONE module version — the /release in-UI guard
+    // (CMakeLists) greps this literal and requires it to equal metadata.json. The
+    // core/UI/testnet split is kept as API for the official build; empty core/testnet
+    // ⇒ the footer honestly shows just "Module v<x>".
     property string moduleVersion: "0.2.20"
+    property string coreVersion: ""
+    property string uiVersion: moduleVersion
+    property string testnetVersion: ""
+    readonly property string _versionLine: (coreVersion.length && testnetVersion.length)
+        ? qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
+        : qsTr("Module v%1").arg(moduleVersion)
+    readonly property var _infoData: InfoContent.data          // (i) tooltip content per tile
 
-    // ── Blend status (fed from BlockchainView → backend.blendStatus/lastBlendEvent) ──
-    // Label carries the Blend state only (node state is in the status block above);
-    // blue while actively mixing (edge/core), gray otherwise. blendEvent is the
-    // honest, plain-language line about the current epoch (verbatim on errors).
-    property string blendText: ""
-    property color  blendColor: Theme.palette.textSecondary
-    property string blendEvent: ""
+    // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
+    function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
+    function _short(s) { return (s && s.length > 14) ? (s.substring(0, 6) + "…" + s.substring(s.length - 4)) : (s || "—") }
+    function _fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }   // thousands with thin spaces
+    readonly property var _info: _parse(infoJson)
+    readonly property var _time: _parse(timeInfoJson)
+    function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
+    readonly property string mode: (_info && _info.mode) ? String(_info.mode) : ""
+    readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
+                                   : (_field("slot") !== undefined ? String(_field("slot")) : "—")
+    readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
+    readonly property string lib: _field("lib") ? _short(String(_field("lib"))) : "—"
+    readonly property string tip: _field("tip") ? _short(String(_field("tip"))) : "—"
+    readonly property string _libFull: _field("lib") ? String(_field("lib")) : ""
+    readonly property string _tipFull: _field("tip") ? String(_field("tip")) : ""
+    readonly property string peerIdShort: (peerId && peerId.length) ? _short(peerId) : "—"
 
-    signal copyText(string text)
-    signal startRequested()
-    signal stopRequested()
+    // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
+    property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
+    property string epoch: "—"
+    property string epochProgress: ""                        // e.g. "6h of 10h" — needs epoch length + slot-in-epoch from the node
+    property string proposed: "—"                            // #61
+    property string validation: ""                           // active|inactive|""
+    property int epochsToActivate: 0
+    property string peers: "—"                               // #62 (curl)
+    property string connections: ""
+    property bool empoweringActive: false                    // #64 (#85) — mining currently on (drives the tile)
+    property real empoweringMined: -1                        // LGO mined toward target; <0 = no data
+    property real empoweringTarget: -1                       // auto-claim threshold / target balance
+    property bool funded: false                              // wallet has stake/notes (persists after mining stops) — the lifecycle "Funded" signal
+    property string cpu: "—"                                 // #65 (#89)
+    property string cpuCap: ""
+    property string ram: "—"                                 // #66 (#89)
+    property string ramCap: ""
+    property string stakeStr: "—"                            // #59
+    property string foundingAddr: ""
+    property string earnedStr: "—"                           // #60
+    property string feePct: ""
+    property string uptime: ""
+    property string replayProgress: ""
+    property string bootCountdown: ""
+    property bool bootOverran: false
 
-    readonly property color ctaOrange: Theme.palette.primaryHover
-
-    // ── Consensus JSON parsing (mirrors CryptarchiaInfoView) ──
-    readonly property var _info: {
-        try { return infoJson && infoJson.length > 0 ? JSON.parse(infoJson) : null }
-        catch (e) { return null }
-    }
-    function _field(key) {
-        if (!_info) return undefined
-        if (_info.cryptarchia_info && _info.cryptarchia_info[key] !== undefined)
-            return _info.cryptarchia_info[key]
-        return _info[key]
-    }
-    function _num(key) {
-        var v = _field(key)
-        return (v === undefined || v === null) ? "—" : Number(v).toLocaleString(Qt.locale(), "f", 0)
-    }
-    function _hash(key) {
-        var v = _field(key)
-        return (v === undefined || v === null || v === "") ? "—" : String(v)
-    }
-    function _statusDisplay() {
-        if (recoveryActive) return qsTr("Recovering chain")
-        if (errorText && errorText.length > 0) return errorText
-        if (isRunning) {
-            var m = _info ? _info.mode : undefined
-            if (typeof m === "string") return m
-            if (typeof m === "number") return ["Bootstrapping", "Online", "Not Started"][m] || String(m)
-            if (m && typeof m === "object") { for (var k in m) return String(k) }
-            return qsTr("Bootstrapping")
+    // sync-rate + ETA engine (ported from NodeStatusCard, #57) → real bootstrapping countdown
+    onInfoJsonChanged: sync.sampleRate(sync.tipSlot)
+    QtObject {
+        id: sync
+        readonly property var tipSlot: root._field("slot") !== undefined ? Number(root._field("slot")) : undefined
+        readonly property var currentSlot: (root._time && root._time.current_slot !== undefined) ? Number(root._time.current_slot) : undefined
+        readonly property var slotDurationMs: (root._time && root._time.slot_duration_ms !== undefined) ? Number(root._time.slot_duration_ms) : undefined
+        readonly property var remaining: (tipSlot === undefined || currentSlot === undefined) ? undefined : Math.max(0, currentSlot - tipSlot)
+        readonly property int syncedSlack: 3
+        readonly property bool synced: root.mode === "Online" && remaining !== undefined && remaining <= syncedSlack
+        property real emaRate: NaN
+        property real lastTip: NaN
+        property real lastAt: 0
+        readonly property real smoothing: 0.15
+        readonly property real etaEnterRate: 0.05
+        readonly property real etaExitRate: 0.0
+        property bool etaHolding: false
+        readonly property real headRate: (slotDurationMs !== undefined && slotDurationMs > 0) ? 1000 / slotDurationMs : NaN
+        function sampleRate(tip) {
+            if (tip === undefined) return
+            const now = Date.now() / 1000
+            if (!isNaN(lastTip) && now > lastAt) {
+                const instant = (tip - lastTip) / (now - lastAt)
+                if (instant < 0) emaRate = NaN
+                else emaRate = isNaN(emaRate) ? instant : smoothing * instant + (1 - smoothing) * emaRate
+            }
+            lastTip = tip; lastAt = now
+            const closing = emaRate - headRate
+            if (!isNaN(closing)) {
+                if (!etaHolding && closing > etaEnterRate) etaHolding = true
+                else if (etaHolding && closing <= etaExitRate) etaHolding = false
+            }
         }
-        return statusText
-    }
-    function _statusColor() {
-        if (recoveryActive) return ctaOrange
-        if (errorText && errorText.length > 0) return Theme.palette.error
-        var s = _statusDisplay()
-        if (s === "Online") return Theme.palette.success
-        if (s === "Bootstrapping") return ctaOrange
-        return statusColor
-    }
-    // Title is split so an animated ellipsis can own RESERVED space — the base label,
-    // then a fixed-width dots block. Keeps the centered title from jumping left-right.
-    function _titleBase() {
-        return root._statusDisplay().replace(/\s*(?:\.\.\.|…)\s*$/, "")
-    }
-    function _titleDots() {   // which states get the working "…" (Starting/Stopping/Bootstrapping/Recovering)
-        if (root.recoveryActive) return true
-        var s = root._statusDisplay()
-        if (s === qsTr("Bootstrapping")) return true
-        return /(?:\.\.\.|…)\s*$/.test(s)
-    }
-    // State-tinted status-block background (~10% of the status colour).
-    function _statusBg() {
-        var c = Theme.palette.backgroundTertiary
-        var a = 0.10
-        if (errorText && errorText.length > 0) c = Theme.palette.error
-        else {
-            var s = _statusDisplay()
-            if (s === "Online") { c = Theme.palette.success; a = 0.025 }  // green: extra subtle (half of the old 0.05)
-            else if (s === "Bootstrapping") c = ctaOrange
-            else return Theme.palette.backgroundTertiary
+        readonly property real closingRate: (isNaN(emaRate) || isNaN(headRate)) ? NaN : emaRate - headRate
+        readonly property var etaSeconds: {
+            if (!(root.status === BlockchainBackend.Running) || synced || remaining === undefined || remaining <= 0) return undefined
+            if (!etaHolding || isNaN(closingRate) || closingRate <= 0) return undefined
+            return remaining / closingRate
         }
-        return Qt.rgba(c.r, c.g, c.b, a)
+        function formatEta(seconds) {
+            const total = Math.round(seconds); const h = Math.floor(total / 3600); const m = Math.floor((total % 3600) / 60); const s = total % 60
+            const pad = (n) => (n < 10 ? "0" + n : String(n))
+            return h > 0 ? (h + ":" + pad(m) + ":" + pad(s)) : (m + ":" + pad(s))
+        }
+        // Calm, honest bootstrap sub: no growing counter/ETA (the node may not be converging, which
+        // makes both "slots behind" and remaining/rate grow). Progress lives in the Height tile
+        // (blocks applied, monotonic). A real %-complete needs a backend sync-progress field.
+        readonly property string syncLabel: qsTr("Syncing…")
     }
 
-    // Peer / connection counts — fed from BlockchainView (backend curl, #21),
-    // because sandboxed ui_qml (v0.2.3) can't reach the node's :8080 API from QML.
-    property int peerCount: -1
-    property int connectionCount: -1
-
-    // ── Sub-status line: bootstrap countdown (#17) or staking state (auto-stake) ──
+    // Bootstrap countdown: bootstrap runs ~1h, so count DOWN from 60:00 (client-side elapsed —
+    // no backend sync-progress field exists). On overrun → "Takes a bit longer." (mockup #57).
+    readonly property bool _bootstrapping: status === BlockchainBackend.Running && !sync.synced
     property int _bootSecs: 0
-    property int _dotPhase: 0
-    readonly property int _bootTotal: 3600     // count DOWN from 60:00
-    function _isBootstrapping() { return root._statusDisplay() === "Bootstrapping" }
-    function _balancePositive() { var n = Number(root.balanceText); return !isNaN(n) && n > 0 }
-    // LGO display. The raw u64 from wallet_get_balance IS LGO — there is no
-    // sub-unit. This used to divide by an invented `baseUnitsPerLgo = 10000`,
-    // making every balance read 10,000x too small. Upstream disagrees on all
-    // counts: core/src/mantle/transactions/gas.rs cites the spec as
-    // "P_STR(0) = 1 LGO/gas" and writes GasPrice::new(1); the official
-    // logos-blockchain-ui renders the raw string; hackyguru/persona formats the
-    // raw value with no division. No client we looked at divides.
-    //
-    // (An earlier comment here claimed `baseUnitsPerLgo` had "zero hits on
-    // GitHub". That is not reproducible — `gh search code` returns [] even for
-    // strings that demonstrably exist in a repo, so an empty result proves
-    // nothing. Removed rather than left as an unsupported assertion.)
-    //
-    // Formatting now lives in controls/AmountText.qml so exactly one place
-    // decides what a number means. These two wrappers keep the existing stat-tile
-    // call sites (value + tip) working.
-    function _fmtBalance(raw) { return Amounts.short(raw) }
-    function _balanceExact(raw) { return Amounts.exact(raw) }
-
-    function _fmtSecs(s) {
-        var m = Math.floor(s / 60); var ss = s % 60
-        return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss
-    }
-    function _bootDots() { return ["", ".", "..", "..."][root._dotPhase] }
-    function _subStatusText() {
-        if (root.recoveryActive)
-            return root.recoveryBlocks > 0
-                ? qsTr("Replaying %1 stored blocks…").arg(root.recoveryBlocks)
-                : qsTr("Replaying stored blocks…")
-        if (root._isBootstrapping()) {
-            var rem = root._bootTotal - root._bootSecs
-            if (rem > 0) return qsTr("Syncing… %1").arg(root._fmtSecs(rem))   // counts down
-            return qsTr("Taking a bit longer") + root._bootDots()            // overran → dots
-        }
-        if (root.isRunning && root._balancePositive())
-            return qsTr("◆ Staking — eligible for leader slots")
-        return ""
-    }
-    Timer {   // countdown tick
-        interval: 1000; repeat: true; running: root._isBootstrapping()
+    readonly property int _bootTotal: 3600
+    function _fmtSecs(s) { var m = Math.floor(s / 60); var ss = s % 60; return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss }
+    Timer {
+        interval: 1000; repeat: true; running: root._bootstrapping
         onTriggered: if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
         onRunningChanged: if (!running) root._bootSecs = 0
     }
-    Timer {   // animated dots for the "Taking a bit longer…" overrun
-        interval: 450; repeat: true; running: root._isBootstrapping()
-        onTriggered: root._dotPhase = (root._dotPhase + 1) % 4
+
+    Rectangle { anchors.fill: parent; color: Theme.palette.background }
+
+    // ── Status hero → {label, sub, color} ──
+    // label = base text (no ellipsis); d = animate a reserved-width "…" (transitional states)
+    readonly property var _st:
+        (!nodeConnected)
+            ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
+      : status === BlockchainBackend.Error
+            ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
+      : nodeRecovering
+            ? ({ label: qsTr("Replaying blocks"), sub: replayProgress, c: Theme.palette.warning, copy: false, d: true })
+      : status === BlockchainBackend.Starting
+            ? ({ label: qsTr("Starting"), sub: qsTr("Checking configuration"), c: Theme.palette.warning, copy: false, d: true })
+      : (status === BlockchainBackend.Running && !sync.synced)
+            ? ({ label: qsTr("Bootstrapping"), sub: (_bootTotal - _bootSecs > 0) ? ("~" + _fmtSecs(_bootTotal - _bootSecs)) : qsTr("Takes a bit longer."), c: Theme.palette.warning, copy: false, d: true })
+      : status === BlockchainBackend.Running
+            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
+      : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
+    readonly property bool nodeConnected: status >= 0
+    readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
+                                : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
+                                : ({ label: qsTr("Not active"), c: Theme.palette.text })
+    readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
+    readonly property string _proposedSub: validation === "active" ? qsTr("Validation active")
+                                : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
+                                : ""
+
+    // Node lifecycle — HONEST: a stage only counts as reached when we can truly
+    // detect it. Today only Started + Online have real signals; Empowered/Aged/
+    // Proposing/Earning are reached only once their backend fields land
+    // (#64/#85, #59-#61). Progress is expressed as a single frontier index
+    // (furthest reached) plus a transitioning flag (moving Started→Online).
+    readonly property var _lifeSteps: [qsTr("Started"), qsTr("Online"), qsTr("Funded"), qsTr("Aged"), qsTr("Proposing"), qsTr("Earning")]
+    // Furthest reached stage (-1 = none). Monotonic: a later confirmed stage
+    // implies every earlier one (you can't propose without having aged/empowered).
+    readonly property int _lifeReached: {
+        if (!nodeConnected || status === BlockchainBackend.NotStarted) return -1
+        if (status === BlockchainBackend.Starting) return -1                    // Started itself is in progress (live, unchecked)
+        if (nodeRecovering) return 0                                            // replaying → Started done, syncing
+        if (status === BlockchainBackend.Running && !sync.synced) return 0
+        if (status !== BlockchainBackend.Running) return -1
+        var r = 1                                                               // Online (Running + synced)
+        if (funded) r = Math.max(r, 2)                                          // Funded — has stake (mining is one way to get there)
+        if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
+        if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
+        return r
     }
+    // Actively moving from the frontier toward the next stage. Two detectable
+    // transitions: Started→Online (starting/replaying/bootstrapping), and
+    // Funded→Aged (funded notes waiting ~2 epochs to become eligible to lead —
+    // "aged" is the real Cryptarchia term; queryable via get_leader_aged_notes,
+    // not yet wired: logos-blockchain-module#61).
+    readonly property bool _lifeTransitioning:
+        status === BlockchainBackend.Starting || nodeRecovering
+        || (status === BlockchainBackend.Running && !sync.synced)                              // → Online (bootstrapping)
+        || (status === BlockchainBackend.Running && sync.synced && empoweringActive && !funded) // → Funded (mining)
+        || _lifeReached === 2                                                                   // → Aged (aging)
 
-    implicitHeight: col.implicitHeight
-
-    // ── value text that "breathes": softly flashes green on every change, then
-    //    eases back to its rest colour (issue: live-value change animation) ──
-    component FlashValue: LogosText {
-        id: fv
-        property color restColor: Theme.palette.text
-        color: restColor
-        onTextChanged: flashAnim.restart()
-        SequentialAnimation {
-            id: flashAnim
-            ColorAnimation { target: fv; property: "color"
-                to: Theme.palette.success; duration: 160; easing.type: Easing.OutQuad }
-            ColorAnimation { target: fv; property: "color"
-                to: fv.restColor; duration: 1100; easing.type: Easing.InOutQuad }
+    // Chevron/pipeline lane. green = LIVE (the one accented segment); done = gray
+    // segment + green check; transitioning = the live segment goes yellow (animated
+    // fill pulse); future = darkest segments.
+    component Lifecycle: Item {
+        id: lane
+        property var steps: []
+        property int reached: -1
+        property bool transitioning: false
+        property real flow: 0
+        implicitHeight: 30
+        readonly property int n: steps.length
+        readonly property real gap: 2                  // clearance from a chevron's tip to the next's notch
+        readonly property real inset: 0                // lane fills to the card padding → equal gap on both sides
+        readonly property real dpth: Math.min(14, height * 0.5)   // point/notch depth
+        // interlocking: each chevron overlaps the next by (dpth - gap) so the tip sits `gap` px from the notch
+        readonly property real segW: (width - 2 * inset + (n - 1) * (dpth - gap)) / Math.max(1, n)
+        function segLeft(i) { return inset + i * (segW - dpth + gap) }
+        function segRight(i) { return segLeft(i) + segW }
+        function labelCenter(i) {   // center within the readable area (between the notch and the point)
+            var l = segLeft(i) + (i > 0 ? dpth : 0)
+            var r = segRight(i) - (i < n - 1 ? dpth : 0)
+            return (l + r) / 2
+        }
+        onReachedChanged: cv.requestPaint()
+        onTransitioningChanged: cv.requestPaint()
+        onWidthChanged: cv.requestPaint()
+        onFlowChanged: cv.requestPaint()
+        Component.onCompleted: cv.requestPaint()
+        NumberAnimation on flow { running: lane.transitioning; from: 0; to: 1; duration: 1500; loops: Animation.Infinite }
+        Canvas {
+            id: cv; anchors.fill: parent
+            onAvailableChanged: if (available) requestPaint()
+            onPaint: {
+                var ctx = getContext("2d"); ctx.reset()
+                var green = Theme.palette.success, yellow = Theme.palette.warning
+                var h = height, r = 3, dpth = lane.dpth
+                // trace a polygon with rounded corners (arcTo from each edge midpoint)
+                function roundPoly(pts) {
+                    var m = pts.length
+                    ctx.beginPath()
+                    var s = pts[m - 1], b = pts[0]
+                    ctx.moveTo((s[0] + b[0]) / 2, (s[1] + b[1]) / 2)
+                    for (var k = 0; k < m; k++) {
+                        var cur = pts[k], nxt = pts[(k + 1) % m]
+                        ctx.arcTo(cur[0], cur[1], nxt[0], nxt[1], r)
+                    }
+                    ctx.closePath()
+                }
+                for (var i = 0; i < n; i++) {
+                    var x0 = lane.segLeft(i), x1 = lane.segRight(i)
+                    var first = (i === 0), last = (i === n - 1)
+                    // while transitioning, the LIVE (pulsing) stage is the NEXT one being worked
+                    // toward (e.g. aging → Aged), and the frontier itself is done (checked).
+                    var liveIdx = transitioning ? reached + 1 : reached   // Starting: reached=-1 → live is Started(0)
+                    var isLive = (i === liveIdx && liveIdx >= 0 && liveIdx < n)
+                    var isDone = (reached >= 0 && i <= reached && i !== liveIdx)
+                    var fill
+                    if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
+                    else if (isLive) fill = Qt.rgba(green.r, green.g, green.b, 0.20)
+                    else if (isDone) fill = Theme.palette.surface
+                    else fill = Theme.palette.surfaceRecessed
+                    var pts = [[x0, 0]]
+                    if (last) { pts.push([x1, 0], [x1, h]) }
+                    else { pts.push([x1 - dpth, 0], [x1, h / 2], [x1 - dpth, h]) }
+                    pts.push([x0, h])
+                    if (!first) pts.push([x0 + dpth, h / 2])   // concave notch seats the previous chevron's point
+                    roundPoly(pts)
+                    ctx.fillStyle = fill; ctx.fill()
+                }
+            }
+        }
+        // per-segment label (+ green check for done), centered in the chevron
+        Repeater {
+            model: lane.steps
+            Row {
+                required property int index
+                required property string modelData
+                readonly property int _liveIdx: lane.transitioning ? lane.reached + 1 : lane.reached
+                readonly property bool _live: index === _liveIdx && _liveIdx >= 0 && _liveIdx < lane.n
+                readonly property bool _done: lane.reached >= 0 && index <= lane.reached && index !== _liveIdx
+                spacing: 4
+                x: lane.labelCenter(index) - width / 2
+                y: (lane.height - height) / 2
+                LogosText { visible: parent._done; text: "✓"; color: Theme.palette.success; font.pixelSize: 12; font.weight: Theme.typography.weightBold; anchors.verticalCenter: parent.verticalCenter }
+                LogosText {
+                    // a transitioning-live stage shows the in-progress verb (Online→Syncing…, Aged→Aging)
+                    text: (parent._live && lane.transitioning && index === 1) ? qsTr("Syncing…")
+                        : (parent._live && lane.transitioning && index === 3) ? qsTr("Aging")
+                        : parent.modelData
+                    font.pixelSize: 12
+                    color: parent._live ? (lane.transitioning ? Theme.palette.warning : Theme.palette.success)
+                          : parent._done ? Theme.palette.textSecondary : Theme.palette.textTertiary
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
         }
     }
 
-    // ── small, gray copy button (matches text colour) ──
-    component CopyBtn: Button {
-        property string value
-        property bool copied: false
-        flat: true; padding: 2
-        implicitWidth: 22; implicitHeight: 22
-        display: AbstractButton.IconOnly
-        enabled: value && value.length > 0 && value !== "—"
-        opacity: enabled ? 1 : 0.3
-        icon.source: Qt.resolvedUrl("../icons/copy.svg")
-        icon.width: 14; icon.height: 14
-        icon.color: copied ? root.ctaOrange
-                    : (hovered ? Theme.palette.text : Theme.palette.textSecondary)
-        ToolTip.visible: hovered && enabled; ToolTip.text: copied ? qsTr("Copied") : qsTr("Copy")
-        onClicked: { root.copyText(value); copied = true; copiedReset.restart() }
-        Timer { id: copiedReset; interval: 1200; onTriggered: copied = false }
+    component Info: Rectangle {
+        id: ib
+        signal clicked()
+        readonly property bool hovered: ma.containsMouse
+        width: 16; height: 16; radius: 8; color: "transparent"
+        border.width: 1
+        border.color: hovered ? Theme.palette.text : Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
+        LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: ib.hovered ? Theme.palette.text : Theme.palette.textMuted }
+        MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: ib.clicked() }
     }
-
-    ColumnLayout {
-        id: col
-        anchors.fill: parent
-        spacing: Theme.spacing.medium
-
-        // ═══ Status block ═══
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 140
-            radius: Theme.spacing.radiusLarge
-            color: root._statusBg()
-            border.width: 0
-
-            // top-left: module build version (replaces the redundant "Node status" label),
-            // level with the Testnet badge — lets you tell which fork build is running at a glance.
-            LogosText {
-                anchors.top: parent.top; anchors.left: parent.left
-                anchors.topMargin: Theme.spacing.medium; anchors.leftMargin: Theme.spacing.medium
-                text: qsTr("Module v%1").arg(root.moduleVersion)
-                font.pixelSize: Theme.typography.secondaryText
-                color: Theme.palette.textSecondary
-            }
-
-            // top-right: Testnet badge + copy
+    component CopyGlyph: Canvas {
+        implicitWidth: 16; implicitHeight: 16
+        property color stroke: Theme.palette.textMuted
+        onPaint: {
+            var ctx = getContext("2d"); ctx.reset();
+            ctx.strokeStyle = stroke; ctx.lineWidth = 1.3; ctx.lineJoin = "round"; ctx.lineCap = "round";
+            var r = 2, x = 1, y = 1, s = 9;
+            ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + s, y, x + s, y + s, r); ctx.arcTo(x + s, y + s, x, y + s, r);
+            ctx.arcTo(x, y + s, x, y, r); ctx.arcTo(x, y, x + s, y, r); ctx.closePath(); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(10, 5); ctx.lineTo(14 - r, 5); ctx.arcTo(14, 5, 14, 14, r);
+            ctx.arcTo(14, 14, 5, 14, r); ctx.lineTo(5, 14); ctx.lineTo(5, 10); ctx.stroke();
+        }
+    }
+    component Block: LogosFrame {
+        id: blk
+        property var info: null                   // {title, what, calc, states, docs} for the (i) modal
+        signal infoRequested()
+        property string label: ""
+        property string value: "—"
+        property string sub: ""
+        property color accent: Theme.palette.text
+        property color tint: Theme.palette.surfaceRaised
+        property bool copyable: false
+        property string copyValue: ""            // if set, the sub row is just a copy button (copies this full value)
+        signal copyRequested(string t)
+        property bool _copied: false
+        Timer { id: copiedTimer; interval: 1400; onTriggered: blk._copied = false }
+        property bool hero: false
+        property bool dots: false                 // animate a reserved-width "…" after the value
+        property bool flash: !hero                // flash green on value change (live grid tiles)
+        property bool showLane: false             // embed the lifecycle lane at the bottom (merged Status card)
+        property var laneSteps: []
+        property int laneReached: -1
+        property bool laneTransitioning: false
+        readonly property int _vsize: hero ? 32 : 24
+        backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
+        borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
+        implicitHeight: showLane ? 118 : (hero ? 124 : 108)
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing.small
+            RowLayout { Layout.fillWidth: true
+                visible: label.length > 0        // collapse the label line when there's no label (e.g. the Status hero)
+                LogosText { text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                Item { Layout.fillWidth: true }
+                Info { visible: blk.info != null; onClicked: blk.infoRequested() } }
             RowLayout {
-                anchors.top: parent.top; anchors.right: parent.right
-                anchors.topMargin: Theme.spacing.medium; anchors.rightMargin: Theme.spacing.medium
-                spacing: Theme.spacing.small
+                Layout.fillWidth: true; spacing: 0
                 LogosText {
-                    text: qsTr("Testnet v0.2.1")
-                    font.pixelSize: Theme.typography.secondaryText
-                    color: Theme.palette.textTertiary
+                    id: fv
+                    Layout.fillWidth: false; text: value
+                    property color restColor: accent
+                    color: restColor                       // binding; flashAnim overrides on change
+                    font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight
+                    onTextChanged: if (flash) flashAnim.restart()
+                    SequentialAnimation {
+                        id: flashAnim
+                        ColorAnimation { target: fv; property: "color"; to: Theme.palette.success; duration: 160; easing.type: Easing.OutQuad }
+                        ColorAnimation { target: fv; property: "color"; to: fv.restColor; duration: 1100; easing.type: Easing.InOutQuad }
+                    }
                 }
-                CopyBtn { value: root._statusDisplay() }
-            }
-
-            // centered status value + sub-line (staking / bootstrap progress)
-            Column {
-                anchors.centerIn: parent
-                width: root.width - 4 * Theme.spacing.large
-                spacing: 3
-                // Base label + a fixed-width animated ellipsis. The three dots always occupy
-                // their width (only opacity is animated), so the centered title never jumps
-                // left-right while "Starting / Recovering chain / Bootstrapping…" ticks.
-                Item {
-                    id: titleWrap
-                    width: parent.width
-                    height: bigStatus.implicitHeight
-                    Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 0
+                Row {   // reserved-width animated ellipsis (only opacity animates → no jump)
+                    visible: dots; spacing: 0
+                    Repeater { model: 3
                         LogosText {
-                            id: bigStatus
-                            width: Math.min(implicitWidth, titleWrap.width - (titleDots.visible ? titleDots.width : 0))
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
-                            text: root._titleBase()
-                            color: root._statusColor()
-                            font.pixelSize: Theme.typography.titleText
-                            font.weight: Theme.typography.weightMedium
-                            // Bootstrapping / recovering gently breathes (~10% opacity, not to full off).
+                            text: "."; color: accent; font.pixelSize: _vsize; font.weight: Theme.typography.weightBold
+                            opacity: 0.25
                             SequentialAnimation on opacity {
-                                running: root._isBootstrapping() || root.recoveryActive
-                                loops: Animation.Infinite
-                                alwaysRunToEnd: true
-                                NumberAnimation { to: 0.9; duration: 950; easing.type: Easing.InOutSine }
-                                NumberAnimation { to: 1.0; duration: 950; easing.type: Easing.InOutSine }
-                                onRunningChanged: if (!running) bigStatus.opacity = 1
-                            }
-                        }
-                        // Reserved-width ellipsis: all three dots present; only opacity animates.
-                        Row {
-                            id: titleDots
-                            visible: root._titleDots()
-                            spacing: 0
-                            Repeater {
-                                model: 3
-                                LogosText {
-                                    text: "."
-                                    color: bigStatus.color
-                                    font.pixelSize: Theme.typography.titleText
-                                    font.weight: Theme.typography.weightMedium
-                                    opacity: 0.25
-                                    SequentialAnimation on opacity {
-                                        running: titleDots.visible
-                                        loops: Animation.Infinite
-                                        PauseAnimation { duration: index * 260 }
-                                        NumberAnimation { to: 1.0; duration: 180 }
-                                        NumberAnimation { to: 0.25; duration: 180 }
-                                        PauseAnimation { duration: (2 - index) * 260 + 520 }
-                                    }
-                                }
+                                running: dots; loops: Animation.Infinite
+                                PauseAnimation { duration: index * 260 }
+                                NumberAnimation { to: 1.0; duration: 180 }
+                                NumberAnimation { to: 0.25; duration: 180 }
+                                PauseAnimation { duration: (2 - index) * 260 + 520 }
                             }
                         }
                     }
                 }
+                Item { Layout.fillWidth: true }
+                // merged hero: uptime/countdown pinned to the card's upper-right corner
                 LogosText {
-                    width: parent.width
-                    visible: text.length > 0
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root._subStatusText()
-                    color: (root._isBootstrapping() || root.recoveryActive) ? Theme.palette.textSecondary
-                                                                            : Theme.palette.success
-                    font.pixelSize: Theme.typography.secondaryText
-                    font.weight: Theme.typography.weightMedium
+                    visible: showLane && sub.length > 0
+                    text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
+                    Layout.alignment: Qt.AlignTop
                 }
-                // ── Blend line: a centred dot + "Blend <state> — <detail>". The dot is a real
-                //    circle vertically centred with the text (the inline "●" glyph sat a touch
-                //    low). Blue while mixing, gray otherwise; detail is the epoch event. ──
-                Item {
-                    id: blendWrap
-                    width: parent.width
-                    height: blendLbl.implicitHeight
-                    visible: root.isRunning && root.blendText.length > 0
-                    Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 5
-                        Rectangle {
-                            width: 7; height: 7; radius: 3.5
-                            color: root.blendColor
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        LogosText {
-                            id: blendLbl
-                            width: Math.min(implicitWidth, blendWrap.width - 12)
-                            elide: Text.ElideRight
-                            text: root.blendText
-                                  + (root.blendEvent.length > 0 ? " — " + root.blendEvent : "")
-                            color: root.blendColor
-                            font.pixelSize: Theme.typography.secondaryText
-                            font.weight: Theme.typography.weightMedium
-                        }
+                Info { visible: showLane && blk.info != null; Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small; onClicked: blk.infoRequested() }
+            }
+            RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
+                visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
+                // normal sub text (hidden when the row is a copy-only button)
+                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
+                            font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
+                // copy button — copies copyValue (full) or the sub; flashes "Copied" to its right
+                CopyGlyph {
+                    visible: copyValue.length > 0 || (copyable && sub.length > 0)
+                    Layout.alignment: Qt.AlignVCenter
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        onClicked: { blk.copyRequested(copyValue.length > 0 ? copyValue : sub); blk._copied = true; copiedTimer.restart() }
                     }
                 }
-            }
-
-            // bottom: Peer ID on one line, centered, gray
-            RowLayout {
-                anchors.bottom: parent.bottom
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottomMargin: Theme.spacing.medium
-                spacing: Theme.spacing.small
-                LogosText {
-                    text: qsTr("Peer ID:")
-                    font.pixelSize: Theme.typography.secondaryText
-                    color: Theme.palette.textSecondary
-                }
-                LogosText {
-                    Layout.maximumWidth: root.width - 8 * Theme.spacing.large
-                    text: root.peerId && root.peerId.length ? root.peerId : "—"
-                    font.pixelSize: Theme.typography.secondaryText
-                    font.family: Theme.typography.publicSans
-                    color: Theme.palette.textSecondary
-                    elide: Text.ElideMiddle
-                }
-                CopyBtn { value: root.peerId }
-            }
-        }
-
-        // ═══ Stat tiles: Slot · Height · Balance · Peers ═══
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacing.medium
-            Repeater {
-                model: [
-                    { label: qsTr("Slot"),    value: root._num("slot"), tip: "" },
-                    { label: qsTr("Height"),  value: root._num("height"), tip: "" },
-                    // This is the LEADER FUNDING KEY's balance — the wallet that
-                    // proposes blocks, receives leader rewards and pays claim fees.
-                    // It is a different key from the node's first known address
-                    // (ui#35), so the tooltip names it rather than leaving the
-                    // reader to assume it matches the top of the Accounts list.
-                    { label: qsTr("Balance"), value: root._fmtBalance(root.balanceText),
-                      tip: root._balanceExact(root.balanceText)
-                           + (root.leaderKey.length > 0
-                              ? qsTr("\nLeader funding key %1…%2 — proposals, rewards and claim fees")
-                                  .arg(root.leaderKey.substring(0, 8))
-                                  .arg(root.leaderKey.slice(-6))
-                              : "") },
-                    { label: qsTr("Peers"),   value: root.peerCount >= 0 ? String(root.peerCount) : "—",
-                      tip: root.connectionCount >= 0 ? qsTr("%1 connections").arg(root.connectionCount) : "" }
-                ]
-                // Shared with the Leader Rewards tiles (controls/StatTile.qml) so
-                // the two pages cannot drift. FlashValue's behaviour moved into
-                // the control as `flashOnChange`.
-                delegate: StatTile {
-                    label: modelData.label
-                    value: modelData.value
-                    // Click-to-open (i) rather than a hover tooltip — the Balance
-                    // explanation is two lines and was unreadable on hover.
-                    info: modelData.tip || ""
-                    // Slot and Height tick constantly; the flash is what makes a
-                    // live node visibly live.
-                    flashOnChange: true
-                }
-            }
-        }
-
-        // ═══ Tip / LIB (one block, two rows) ═══
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 58
-            radius: Theme.spacing.radiusLarge
-            color: Theme.palette.backgroundTertiary
-            border.width: 0
-            ColumnLayout {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.spacing.large
-                anchors.rightMargin: Theme.spacing.medium
-                spacing: 3
-                Repeater {
-                    model: [
-                        { label: qsTr("Tip"), value: root._hash("tip") },
-                        { label: qsTr("LIB"), value: root._hash("lib") }
-                    ]
-                    delegate: RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacing.medium
-                        LogosText {
-                            text: modelData.label
-                            Layout.preferredWidth: 32
-                            font.pixelSize: Theme.typography.secondaryText
-                            color: Theme.palette.textSecondary
-                        }
-                        FlashValue {
-                            Layout.fillWidth: true
-                            text: modelData.value
-                            font.pixelSize: Theme.typography.primaryText
-                            font.family: Theme.typography.publicSans
-                            elide: Text.ElideMiddle
-                        }
-                        CopyBtn { value: modelData.value }
-                    }
-                }
+                LogosText { visible: blk._copied; text: qsTr("Copied"); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
+                Item { Layout.fillWidth: true } }
+            Lifecycle {
+                visible: showLane
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.large    // equal gap to the value line, matching the card padding
+                steps: laneSteps; reached: laneReached; transitioning: laneTransitioning
             }
         }
     }
+
+    QQC.ScrollView {
+        anchors.fill: parent; contentWidth: availableWidth
+        ColumnLayout {
+            width: root.width; spacing: Theme.spacing.large
+            ColumnLayout {
+                Layout.fillWidth: true; Layout.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
+                // ---- Node hero: full-width Status headline + journey lane merged ----
+                Block {
+                    Layout.fillWidth: true; hero: true; label: ""      // no "Status" label — the value is the headline
+                    value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
+                    showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
+                    info: root._infoData.status; onInfoRequested: root._openInfo(info)
+                }
+                GridLayout {
+                    Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0; info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
+                            // dashboard shows PROGRESS of mining (%, mined/target), not raw token totals; "—" when not started
+                            value: (root.empoweringActive && root.empoweringTarget > 0) ? (Math.min(100, Math.round(root.empoweringMined / root.empoweringTarget * 100)) + "%") : "—"
+                            sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : ""; info: root._infoData.mining; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap; info: root._infoData.cpu; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap; info: root._infoData.ram; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; info: root._infoData.height; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
+                }
+                // ---- footer: version line (+ copy) · legal disclaimer (modal) ----
+                RowLayout {
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
+                    LogosText { text: root._versionLine; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText }
+                    CopyGlyph {
+                        Layout.alignment: Qt.AlignVCenter
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.copyText(root._versionLine) }
+                    }
+                    Item { Layout.fillWidth: true }
+                    LogosLink { text: qsTr("Legal disclaimer"); font.pixelSize: Theme.typography.secondaryText
+                                linkColor: Theme.palette.textTertiary; hoverColor: Theme.palette.textSecondary; underline: false
+                                onActivated: legalModal.open() }
+                }
+            }
+            // Blocks table moved to its own top-level "Blocks" tab (BlockchainView).
+        }
+    }
+
+    LegalDisclaimerModal { id: legalModal }
+    InfoModal { id: infoModal }
+    function _openInfo(i) { if (i) { infoModal.info = i; infoModal.open() } }
 }

@@ -882,6 +882,35 @@ Rectangle {
     property string cryptarchiaInfoJson: ""
     property string cryptarchiaInfoError: ""
 
+    // --- Redesigned NodeDashboardView adapters (v0.2.20 backend → redesigned props) ---
+    // The merged get_cryptarchia_info carries a nested time_info object; the redesigned
+    // view wants it as its own JSON string (current_slot / slot_duration_ms / current_epoch).
+    function _dashTimeInfo(j) {
+        try { var p = JSON.parse(j); return (p && p.time_info) ? JSON.stringify(p.time_info) : "" }
+        catch (e) { return "" }
+    }
+    function _dashEpoch(j) {
+        try {
+            var p = JSON.parse(j)
+            return (p && p.time_info && p.time_info.current_epoch !== undefined)
+                ? String(p.time_info.current_epoch) : "—"
+        } catch (e) { return "—" }
+    }
+    // BlendStatus enum → the view's none|edge|core. Edge=2, Core=3, Broadcast=4.
+    function _dashBlend(bs) {
+        if (bs === BlockchainBackend.Edge) return "edge"
+        if (bs === BlockchainBackend.Core || bs === BlockchainBackend.Broadcast) return "core"
+        return "none"
+    }
+    // proposalsJson is a JSON array of {id,txs,removed,time} → "<n> Blocks".
+    function _dashProposed(j) {
+        try {
+            var a = JSON.parse(j)
+            if (Array.isArray(a)) return a.length + qsTr(" Blocks")
+            return "—"
+        } catch (e) { return "—" }
+    }
+
     Timer {
         id: cryptarchiaTimer
         interval: 2000
@@ -1325,7 +1354,10 @@ Rectangle {
             // the Operations tab is open, fall back to the Node tab so the user
             // isn't stranded on a disabled tab.
             onNodeRunningChanged: {
-                if (!nodeRunning)
+                // Only the node-gated tabs (Operations=1, Explorer=2) strand the
+                // user when the node stops; Node(0) and Settings(3) stay valid.
+                if (!nodeRunning && (operationTabBar.currentIndex === 1
+                                     || operationTabBar.currentIndex === 2))
                     operationTabBar.currentIndex = 0
             }
 
@@ -1345,6 +1377,8 @@ Rectangle {
                         text: qsTr("Explorer")
                         enabled: opPage.nodeRunning
                     }
+                    // Settings is reachable before the node runs (configure first).
+                    LogosTabButton { text: qsTr("Settings") }
                 }
                 Item { Layout.fillWidth: true }   // push node control + gear to the right
 
@@ -1487,33 +1521,60 @@ Rectangle {
                     // One-click UX #13 — status-first node dashboard.
                     NodeDashboardView {
                         Layout.fillWidth: true
-                        statusEnum: root.backend ? root.backend.status : -1
-                        statusText: root.backend
-                            ? _d.getStatusString(root.backend.status)
-                            : qsTr("Not Connected")
-                        statusColor: root.backend
-                            ? _d.getStatusColor(root.backend.status)
-                            : Theme.palette.error
-                        isRunning: opPage.nodeRunning
-                        errorText: (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
+
+                        // --- consensus / status ---
+                        status: root.backend ? root.backend.status : -1
+                        nodeRunning: opPage.nodeRunning
+                        nodeRecovering: root.recoveryActive
+                        lastErrorMessage: (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
                             ? root.cryptarchiaInfoError
                             : ((root.backend && root.backend.status === BlockchainBackend.Error)
                                 ? root.backend.lastErrorMessage : "")
-                        peerId: root.peerId
-                        recoveryActive: root.recoveryActive
-                        recoveryBlocks: root.recoveryBlocks
                         infoJson: root.cryptarchiaInfoJson
-                        balanceText: root.nodeBalance
-                        leaderKey: root.balanceKey
-                        peerCount: root.nodePeers
-                        connectionCount: root.nodeConnections
-                        blendText: root.backend ? _d.getBlendText(root.backend.blendStatus) : ""
-                        blendColor: root.backend ? _d.getBlendColor(root.backend.blendStatus) : Theme.palette.textSecondary
-                        blendEvent: root.backend ? root.backend.lastBlendEvent : ""
+                        timeInfoJson: root._dashTimeInfo(root.cryptarchiaInfoJson)
+                        peerId: root.peerId
+                        blockModel: root.blockModel
+
+                        // --- epoch / blend (#58) ---
+                        epoch: root._dashEpoch(root.cryptarchiaInfoJson)
+                        epochProgress: ""                                  // no epoch_length from the node yet (#61)
+                        blendState: root._dashBlend(root.backend ? root.backend.blendStatus : 0)
+
+                        // --- peers / connections (#62, real via curl bridge) ---
+                        peers: root.nodePeers >= 0 ? String(root.nodePeers) : "—"
+                        connections: root.nodeConnections >= 0
+                            ? (root.nodeConnections + qsTr(" connections")) : ""
+
+                        // --- proposed / validation (#61) ---
+                        proposed: root._dashProposed(root.proposalsJson)
+                        validation: ""
+                        epochsToActivate: 0
+
+                        // --- funding / stake (faucet line — no mining on 0.2.4) ---
+                        funded: root.nodeBalance !== "—" && root.nodeBalance !== "0" && root.nodeBalance !== ""
+                        stakeStr: root.nodeBalance
+                        foundingAddr: root.balanceKey
+                        empoweringActive: false
+                        empoweringMined: -1
+                        empoweringTarget: -1
+
+                        // --- rewards (real, from getLeaderClaims summary) ---
+                        earnedStr: leaderRewardsView.summary
+                            ? leaderRewardsView.fmtLgo(leaderRewardsView.summary.claimed) : "—"
+                        feePct: leaderRewardsView.feePct >= 0
+                            ? String(leaderRewardsView.feePct) : ""
+
+                        // PREVIEW: remove when process sampling lands (#86; tiles #65/#66).
+                        // CPU/RAM need /proc (or ps) sampling of the node PID + the Settings cap;
+                        // honest "—" until then rather than a fake number.
+                        cpu: "—"; cpuCap: ""
+                        ram: "—"; ramCap: ""
+                        uptime: ""
+
+                        // version footer defaults to Module v<moduleVersion> (0.2.20)
 
                         onCopyText: (text) => root.copyText(text)
-                        onStartRequested: if (root.backend) root.backend.startBlockchain()
-                        onStopRequested: if (root.backend) root.backend.stopBlockchain()
+                        onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
                     }
 
                     // Small, left-aligned Blocks / Proposals tabs.
@@ -1825,6 +1886,13 @@ Rectangle {
                         )
                     }
                     onCopyToClipboard: (text) => root.copyText(text)
+                }
+
+                // ---- Tab 3: Settings (node config, bootstrap, rewards, hardware, destructive) ----
+                SettingsView {
+                    id: settingsView
+                    onCopyText: (text) => root.copyText(text)
+                    onResetChainRequested: if (root.backend) root.backend.resetChainState()
                 }
             }
 
