@@ -114,6 +114,18 @@ Item {
         readonly property string syncLabel: qsTr("Syncing…")
     }
 
+    // Bootstrap countdown: bootstrap runs ~1h, so count DOWN from 60:00 (client-side elapsed —
+    // no backend sync-progress field exists). On overrun → "Takes a bit longer." (mockup #57).
+    readonly property bool _bootstrapping: status === BlockchainBackend.Running && !sync.synced
+    property int _bootSecs: 0
+    readonly property int _bootTotal: 3600
+    function _fmtSecs(s) { var m = Math.floor(s / 60); var ss = s % 60; return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss }
+    Timer {
+        interval: 1000; repeat: true; running: root._bootstrapping
+        onTriggered: if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
+        onRunningChanged: if (!running) root._bootSecs = 0
+    }
+
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
 
     // ── Status hero → {label, sub, color} ──
@@ -128,7 +140,7 @@ Item {
       : status === BlockchainBackend.Starting
             ? ({ label: qsTr("Starting"), sub: qsTr("Checking configuration"), c: Theme.palette.warning, copy: false, d: true })
       : (status === BlockchainBackend.Running && !sync.synced)
-            ? ({ label: qsTr("Bootstrapping"), sub: sync.syncLabel, c: Theme.palette.warning, copy: false, d: true })
+            ? ({ label: qsTr("Bootstrapping"), sub: (_bootTotal - _bootSecs > 0) ? ("~" + _fmtSecs(_bootTotal - _bootSecs)) : qsTr("Takes a bit longer."), c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Running
             ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
@@ -236,7 +248,7 @@ Item {
             }
             // real blocks table (was the separate bottom BlocksView; folded in here) — #68
             BlocksView {
-                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 150
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 560; Layout.preferredHeight: 560
                 Layout.leftMargin: Theme.spacing.xlarge; Layout.rightMargin: Theme.spacing.xlarge; Layout.bottomMargin: Theme.spacing.xlarge
                 blockModel: root.blockModel
                 emptyText: root.blocksEmptyText
