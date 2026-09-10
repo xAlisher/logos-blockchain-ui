@@ -53,6 +53,7 @@ Item {
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
     property string epoch: "—"
+    property string epochProgress: ""                        // e.g. "6h of 10h" — needs epoch length + slot-in-epoch from the node
     property string proposed: "—"                            // #61
     property string validation: ""                           // active|inactive|""
     property int epochsToActivate: 0
@@ -159,6 +160,7 @@ Item {
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
+    readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
     readonly property string _proposedSub: validation === "active" ? qsTr("Validation active")
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
                                 : ""
@@ -367,11 +369,11 @@ Item {
                     }
                 }
                 Item { Layout.fillWidth: true }
-                // merged hero: uptime/countdown rides on the status line, far right
+                // merged hero: uptime/countdown pinned to the card's upper-right corner
                 LogosText {
                     visible: showLane && sub.length > 0
                     text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
-                    Layout.alignment: Qt.AlignBottom; Layout.bottomMargin: 5
+                    Layout.alignment: Qt.AlignTop
                 }
             }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
@@ -405,7 +407,8 @@ Item {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; copyable: root.epoch !== "—" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
