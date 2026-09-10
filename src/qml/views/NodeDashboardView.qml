@@ -200,7 +200,7 @@ Item {
         implicitHeight: 30
         readonly property int n: steps.length
         readonly property real gap: 2                  // clearance from a chevron's tip to the next's notch
-        readonly property real inset: 2                // keep the lane inside the card's rounded edge
+        readonly property real inset: 8                // keep the lane clear of the card's rounded corners
         readonly property real dpth: Math.min(14, height * 0.5)   // point/notch depth
         // interlocking: each chevron overlaps the next by (dpth - gap) so the tip sits `gap` px from the notch
         readonly property real segW: (width - 2 * inset + (n - 1) * (dpth - gap)) / Math.max(1, n)
@@ -321,7 +321,7 @@ Item {
         readonly property int _vsize: hero ? 32 : 24
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
-        implicitHeight: showLane ? 118 : (hero ? 124 : 108)
+        implicitHeight: showLane ? 104 : (hero ? 124 : 108)
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
@@ -333,7 +333,7 @@ Item {
                 Layout.fillWidth: true; spacing: 0
                 LogosText {
                     id: fv
-                    Layout.fillWidth: !dots; text: value
+                    Layout.fillWidth: false; text: value
                     property color restColor: accent
                     color: restColor                       // binding; flashAnim overrides on change
                     font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight
@@ -360,9 +360,16 @@ Item {
                         }
                     }
                 }
-                Item { Layout.fillWidth: dots }
+                Item { Layout.fillWidth: true }
+                // merged hero: uptime/countdown rides on the status line, far right
+                LogosText {
+                    visible: showLane && sub.length > 0
+                    text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
+                    Layout.alignment: Qt.AlignBottom; Layout.bottomMargin: 5
+                }
             }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
+                visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
                 LogosText { visible: sub.length > 0; text: sub; color: Theme.palette.textTertiary
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 CopyGlyph { visible: copyable && sub.length > 0; Layout.alignment: Qt.AlignVCenter }
