@@ -481,7 +481,13 @@ Rectangle {
             // app header (was inside NodeDashboardView; hoisted so it persists across tabs)
             RowLayout {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.large; spacing: Theme.spacing.medium
-                LogosText { text: "\u03bb"; color: Theme.palette.text; font.pixelSize: 30; font.weight: Theme.typography.weightBold; Layout.alignment: Qt.AlignVCenter }
+                Image {
+                    source: Qt.resolvedUrl("icons/logos.svg")
+                    sourceSize.width: 30; sourceSize.height: 30
+                    Layout.preferredWidth: 30; Layout.preferredHeight: 30
+                    Layout.alignment: Qt.AlignVCenter
+                    fillMode: Image.PreserveAspectFit
+                }
                 LogosText { text: qsTr("Blockchain Node"); color: Theme.palette.text; font.pixelSize: 28; font.weight: Theme.typography.weightBold; Layout.alignment: Qt.AlignVCenter }
                 Item { Layout.fillWidth: true }
                 LogosButton { text: qsTr("Start Empowering"); enabled: opPage.nodeRunning; Layout.alignment: Qt.AlignVCenter }
