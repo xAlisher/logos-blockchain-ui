@@ -154,39 +154,42 @@ Item {
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Validation inactive, %1 more epoch to activate").arg(epochsToActivate) : qsTr("Validation inactive"))
                                 : ""
 
-    // Node lifecycle — HONEST: a stage only lights when we can truly detect it.
-    // Today only Started + Online have real signals; Empowered/Aged/Proposing/
-    // Earning stay dim (not-yet-reached) until their backend fields land
-    // (#64/#85, #59-#61). Values: 0 = todo (dim), 1 = current (yellow, in
-    // progress), 2 = done (green).
+    // Node lifecycle — HONEST: a stage only counts as reached when we can truly
+    // detect it. Today only Started + Online have real signals; Empowered/Aged/
+    // Proposing/Earning are reached only once their backend fields land
+    // (#64/#85, #59-#61). Progress is expressed as a single frontier index
+    // (furthest reached) plus a transitioning flag (moving Started→Online).
     readonly property var _lifeSteps: [qsTr("Started"), qsTr("Online"), qsTr("Empowered"), qsTr("Aged"), qsTr("Proposing"), qsTr("Earning")]
-    readonly property var _lifeStates: {
-        var s = [0, 0, 0, 0, 0, 0]
-        if (!nodeConnected) return s
-        if (status === BlockchainBackend.Starting) { s[0] = 1; return s }   // starting up → Started in progress
-        if (status === BlockchainBackend.Running || nodeRecovering) {
-            s[0] = 2                                                        // Started done
-            if (status === BlockchainBackend.Running && sync.synced) {
-                s[1] = 2                                                    // Online done
-                if (empowering === "Active") s[2] = 2                       // Empowered (only if a real signal)
-                if (validation === "active") s[4] = 2                       // Proposing (only if reported active)
-                if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") s[5] = 2  // Earning
-            } else {
-                s[1] = 1                                                    // bootstrapping/replaying → Online in progress
-            }
-        }
-        return s
+    // Furthest reached stage (-1 = none). Monotonic: a later confirmed stage
+    // implies every earlier one (you can't propose without having aged/empowered).
+    readonly property int _lifeReached: {
+        if (!nodeConnected || status === BlockchainBackend.NotStarted) return -1
+        if (status === BlockchainBackend.Starting || nodeRecovering) return 0   // Started; bootstrapping toward Online
+        if (status === BlockchainBackend.Running && !sync.synced) return 0
+        if (status !== BlockchainBackend.Running) return -1
+        var r = 1                                                               // Online (Running + synced)
+        if (empowering === "Active") r = Math.max(r, 2)                         // Empowered (#64/#85)
+        if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
+        if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
+        return r
     }
+    // Actively moving from the frontier toward the next stage (the only one we
+    // can detect is Started→Online: starting up, replaying, or bootstrapping).
+    readonly property bool _lifeTransitioning:
+        status === BlockchainBackend.Starting || nodeRecovering
+        || (status === BlockchainBackend.Running && !sync.synced)
 
     component Lifecycle: Item {
         property var steps: []
-        property var stepStates: []                // NB: 'states' is a built-in Item property — don't shadow it
+        property int reached: -1               // furthest reached node index (-1 = none)
+        property bool transitioning: false     // yellow in-progress stub after the frontier
         implicitHeight: 46
         readonly property int n: steps.length
-        readonly property real padX: 10
+        readonly property real padX: width * 0.10      // 80% span, centered — breathing room to the card edges
         readonly property real cy: 12
-        function xOf(i) { return n <= 1 ? padX : padX + i * ((width - 2 * padX) / (n - 1)) }
-        onStepStatesChanged: cv.requestPaint()
+        function xOf(i) { return n <= 1 ? width / 2 : padX + i * ((width - 2 * padX) / (n - 1)) }
+        onReachedChanged: cv.requestPaint()
+        onTransitioningChanged: cv.requestPaint()
         onWidthChanged: cv.requestPaint()
         Component.onCompleted: cv.requestPaint()
         Canvas {
@@ -195,21 +198,31 @@ Item {
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
                 var green = Theme.palette.success, yellow = Theme.palette.warning, track = Theme.palette.borderTertiary
+                ctx.lineCap = "round"
+                // segments: green up to the frontier, a yellow stub while transitioning, gray after
                 for (var s = 0; s < n - 1; s++) {
-                    var right = stepStates[s + 1], left = stepStates[s], col = track, w = 2
-                    if (right === 2)      { col = green;  w = 3 }
-                    else if (right === 1) { col = yellow; w = 3 }
-                    else if (left === 1)  { col = yellow; w = 3 }
-                    ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"
-                    ctx.beginPath(); ctx.moveTo(xOf(s), cy); ctx.lineTo(xOf(s + 1), cy); ctx.stroke()
+                    var x0 = xOf(s), x1 = xOf(s + 1)
+                    ctx.strokeStyle = track; ctx.lineWidth = 3
+                    ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
+                    if (s + 1 <= reached) {
+                        ctx.strokeStyle = green; ctx.lineWidth = 3
+                        ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
+                    } else if (s === reached && transitioning) {
+                        ctx.strokeStyle = yellow; ctx.lineWidth = 3
+                        ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x0 + (x1 - x0) * 0.45, cy); ctx.stroke()
+                    }
                 }
+                // nodes: passed = solid green · frontier = green ring · future = solid gray
                 for (var i = 0; i < n; i++) {
-                    var x = xOf(i), st = stepStates[i]; ctx.beginPath()
-                    if (st === 2) { ctx.fillStyle = green; ctx.arc(x, cy, 7, 0, Math.PI * 2); ctx.fill() }
-                    else if (st === 1) {
-                        ctx.fillStyle = Theme.palette.surfaceRaised; ctx.arc(x, cy, 7.5, 0, Math.PI * 2); ctx.fill()
-                        ctx.beginPath(); ctx.strokeStyle = yellow; ctx.lineWidth = 3; ctx.arc(x, cy, 7.5, 0, Math.PI * 2); ctx.stroke()
-                    } else { ctx.fillStyle = track; ctx.arc(x, cy, 4, 0, Math.PI * 2); ctx.fill() }
+                    var x = xOf(i)
+                    if (reached >= 0 && i < reached) {
+                        ctx.fillStyle = green; ctx.beginPath(); ctx.arc(x, cy, 6, 0, Math.PI * 2); ctx.fill()
+                    } else if (reached >= 0 && i === reached) {
+                        ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.fill()
+                        ctx.strokeStyle = green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.stroke()
+                    } else {
+                        ctx.fillStyle = track; ctx.beginPath(); ctx.arc(x, cy, 6, 0, Math.PI * 2); ctx.fill()
+                    }
                 }
             }
         }
@@ -219,9 +232,7 @@ Item {
                 required property int index
                 required property string modelData
                 text: modelData; font.pixelSize: 12
-                color: stepStates[index] === 2 ? Theme.palette.success
-                      : stepStates[index] === 1 ? Theme.palette.warning
-                      : Theme.palette.textTertiary
+                color: Theme.palette.textSecondary     // uniform — labels are not state-colored
                 x: xOf(index) - width / 2; y: cy + 12
             }
         }
@@ -319,7 +330,8 @@ Item {
                     radius: Theme.spacing.radiusLarge; padding: Theme.spacing.xlarge
                     contentItem: Lifecycle {
                         steps: root._lifeSteps
-                        stepStates: root._lifeStates
+                        reached: root._lifeReached
+                        transitioning: root._lifeTransitioning
                     }
                 }
                 GridLayout {
