@@ -50,6 +50,8 @@ Item {
     readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
     readonly property string lib: _field("lib") ? _short(String(_field("lib"))) : "—"
     readonly property string tip: _field("tip") ? _short(String(_field("tip"))) : "—"
+    readonly property string _libFull: _field("lib") ? String(_field("lib")) : ""
+    readonly property string _tipFull: _field("tip") ? String(_field("tip")) : ""
     readonly property string peerIdShort: (peerId && peerId.length) ? _short(peerId) : "—"
 
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
@@ -329,6 +331,10 @@ Item {
         property color accent: Theme.palette.text
         property color tint: Theme.palette.surfaceRaised
         property bool copyable: false
+        property string copyValue: ""            // if set, the sub row is just a copy button (copies this full value)
+        signal copyRequested(string t)
+        property bool _copied: false
+        Timer { id: copiedTimer; interval: 1400; onTriggered: blk._copied = false }
         property bool hero: false
         property bool dots: false                 // animate a reserved-width "…" after the value
         property bool flash: !hero                // flash green on value change (live grid tiles)
@@ -389,9 +395,19 @@ Item {
             }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
-                LogosText { visible: sub.length > 0; text: sub; color: Theme.palette.textTertiary
+                // normal sub text (hidden when the row is a copy-only button)
+                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
-                CopyGlyph { visible: copyable && sub.length > 0; Layout.alignment: Qt.AlignVCenter }
+                // copy button — copies copyValue (full) or the sub; flashes "Copied" to its right
+                CopyGlyph {
+                    visible: copyValue.length > 0 || (copyable && sub.length > 0)
+                    Layout.alignment: Qt.AlignVCenter
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        onClicked: { blk.copyRequested(copyValue.length > 0 ? copyValue : sub); blk._copied = true; copiedTimer.restart() }
+                    }
+                }
+                LogosText { visible: blk._copied; text: qsTr("Copied"); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
                 Item { Layout.fillWidth: true } }
             Lifecycle {
                 visible: showLane
@@ -423,7 +439,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—"; info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
                             // dashboard shows PROGRESS of mining (%, mined/target), not raw token totals; "—" when not started
                             value: (root.empoweringActive && root.empoweringTarget > 0) ? (Math.min(100, Math.round(root.empoweringMined / root.empoweringTarget * 100)) + "%") : "—"
@@ -432,8 +448,8 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap; info: root._infoData.ram; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; info: root._infoData.height; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
                 }
                 // ---- footer: version line (+ copy) · legal disclaimer (modal) ----
                 RowLayout {

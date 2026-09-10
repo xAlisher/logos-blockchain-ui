@@ -128,7 +128,7 @@ Item {
                 CapRow { label: qsTr("CPU cap"); valueText: "80"; unit: "%" }
                 CapRow { label: qsTr("RAM cap"); valueText: "80"; unit: "%" }
                 CapRow { label: qsTr("Disk cap"); valueText: "50"; unit: "GB" }
-                LogosText { text: qsTr("When the disk cap is hit, older logs are pruned automatically."); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                LogosText { text: qsTr("When the CPU or RAM cap is hit, the node stops automatically. When the disk cap is hit, older logs are pruned automatically."); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             }
 
             // DESTRUCTIVE
