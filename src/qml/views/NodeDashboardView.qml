@@ -52,9 +52,10 @@ Item {
     property int epochsToActivate: 0
     property string peers: "—"                               // #62 (curl)
     property string connections: ""
-    property bool empoweringActive: false                    // #64 (#85) — mining on?
+    property bool empoweringActive: false                    // #64 (#85) — mining currently on (drives the tile)
     property real empoweringMined: -1                        // LGO mined toward target; <0 = no data
     property real empoweringTarget: -1                       // auto-claim threshold / target balance
+    property bool funded: false                              // wallet has stake/notes (persists after mining stops) — the lifecycle "Funded" signal
     property string cpu: "—"                                 // #65 (#89)
     property string cpuCap: ""
     property string ram: "—"                                 // #66 (#89)
@@ -170,16 +171,21 @@ Item {
         if (status === BlockchainBackend.Running && !sync.synced) return 0
         if (status !== BlockchainBackend.Running) return -1
         var r = 1                                                               // Online (Running + synced)
-        if (empoweringActive) r = Math.max(r, 2)                                // Funded (#64/#85)
+        if (funded) r = Math.max(r, 2)                                          // Funded — has stake (mining is one way to get there)
         if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
         if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
         return r
     }
-    // Actively moving from the frontier toward the next stage (the only one we
-    // can detect is Started→Online: starting up, replaying, or bootstrapping).
+    // Actively moving from the frontier toward the next stage. Two detectable
+    // transitions: Started→Online (starting/replaying/bootstrapping), and
+    // Funded→Aged (funded notes waiting ~2 epochs to become eligible to lead —
+    // "aged" is the real Cryptarchia term; queryable via get_leader_aged_notes,
+    // not yet wired: logos-blockchain-module#61).
     readonly property bool _lifeTransitioning:
         status === BlockchainBackend.Starting || nodeRecovering
-        || (status === BlockchainBackend.Running && !sync.synced)
+        || (status === BlockchainBackend.Running && !sync.synced)                              // → Online (bootstrapping)
+        || (status === BlockchainBackend.Running && sync.synced && empoweringActive && !funded) // → Funded (mining)
+        || _lifeReached === 2                                                                   // → Aged (aging)
 
     component Lifecycle: Item {
         property var steps: []
@@ -346,7 +352,7 @@ Item {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in epoch"); value: root.proposed; sub: root._proposedSub }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Empowering")
