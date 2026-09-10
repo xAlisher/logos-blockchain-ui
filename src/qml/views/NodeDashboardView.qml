@@ -108,12 +108,10 @@ Item {
             const pad = (n) => (n < 10 ? "0" + n : String(n))
             return h > 0 ? (h + ":" + pad(m) + ":" + pad(s)) : (m + ":" + pad(s))
         }
-        readonly property string syncLabel: {
-            if (remaining === undefined) return qsTr("Syncing…")
-            if (etaSeconds !== undefined) return "~" + formatEta(etaSeconds)
-            if (remaining <= 0) return qsTr("Syncing…")
-            return qsTr("%1 slots behind").arg(remaining)
-        }
+        // Calm, honest bootstrap sub: no growing counter/ETA (the node may not be converging, which
+        // makes both "slots behind" and remaining/rate grow). Progress lives in the Height tile
+        // (blocks applied, monotonic). A real %-complete needs a backend sync-progress field.
+        readonly property string syncLabel: qsTr("Syncing…")
     }
 
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
