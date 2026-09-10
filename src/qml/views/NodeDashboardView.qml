@@ -260,15 +260,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip }
                 }
             }
-            // real blocks table (was the separate bottom BlocksView; folded in here) — #68
-            BlocksView {
-                Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 560; Layout.preferredHeight: 560
-                Layout.leftMargin: Theme.spacing.xlarge; Layout.rightMargin: Theme.spacing.xlarge; Layout.bottomMargin: Theme.spacing.xlarge
-                blockModel: root.blockModel
-                emptyText: root.blocksEmptyText
-                onClearRequested: root.clearBlocksRequested()
-                onCopyToClipboard: (t) => root.copyText(t)
-            }
+            // Blocks table moved to its own top-level "Blocks" tab (BlockchainView).
         }
     }
 }

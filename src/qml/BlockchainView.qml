@@ -511,6 +511,7 @@ Rectangle {
                 currentIndex: opPage.sectionIndex
                 onCurrentIndexChanged: opPage.sectionIndex = currentIndex
                 LogosTabButton { text: qsTr("Dashboard") }
+                LogosTabButton { text: qsTr("Blocks") }
                 LogosTabButton { text: qsTr("Accounts"); enabled: opPage.nodeRunning }
                 LogosTabButton { text: qsTr("Rewards"); enabled: opPage.nodeRunning }
                 LogosTabButton { text: qsTr("Explorer"); enabled: opPage.nodeRunning }
@@ -545,7 +546,20 @@ Rectangle {
                     onCopyText: (t) => root.copyText(t)
                 }
 
-                // ---- Sections 1-4: wallet operations, one per nav entry ----
+                // ---- Section 1: Blocks ----
+                BlocksView {
+                    Layout.fillWidth: true; Layout.fillHeight: true
+                    blockModel: root.blockModel
+                    emptyText: !opPage.nodeRunning
+                               ? qsTr("Start the node to see blocks arrive.")
+                               : root.cryptarchiaInfoJson.length === 0
+                                 ? qsTr("Waiting for the node to report its state...")
+                                 : qsTr("Waiting for the next block. Only blocks produced from now on are listed.")
+                    onClearRequested: if (root.backend) root.backend.clearBlocks()
+                    onCopyToClipboard: (t) => root.copyText(t)
+                }
+
+                // ---- wallet operations, one per nav entry ----
                 AccountsView {
                     id: accountsView
                     accountsModel: root.accountsModel
