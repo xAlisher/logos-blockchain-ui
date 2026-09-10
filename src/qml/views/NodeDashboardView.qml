@@ -239,13 +239,13 @@ Item {
                 for (var i = 0; i < n; i++) {
                     var x = xOf(i)
                     if (reached >= 0 && i < reached) {
-                        // done = green check on a grey disc
-                        ctx.fillStyle = Theme.palette.textMuted; ctx.beginPath(); ctx.arc(x, cy, 8, 0, Math.PI * 2); ctx.fill()
-                        ctx.strokeStyle = green; ctx.lineWidth = 2
-                        ctx.beginPath(); ctx.moveTo(x - 3.5, cy); ctx.lineTo(x - 1, cy + 2.5); ctx.lineTo(x + 4, cy - 3); ctx.stroke()
+                        // done = green check on a grey disc (roomy: disc r10, check inset)
+                        ctx.fillStyle = Theme.palette.textMuted; ctx.beginPath(); ctx.arc(x, cy, 10, 0, Math.PI * 2); ctx.fill()
+                        ctx.strokeStyle = green; ctx.lineWidth = 2.2
+                        ctx.beginPath(); ctx.moveTo(x - 4, cy + 0.5); ctx.lineTo(x - 1, cy + 4); ctx.lineTo(x + 5, cy - 4); ctx.stroke()
                     } else if (reached >= 0 && i === reached) {
-                        ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.fill()
-                        ctx.strokeStyle = transitioning ? yellow : green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.stroke()
+                        ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 10, 0, Math.PI * 2); ctx.fill()
+                        ctx.strokeStyle = transitioning ? yellow : green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 10, 0, Math.PI * 2); ctx.stroke()
                     } else {
                         ctx.globalAlpha = 0.5; ctx.fillStyle = track; ctx.beginPath(); ctx.arc(x, cy, 4, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1
                     }
@@ -292,13 +292,18 @@ Item {
         property bool hero: false
         property bool dots: false                 // animate a reserved-width "…" after the value
         property bool flash: !hero                // flash green on value change (live grid tiles)
+        property bool showLane: false             // embed the lifecycle lane at the bottom (merged Status card)
+        property var laneSteps: []
+        property int laneReached: -1
+        property bool laneTransitioning: false
         readonly property int _vsize: hero ? 32 : 24
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
-        implicitHeight: hero ? 124 : 108
+        implicitHeight: showLane ? 176 : (hero ? 124 : 108)
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
+                visible: label.length > 0        // collapse the label line when there's no label (e.g. the Status hero)
                 LogosText { text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 Item { Layout.fillWidth: true }
                 Info {} }
@@ -340,6 +345,12 @@ Item {
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 CopyGlyph { visible: copyable && sub.length > 0; Layout.alignment: Qt.AlignVCenter }
                 Item { Layout.fillWidth: true } }
+            Item { Layout.fillHeight: true; visible: showLane }   // push the lane to the bottom of the card
+            Lifecycle {
+                visible: showLane
+                Layout.fillWidth: true
+                steps: laneSteps; reached: laneReached; transitioning: laneTransitioning
+            }
         }
     }
 
@@ -349,21 +360,18 @@ Item {
             width: root.width; spacing: Theme.spacing.large
             ColumnLayout {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
-                // ---- lifecycle strip (top summary; only truly-detectable stages light up) ----
-                LogosFrame {
-                    Layout.fillWidth: true
-                    backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
-                    radius: Theme.spacing.radiusLarge; padding: Theme.spacing.xlarge
-                    contentItem: Lifecycle {
-                        steps: root._lifeSteps
-                        reached: root._lifeReached
-                        transitioning: root._lifeTransitioning
+                // ---- Node hero: Status headline + journey lane merged; Blend as a standard tile beside it ----
+                RowLayout {
+                    Layout.fillWidth: true; spacing: Theme.spacing.large
+                    Block {
+                        Layout.fillWidth: true; hero: true; label: ""      // no "Status" label — the value is the headline
+                        value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: root._st.copy; dots: root._st.d
+                        showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                     }
-                }
-                GridLayout {
-                    Layout.fillWidth: true; columns: Math.max(1, Math.min(2, Math.floor(width / (root._heroMin + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Status"); value: root._st.label; sub: root._st.sub; accent: root._st.c; tint: root._st.c; copyable: root._st.copy; dots: root._st.d }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; tint: root._blend.c; copyable: root.epoch !== "—" }
+                    Block {
+                        Layout.preferredWidth: root._minCard; Layout.minimumWidth: root._minCard; Layout.alignment: Qt.AlignTop
+                        label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; copyable: root.epoch !== "—"
+                    }
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
