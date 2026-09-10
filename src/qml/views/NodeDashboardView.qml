@@ -29,6 +29,12 @@ Item {
     signal clearBlocksRequested()
     signal copyText(string t)
 
+    // footer version line (wireable; placeholder defaults until sourced from metadata)
+    property string coreVersion: "0.3.2"
+    property string uiVersion: "0.3.1"
+    property string testnetVersion: "0.3.2"
+    readonly property string _versionLine: qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
+
     // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
     function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
     function _short(s) { return (s && s.length > 14) ? (s.substring(0, 6) + "…" + s.substring(s.length - 4)) : (s || "—") }
@@ -200,7 +206,7 @@ Item {
         implicitHeight: 30
         readonly property int n: steps.length
         readonly property real gap: 2                  // clearance from a chevron's tip to the next's notch
-        readonly property real inset: 8                // keep the lane clear of the card's rounded corners
+        readonly property real inset: 0                // lane fills to the card padding → equal gap on both sides
         readonly property real dpth: Math.min(14, height * 0.5)   // point/notch depth
         // interlocking: each chevron overlaps the next by (dpth - gap) so the tip sits `gap` px from the notch
         readonly property real segW: (width - 2 * inset + (n - 1) * (dpth - gap)) / Math.max(1, n)
@@ -321,7 +327,7 @@ Item {
         readonly property int _vsize: hero ? 32 : 24
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
-        implicitHeight: showLane ? 104 : (hero ? 124 : 108)
+        implicitHeight: showLane ? 118 : (hero ? 124 : 108)
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
@@ -377,10 +383,9 @@ Item {
             Lifecycle {
                 visible: showLane
                 Layout.fillWidth: true
-                Layout.topMargin: Theme.spacing.small   // sit just below uptime
+                Layout.topMargin: Theme.spacing.large    // equal gap to the value line, matching the card padding
                 steps: laneSteps; reached: laneReached; transitioning: laneTransitioning
             }
-            Item { Layout.fillHeight: true; visible: showLane }   // absorb slack below the lane, keeping it near uptime
         }
     }
 
@@ -390,23 +395,17 @@ Item {
             width: root.width; spacing: Theme.spacing.large
             ColumnLayout {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
-                // ---- Node hero: Status headline + journey lane merged; Blend as a standard tile beside it ----
-                RowLayout {
-                    Layout.fillWidth: true; spacing: Theme.spacing.large
-                    Block {
-                        Layout.fillWidth: true; hero: true; label: ""      // no "Status" label — the value is the headline
-                        value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
-                        showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
-                    }
-                    Block {
-                        Layout.preferredWidth: root._minCard; Layout.minimumWidth: root._minCard; Layout.fillHeight: true
-                        label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; copyable: root.epoch !== "—"
-                    }
+                // ---- Node hero: full-width Status headline + journey lane merged ----
+                Block {
+                    Layout.fillWidth: true; hero: true; label: ""      // no "Status" label — the value is the headline
+                    value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
+                    showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; copyable: root.epoch !== "—" }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
@@ -421,8 +420,21 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip }
                 }
+                // ---- footer: version line (+ copy) · legal disclaimer (modal) ----
+                RowLayout {
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
+                    LogosText { text: root._versionLine; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText }
+                    CopyGlyph {
+                        Layout.alignment: Qt.AlignVCenter
+                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.copyText(root._versionLine) }
+                    }
+                    Item { Layout.fillWidth: true }
+                    LogosLink { text: qsTr("Legal disclaimer"); font.pixelSize: Theme.typography.secondaryText; onActivated: legalModal.open() }
+                }
             }
             // Blocks table moved to its own top-level "Blocks" tab (BlockchainView).
         }
     }
+
+    LegalDisclaimerModal { id: legalModal }
 }
