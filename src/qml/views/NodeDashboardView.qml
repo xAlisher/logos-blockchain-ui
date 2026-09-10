@@ -64,6 +64,58 @@ Item {
     property string bootCountdown: ""
     property bool bootOverran: false
 
+    // sync-rate + ETA engine (ported from NodeStatusCard, #57) → real bootstrapping countdown
+    onInfoJsonChanged: sync.sampleRate(sync.tipSlot)
+    QtObject {
+        id: sync
+        readonly property var tipSlot: root._field("slot") !== undefined ? Number(root._field("slot")) : undefined
+        readonly property var currentSlot: (root._time && root._time.current_slot !== undefined) ? Number(root._time.current_slot) : undefined
+        readonly property var slotDurationMs: (root._time && root._time.slot_duration_ms !== undefined) ? Number(root._time.slot_duration_ms) : undefined
+        readonly property var remaining: (tipSlot === undefined || currentSlot === undefined) ? undefined : Math.max(0, currentSlot - tipSlot)
+        readonly property int syncedSlack: 3
+        readonly property bool synced: root.mode === "Online" && remaining !== undefined && remaining <= syncedSlack
+        property real emaRate: NaN
+        property real lastTip: NaN
+        property real lastAt: 0
+        readonly property real smoothing: 0.15
+        readonly property real etaEnterRate: 0.05
+        readonly property real etaExitRate: 0.0
+        property bool etaHolding: false
+        readonly property real headRate: (slotDurationMs !== undefined && slotDurationMs > 0) ? 1000 / slotDurationMs : NaN
+        function sampleRate(tip) {
+            if (tip === undefined) return
+            const now = Date.now() / 1000
+            if (!isNaN(lastTip) && now > lastAt) {
+                const instant = (tip - lastTip) / (now - lastAt)
+                if (instant < 0) emaRate = NaN
+                else emaRate = isNaN(emaRate) ? instant : smoothing * instant + (1 - smoothing) * emaRate
+            }
+            lastTip = tip; lastAt = now
+            const closing = emaRate - headRate
+            if (!isNaN(closing)) {
+                if (!etaHolding && closing > etaEnterRate) etaHolding = true
+                else if (etaHolding && closing <= etaExitRate) etaHolding = false
+            }
+        }
+        readonly property real closingRate: (isNaN(emaRate) || isNaN(headRate)) ? NaN : emaRate - headRate
+        readonly property var etaSeconds: {
+            if (!(root.status === BlockchainBackend.Running) || synced || remaining === undefined || remaining <= 0) return undefined
+            if (!etaHolding || isNaN(closingRate) || closingRate <= 0) return undefined
+            return remaining / closingRate
+        }
+        function formatEta(seconds) {
+            const total = Math.round(seconds); const h = Math.floor(total / 3600); const m = Math.floor((total % 3600) / 60); const s = total % 60
+            const pad = (n) => (n < 10 ? "0" + n : String(n))
+            return h > 0 ? (h + ":" + pad(m) + ":" + pad(s)) : (m + ":" + pad(s))
+        }
+        readonly property string syncLabel: {
+            if (remaining === undefined) return qsTr("Syncing…")
+            if (etaSeconds !== undefined) return "~" + formatEta(etaSeconds)
+            if (remaining <= 0) return qsTr("Syncing…")
+            return qsTr("%1 slots behind").arg(remaining)
+        }
+    }
+
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
 
     // ── Status hero → {label, sub, color} ──
@@ -76,10 +128,10 @@ Item {
             ? ({ label: qsTr("Replaying blocks…"), sub: replayProgress, c: Theme.palette.warning, copy: false })
       : status === BlockchainBackend.Starting
             ? ({ label: qsTr("Starting…"), sub: qsTr("Checking configuration"), c: Theme.palette.warning, copy: false })
-      : (status === BlockchainBackend.Running && mode === "Bootstrapping")
-            ? ({ label: qsTr("Bootstrapping…"), sub: (bootOverran ? qsTr("Takes a bit longer.") : bootCountdown), c: Theme.palette.warning, copy: false })
+      : (status === BlockchainBackend.Running && !sync.synced)
+            ? ({ label: qsTr("Bootstrapping…"), sub: sync.syncLabel, c: Theme.palette.warning, copy: false })
       : status === BlockchainBackend.Running
-            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : ""), c: Theme.palette.success, copy: uptime.length > 0 })
+            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0 })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false })
     readonly property bool nodeConnected: status >= 0
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
@@ -147,18 +199,18 @@ Item {
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: 4; columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
-                    Block { Layout.fillWidth: true; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
-                    Block { Layout.fillWidth: true; label: qsTr("Proposed in epoch"); value: root.proposed; sub: root._proposedSub }
-                    Block { Layout.fillWidth: true; label: qsTr("Peers"); value: root.peers; sub: root.connections }
-                    Block { Layout.fillWidth: true; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
-                    Block { Layout.fillWidth: true; label: qsTr("Empowering"); value: root.empowering; sub: root.empoweringAmount }
-                    Block { Layout.fillWidth: true; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
-                    Block { Layout.fillWidth: true; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }
-                    Block { Layout.fillWidth: true; label: qsTr("Slot"); value: root.slot }
-                    Block { Layout.fillWidth: true; label: qsTr("Height"); value: root.heightStr }
-                    Block { Layout.fillWidth: true; label: qsTr("LiB"); value: root.lib }
-                    Block { Layout.fillWidth: true; label: qsTr("TiP"); value: root.tip }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Proposed in epoch"); value: root.proposed; sub: root._proposedSub }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Peers"); value: root.peers; sub: root.connections }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Empowering"); value: root.empowering; sub: root.empoweringAmount }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Slot"); value: root.slot }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Height"); value: root.heightStr }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("LiB"); value: root.lib }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("TiP"); value: root.tip }
                 }
             }
             // real blocks table (was the separate bottom BlocksView; folded in here) — #68
