@@ -36,8 +36,8 @@ forked Logos DS (`xAlisher/logos-design-system @ feat/dashboard-additions`) into
   every tile the 0.3 node API doesn't expose yet — those honestly show `—`.
 
 ## Design decisions + backend deps (read alongside)
-- Full design spec: `../../ecodev design/node-dashboard/HANDOFF.md` (screenshots + per-tile spec).
-- Backend/UI gaps the "—" tiles need: `backend-issue-drafts.md` (in ecodev design/node-dashboard).
+- Full design spec: `HANDOFF.md` (this folder) + `screenshots/`.
+- Backend/UI gaps the "—" tiles need: summarised in `HANDOFF.md` (detailed issue drafts tracked internally).
 - DS changes used: forked DS branch above (brighter primary, compact + danger buttons, smaller tabs)
   — feeds ecosystem #86.
 
