@@ -209,18 +209,22 @@ Item {
             onAvailableChanged: if (available) requestPaint()
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
-                var green = Theme.palette.success, yellow = Theme.palette.warning, track = Theme.palette.borderTertiary
-                ctx.lineCap = "round"
-                // segments: green up to the frontier, a yellow stub while transitioning, gray after
+                // green is reserved for the LIVE stage (the frontier). Completed stages
+                // are neutral (gray checkmarks + gray trail); future is faint. This keeps
+                // green meaningful instead of a wall of green across the whole lane.
+                var green = Theme.palette.success, yellow = Theme.palette.warning
+                var track = Theme.palette.borderTertiary, done = Theme.palette.textTertiary
+                ctx.lineCap = "round"; ctx.lineJoin = "round"
+                // segments (thin): faint future track · solid gray completed trail · animated yellow live transition
                 for (var s = 0; s < n - 1; s++) {
                     var x0 = xOf(s), x1 = xOf(s + 1)
-                    ctx.strokeStyle = track; ctx.lineWidth = 3
+                    ctx.globalAlpha = 0.35; ctx.strokeStyle = track; ctx.lineWidth = 2
                     ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
+                    ctx.globalAlpha = 1
                     if (s + 1 <= reached) {
-                        ctx.strokeStyle = green; ctx.lineWidth = 3
+                        ctx.strokeStyle = done; ctx.lineWidth = 2
                         ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
                     } else if (s === reached && transitioning) {
-                        // in-progress: faint yellow base stub + a bright pulse sweeping frontier → next
                         var span = (x1 - x0) * 0.5
                         ctx.strokeStyle = yellow
                         ctx.globalAlpha = 0.35; ctx.lineWidth = 3
@@ -231,17 +235,17 @@ Item {
                         ctx.globalAlpha = 1
                     }
                 }
-                // nodes: passed = solid green · frontier = green ring · future = solid gray
+                // nodes: done = gray checkmark · frontier = the ONLY green (live), yellow while transitioning · future = faint dot
                 for (var i = 0; i < n; i++) {
                     var x = xOf(i)
                     if (reached >= 0 && i < reached) {
-                        ctx.fillStyle = green; ctx.beginPath(); ctx.arc(x, cy, 6, 0, Math.PI * 2); ctx.fill()
+                        ctx.strokeStyle = done; ctx.lineWidth = 2
+                        ctx.beginPath(); ctx.moveTo(x - 4, cy); ctx.lineTo(x - 1, cy + 3.5); ctx.lineTo(x + 5, cy - 4); ctx.stroke()
                     } else if (reached >= 0 && i === reached) {
-                        // frontier ring: yellow while transitioning (stage in progress), green once settled
                         ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.fill()
                         ctx.strokeStyle = transitioning ? yellow : green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.stroke()
                     } else {
-                        ctx.fillStyle = track; ctx.beginPath(); ctx.arc(x, cy, 6, 0, Math.PI * 2); ctx.fill()
+                        ctx.globalAlpha = 0.5; ctx.fillStyle = track; ctx.beginPath(); ctx.arc(x, cy, 4, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1
                     }
                 }
             }
