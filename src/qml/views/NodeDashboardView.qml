@@ -14,25 +14,35 @@ Item {
     implicitWidth: 1040
     implicitHeight: 900
 
-    // ── inputs (BlockchainView feeds these; defaults make it render standalone) ──
-    property int status: BlockchainBackend.Running          // #57
-    property string mode: "Online"                          // info.mode: Online | Bootstrapping
-    property bool nodeRecovering: false                     // replaying blocks (#57)
-    property string lastErrorMessage: ""
+    // ── WIRED inputs (fed by BlockchainView from the real backend) ──
+    property int status: BlockchainBackend.Running          // #57 backend.status
+    property bool nodeRecovering: false                     // #57 backend.nodeRecovering (replaying)
+    property string lastErrorMessage: ""                    // backend.lastErrorMessage
+    property string infoJson: ""                            // get_cryptarchia_info → slot/height/tip/lib/mode
+    property string timeInfoJson: ""                        // get_time_info → current_slot
+    property string peerId: ""                              // #63 getPeerId
+    // ── derived from the JSON (mock fallback so it still renders standalone) ──
+    function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
+    function _short(s) { return (s && s.length > 14) ? (s.substring(0, 6) + "…" + s.substring(s.length - 4)) : (s || "") }
+    readonly property var _info: _parse(infoJson)
+    readonly property var _time: _parse(timeInfoJson)
+    function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
+    readonly property string mode: (_info && _info.mode) ? String(_info.mode) : "Online"
+    readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
+                                   : (_field("slot") !== undefined ? String(_field("slot")) : "151,548")
+    readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "151,548"
+    readonly property string lib: _field("lib") ? _short(String(_field("lib"))) : "0x71bd…9e4a"
+    readonly property string tip: _field("tip") ? _short(String(_field("tip"))) : "0x8a3f…c012"
+    readonly property string peerIdShort: (peerId && peerId.length) ? _short(peerId) : "12D3…EwLz"
+    // ── display-only / not-yet-wired (mocked; see issue refs) ──
     property string uptime: "345:43:23"
     property string replayProgress: "123 345 / 983 134"
     property string bootCountdown: "~59:59"
     property bool bootOverran: false
-    property string peerId: "12D3…EwLz"                     // #63 getPeerId
     property string foundingAddr: "0x71bd…9e4a"
-    property string stakeStr: "5T LGO"                      // #59
+    property string stakeStr: "5T LGO"                      // #59 (derive from balance later)
     property string earnedStr: "1530 LGO"                   // #60
     property string feePct: "56%"
-    property string slot: "151,548"                         // #67 getCryptarchiaInfo
-    property string heightStr: "151,548"
-    property string lib: "0x71bd…9e4a"
-    property string tip: "0x8a3f…c012"
-    // stubbed until their backends land:
     property string blendState: "edge"                      // #58: none | edge | core  (NOT in 0.3 API)
     property string epoch: "174"
     property int proposed: 234                              // #61
@@ -152,7 +162,7 @@ Item {
                     Block { Layout.fillWidth: true; label: qsTr("Earned"); value: root.earnedStr; sub: qsTr("Fees this epoch: ") + root.feePct; copyable: true }
                     Block { Layout.fillWidth: true; label: qsTr("Proposed in epoch"); value: root.proposed + qsTr(" Blocks"); sub: root._proposedSub }
                     Block { Layout.fillWidth: true; label: qsTr("Peers"); value: root.peers; sub: root.connections }
-                    Block { Layout.fillWidth: true; label: qsTr("Peer ID"); value: root.peerId; sub: root.foundingAddr; copyable: true }
+                    Block { Layout.fillWidth: true; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: true }
                     Block { Layout.fillWidth: true; label: qsTr("Empowering"); value: root.empowering; sub: root.empoweringAmount }
                     Block { Layout.fillWidth: true; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
                     Block { Layout.fillWidth: true; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }

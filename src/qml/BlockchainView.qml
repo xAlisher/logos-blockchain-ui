@@ -518,96 +518,15 @@ Rectangle {
                 ColumnLayout {
                     spacing: Theme.spacing.large
 
-                    ColumnLayout {
+                    NodeDashboardView {
                         Layout.fillWidth: true
-                        spacing: Theme.spacing.large
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: false
-                            spacing: Theme.spacing.large
-
-                            NodeOverviewView {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 320
-                                Layout.fillHeight: true
-                                accountsModel: root.accountsModel
-                                // Refreshes every account, not just the selected
-                                // one, so the validator card's total updates too.
-                                onRefreshRequested: if (root.backend) root.backend.refreshAccounts()
-                                onManageRequested: {
-                                    opPage.sectionIndex = 1
-                                }
-                            }
-
-                            ValidatorStatusCard {
-                                Layout.preferredWidth: 340
-                                Layout.fillWidth: false
-                                Layout.fillHeight: true
-
-                                accountsModel: root.accountsModel
-                                vouchersJson: root.claimableVouchersJson
-                                canClaim: root.nodeRunning
-
-                                // Same call the rewards view in the operations
-                                // tab makes; refresh the list either way so the
-                                // count reflects the claim.
-                                onClaimRequested: {
-                                    if (!root.backend) return
-                                    logos.watch(
-                                        root.backend.claimLeaderRewards(),
-                                        function(result) { root.refreshClaimableVouchers() },
-                                        function(error) { root.refreshClaimableVouchers() }
-                                    )
-                                }
-                            }
-
-                            NodeStatusCard {
-                                Layout.preferredWidth: 340
-                                Layout.fillWidth: false
-                                Layout.fillHeight: true
-
-                                status: root.backend ? root.backend.status : -1
-                                statusMessage: root.cryptarchiaInfoError
-                                               || (root.backend ? root.backend.lastErrorMessage : "")
-                                messageIsNotice: !root.cryptarchiaInfoError
-                                                 && !!root.backend && root.backend.nodeRecovering
-                                infoJson: root.cryptarchiaInfoJson
-                                timeInfoJson: root.timeInfoJson
-                                userConfig: root.backend ? root.backend.userConfig : ""
-                                deploymentConfig: root.backend ? root.backend.deploymentConfig : ""
-                                useGeneratedConfig: root.backend ? root.backend.useGeneratedConfig : false
-                                monitoringPaused: root.monitoringPaused
-                                statusLabelOverride: !root.backend
-                                    ? qsTr("Not Connected")
-                                    : root.monitoringPaused
-                                        ? qsTr("Status unavailable")
-                                        : root.statusUnresponsive
-                                            ? qsTr("Unresponsive (retrying in %1s)").arg(root.statusNextPollSeconds)
-                                            : ""
-                                canStart: root.backend
-                                          && !!root.backend.userConfig
-                                          && (root.backend.status === BlockchainBackend.NotStarted
-                                              || root.backend.status === BlockchainBackend.Stopped)
-                                canStop: root.backend
-                                         && (root.backend.status === BlockchainBackend.Running
-                                             || root.backend.status === BlockchainBackend.Error)
-
-                                onStartRequested: if (root.backend) root.backend.startBlockchain()
-                                onStopRequested: if (root.backend) root.backend.stopBlockchain()
-                                onResumeMonitoringRequested: root.resumeMonitoring()
-                                onChangeConfigRequested: _d.currentPage = 0
-                            }
-                        }
-
-                        ChainStatsView {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 170
-                            infoJson: root.cryptarchiaInfoJson
-                            timeInfoJson: root.timeInfoJson
-                            peerId: root.peerId
-                            onCopyToClipboard: (text) => root.copyText(text)
-                        }
+                        Layout.fillHeight: true
+                        status: root.backend ? root.backend.status : -1
+                        nodeRecovering: !!root.backend && root.backend.nodeRecovering
+                        lastErrorMessage: root.cryptarchiaInfoError || (root.backend ? root.backend.lastErrorMessage : "")
+                        infoJson: root.cryptarchiaInfoJson
+                        timeInfoJson: root.timeInfoJson
+                        peerId: root.peerId
                     }
 
                     BlocksView {
