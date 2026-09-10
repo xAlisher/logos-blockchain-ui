@@ -183,10 +183,10 @@ Item {
         property var steps: []
         property int reached: -1               // furthest reached node index (-1 = none)
         property bool transitioning: false     // yellow in-progress stub after the frontier
-        implicitHeight: 46
+        implicitHeight: 54
         readonly property int n: steps.length
         readonly property real padX: width * 0.10      // 80% span, centered — breathing room to the card edges
-        readonly property real cy: 12
+        readonly property real cy: height / 2          // lane centered in the block; labels hang below (ignored for centering)
         function xOf(i) { return n <= 1 ? width / 2 : padX + i * ((width - 2 * padX) / (n - 1)) }
         onReachedChanged: cv.requestPaint()
         onTransitioningChanged: cv.requestPaint()
