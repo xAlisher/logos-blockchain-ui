@@ -218,8 +218,9 @@ Item {
                     if (reached >= 0 && i < reached) {
                         ctx.fillStyle = green; ctx.beginPath(); ctx.arc(x, cy, 6, 0, Math.PI * 2); ctx.fill()
                     } else if (reached >= 0 && i === reached) {
+                        // frontier ring: yellow while transitioning (stage in progress), green once settled
                         ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.fill()
-                        ctx.strokeStyle = green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.stroke()
+                        ctx.strokeStyle = transitioning ? yellow : green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 9, 0, Math.PI * 2); ctx.stroke()
                     } else {
                         ctx.fillStyle = track; ctx.beginPath(); ctx.arc(x, cy, 6, 0, Math.PI * 2); ctx.fill()
                     }
