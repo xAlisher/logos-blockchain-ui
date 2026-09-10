@@ -481,13 +481,14 @@ Rectangle {
             // app header (was inside NodeDashboardView; hoisted so it persists across tabs)
             RowLayout {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.large; spacing: Theme.spacing.medium
-                LogosText { text: "\u03bb"; color: Theme.palette.text; font.pixelSize: 24; font.weight: Theme.typography.weightBold }
-                LogosText { text: qsTr("Blockchain Node"); color: Theme.palette.text; font.pixelSize: 21; font.weight: Theme.typography.weightBold }
+                LogosText { text: "\u03bb"; color: Theme.palette.text; font.pixelSize: 30; font.weight: Theme.typography.weightBold; Layout.alignment: Qt.AlignVCenter }
+                LogosText { text: qsTr("Blockchain Node"); color: Theme.palette.text; font.pixelSize: 28; font.weight: Theme.typography.weightBold; Layout.alignment: Qt.AlignVCenter }
                 Item { Layout.fillWidth: true }
-                LogosButton { text: qsTr("Start Empowering"); enabled: opPage.nodeRunning }
+                LogosButton { text: qsTr("Start Empowering"); enabled: opPage.nodeRunning; Layout.alignment: Qt.AlignVCenter }
                 LogosButton {
                     text: opPage.nodeRunning ? qsTr("Stop Node") : qsTr("Start Node")
                     variant: LogosButton.Variant.Primary
+                    Layout.alignment: Qt.AlignVCenter
                     enabled: opPage.nodeRunning ? opPage.canStop : opPage.canStart
                     onClicked: {
                         if (!root.backend) return
