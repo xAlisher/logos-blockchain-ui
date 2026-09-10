@@ -2,11 +2,10 @@
 # Blockchain-node dashboard — PROTOTYPE STUDIO (design reference, not the implementation).
 #
 # Runs this fork's real QML views (../src/qml/views) against the forked Logos Design System
-# with a mock backend and mock state — so every dashboard/settings state and interaction can
-# be explored WITHOUT a running node. This is a throwaway design draft; the final code is
-# re-implemented from these designs.
+# with a mock backend and mock state — every dashboard/settings state and interaction, WITHOUT
+# a running node. Throwaway design draft; the final code is re-implemented from these designs.
 #
-# Requires: nix (for the Qt QML runtime) and git. No node, no Basecamp.
+# Requires: nix (with flakes) + git. No node, no Basecamp.
 #   Usage:  bash prototype/run.sh
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -18,8 +17,14 @@ if [ ! -d "$DS_DIR/src/qml/Logos" ]; then
   git clone --depth 1 -b feat/dashboard-additions https://github.com/xAlisher/logos-design-system "$DS_DIR"
 fi
 
-# forked DS provides Logos.Theme/Controls/Icons; mock/ provides the Logos.BlockchainBackend enum
-export QML_IMPORT_PATH="$DS_DIR/src/qml:$HERE/mock"
+echo "Resolving Qt via nix…"
+QTD="$(nix build --no-link --print-out-paths nixpkgs#qt6.qtdeclarative)"   # provides `qml` + QtQuick/Controls/Layouts
+QTSVG="$(nix build --no-link --print-out-paths nixpkgs#qt6.qtsvg)"          # SVG image plugin for the header logo
+
+# QtQuick.* live in qtdeclarative's qml dir; nix's Qt setup-hook isn't applied at `nix shell`
+# runtime, so add it explicitly alongside the forked DS + the mock backend.
+export QML_IMPORT_PATH="$DS_DIR/src/qml:$HERE/mock:$QTD/lib/qt-6/qml"
+export QT_PLUGIN_PATH="$QTD/lib/qt-6/plugins:$QTSVG/lib/qt-6/plugins"
 export QT_QUICK_BACKEND=software     # software rasterizer — no GPU needed
 
-exec nix shell nixpkgs#qt6.qtdeclarative nixpkgs#qt6.qtsvg --command qml "$HERE/proto-studio.qml"
+exec "$QTD/bin/qml" "$HERE/proto-studio.qml"
