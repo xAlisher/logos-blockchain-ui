@@ -476,7 +476,9 @@ Rectangle {
             readonly property bool nodeRunning: root.backend ? root.backend.status === BlockchainBackend.Running : false
             readonly property bool canStart: root.backend && !!root.backend.userConfig && (root.backend.status === BlockchainBackend.NotStarted || root.backend.status === BlockchainBackend.Stopped)
             readonly property bool canStop: root.backend && (root.backend.status === BlockchainBackend.Running || root.backend.status === BlockchainBackend.Error)
-            onNodeRunningChanged: { if (!nodeRunning && sectionIndex !== 0) sectionIndex = 0 }
+            // On stop, leave only the tabs that need a running node (wallet ops,
+            // indices 2..6). Dashboard(0), Blocks(1) and Settings(7) stay put.
+            onNodeRunningChanged: { if (!nodeRunning && sectionIndex >= 2 && sectionIndex <= 6) sectionIndex = 0 }
 
             // app header (was inside NodeDashboardView; hoisted so it persists across tabs)
             RowLayout {
@@ -517,6 +519,7 @@ Rectangle {
                 LogosTabButton { text: qsTr("Explorer"); enabled: opPage.nodeRunning }
                 LogosTabButton { text: qsTr("Transfer"); enabled: opPage.nodeRunning }
                 LogosTabButton { text: qsTr("Channel Deposit"); enabled: opPage.nodeRunning }
+                LogosTabButton { text: qsTr("Settings") }
             }
 
             StackLayout {
@@ -727,6 +730,101 @@ Rectangle {
                     }
                     onCopyToClipboard: (text) => {
                         root.copyText(text)
+                    }
+                }
+
+                // ---- Section 7: Settings ----
+                // Surfaces the active configuration and the path back to the
+                // chooser (page 0) — the redesigned dashboard dropped the old
+                // NodeStatusCard "Change config" button, so this restores it.
+                LogosScrollView {
+                    id: settingsScrollView
+                    ColumnLayout {
+                        width: settingsScrollView.availableWidth
+                        spacing: Theme.spacing.large
+
+                        LogosFrame {
+                            Layout.fillWidth: true
+                            backgroundColor: Theme.palette.surfaceRaised
+                            borderColor: "transparent"
+                            radius: Theme.spacing.radiusLarge
+                            padding: Theme.spacing.large
+                            contentItem: ColumnLayout {
+                                spacing: Theme.spacing.medium
+                                LogosText {
+                                    text: qsTr("Configuration")
+                                    color: Theme.palette.text
+                                    font.pixelSize: 20
+                                    font.weight: Theme.typography.weightBold
+                                }
+                                LogosText {
+                                    text: qsTr("The node is started from the configuration below. Change it to point at a different config or regenerate one.")
+                                    color: Theme.palette.textSecondary
+                                    font.pixelSize: Theme.typography.secondaryText
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+
+                                // user config
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacing.medium
+                                    LogosText {
+                                        text: qsTr("User config")
+                                        color: Theme.palette.textSecondary
+                                        font.pixelSize: Theme.typography.secondaryText
+                                        Layout.preferredWidth: 140
+                                    }
+                                    LogosText {
+                                        text: (root.backend && root.backend.userConfig && root.backend.userConfig.length > 0)
+                                              ? root.backend.userConfig : qsTr("—")
+                                        color: Theme.palette.text
+                                        font.pixelSize: Theme.typography.secondaryText
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                // deployment config (only when set)
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacing.medium
+                                    visible: !!root.backend && !!root.backend.deploymentConfig && root.backend.deploymentConfig.length > 0
+                                    LogosText {
+                                        text: qsTr("Deployment config")
+                                        color: Theme.palette.textSecondary
+                                        font.pixelSize: Theme.typography.secondaryText
+                                        Layout.preferredWidth: 140
+                                    }
+                                    LogosText {
+                                        text: root.backend ? root.backend.deploymentConfig : ""
+                                        color: Theme.palette.text
+                                        font.pixelSize: Theme.typography.secondaryText
+                                        elide: Text.ElideMiddle
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: Theme.spacing.small
+                                    LogosButton {
+                                        text: qsTr("Change configuration")
+                                        variant: LogosButton.Variant.Primary
+                                        enabled: !opPage.nodeRunning
+                                        onClicked: _d.currentPage = 0
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    LogosText {
+                                        visible: opPage.nodeRunning
+                                        text: qsTr("Stop the node to change its configuration.")
+                                        color: Theme.palette.textTertiary
+                                        font.pixelSize: Theme.typography.secondaryText
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
