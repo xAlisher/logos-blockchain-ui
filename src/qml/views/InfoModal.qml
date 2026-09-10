@@ -63,12 +63,11 @@ LogosDialog {
                     LogosLink {
                         Layout.fillWidth: true
                         text: root.info && root.info.docs ? root.info.docs : ""
-                        href: root.info && root.info.docs ? root.info.docs : ""
                         font.pixelSize: Theme.typography.secondaryText
                         elide: Text.ElideRight
-                        onActivated: (url) => Qt.openUrlExternally(url)
+                        onActivated: cb.copy()          // click the link to copy it (shows "Copied")
                     }
-                    LogosCopyButton { value: root.info && root.info.docs ? root.info.docs : ""; Layout.alignment: Qt.AlignVCenter }
+                    LogosCopyButton { id: cb; value: root.info && root.info.docs ? root.info.docs : ""; Layout.alignment: Qt.AlignVCenter }
                 }
             }
         }

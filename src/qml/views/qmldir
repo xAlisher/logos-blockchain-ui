@@ -15,3 +15,4 @@ NodeDashboardView 1.0 NodeDashboardView.qml
 EmpoweringModal 1.0 EmpoweringModal.qml
 LegalDisclaimerModal 1.0 LegalDisclaimerModal.qml
 InfoModal 1.0 InfoModal.qml
+SettingsView 1.0 SettingsView.qml
