@@ -198,7 +198,7 @@ Item {
         property real flow: 0
         implicitHeight: 30
         readonly property int n: steps.length
-        readonly property real gap: 4
+        readonly property real gap: 1                  // near-interlocking chevrons
         readonly property real notch: height * 0.45
         function segX0(i) { return i * (width / n) }
         function segX1(i) { return (i + 1) * (width / n) - gap }
@@ -215,23 +215,38 @@ Item {
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
                 var green = Theme.palette.success, yellow = Theme.palette.warning
-                var h = height
+                var h = height, r = 4
+                // trace a polygon with rounded corners (arcTo from each edge midpoint)
+                function roundPoly(pts) {
+                    var m = pts.length
+                    ctx.beginPath()
+                    var s = pts[m - 1], b = pts[0]
+                    ctx.moveTo((s[0] + b[0]) / 2, (s[1] + b[1]) / 2)
+                    for (var k = 0; k < m; k++) {
+                        var cur = pts[k], nxt = pts[(k + 1) % m]
+                        ctx.arcTo(cur[0], cur[1], nxt[0], nxt[1], r)
+                    }
+                    ctx.closePath()
+                }
                 for (var i = 0; i < n; i++) {
                     var x0 = lane.segX0(i), x1 = lane.segX1(i)
                     var first = (i === 0), last = (i === n - 1)
-                    var isDone = (reached >= 0 && i < reached), isLive = (reached >= 0 && i === reached)
+                    // while transitioning, the LIVE (pulsing) stage is the NEXT one being worked
+                    // toward (e.g. aging → Aged), and the frontier itself is done (checked).
+                    var liveIdx = (reached < 0) ? -1 : (transitioning ? reached + 1 : reached)
+                    var isLive = (i === liveIdx && liveIdx >= 0 && liveIdx < n)
+                    var isDone = (reached >= 0 && i <= reached && i !== liveIdx)
                     var fill
                     if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
                     else if (isLive) fill = Qt.rgba(green.r, green.g, green.b, 0.20)
                     else if (isDone) fill = Theme.palette.surface
                     else fill = Theme.palette.surfaceRecessed
-                    ctx.beginPath()
-                    ctx.moveTo(x0, 0)
-                    if (last) { ctx.lineTo(x1, 0); ctx.lineTo(x1, h) }
-                    else { ctx.lineTo(x1 - notch, 0); ctx.lineTo(x1, h / 2); ctx.lineTo(x1 - notch, h) }
-                    ctx.lineTo(x0, h)
-                    if (!first) ctx.lineTo(x0 + notch, h / 2)   // concave notch to seat the previous chevron's point
-                    ctx.closePath()
+                    var pts = [[x0, 0]]
+                    if (last) { pts.push([x1, 0], [x1, h]) }
+                    else { pts.push([x1 - notch, 0], [x1, h / 2], [x1 - notch, h]) }
+                    pts.push([x0, h])
+                    if (!first) pts.push([x0 + notch, h / 2])   // concave notch seats the previous chevron's point
+                    roundPoly(pts)
                     ctx.fillStyle = fill; ctx.fill()
                 }
             }
@@ -242,8 +257,9 @@ Item {
             Row {
                 required property int index
                 required property string modelData
-                readonly property bool _done: lane.reached >= 0 && index < lane.reached
-                readonly property bool _live: lane.reached >= 0 && index === lane.reached
+                readonly property int _liveIdx: lane.reached < 0 ? -1 : (lane.transitioning ? lane.reached + 1 : lane.reached)
+                readonly property bool _live: index === _liveIdx && _liveIdx >= 0 && _liveIdx < lane.n
+                readonly property bool _done: lane.reached >= 0 && index <= lane.reached && index !== _liveIdx
                 spacing: 4
                 x: lane.segCenter(index) - width / 2 + (lane.n > 1 && index < lane.n - 1 ? lane.notch / 2 : 0)
                 y: (lane.height - height) / 2
@@ -293,7 +309,7 @@ Item {
         readonly property int _vsize: hero ? 32 : 24
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
-        implicitHeight: showLane ? 148 : (hero ? 124 : 108)
+        implicitHeight: showLane ? 118 : (hero ? 124 : 108)
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
@@ -339,12 +355,13 @@ Item {
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 CopyGlyph { visible: copyable && sub.length > 0; Layout.alignment: Qt.AlignVCenter }
                 Item { Layout.fillWidth: true } }
-            Item { Layout.fillHeight: true; visible: showLane }   // push the lane to the bottom of the card
             Lifecycle {
                 visible: showLane
                 Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.small   // sit just below uptime
                 steps: laneSteps; reached: laneReached; transitioning: laneTransitioning
             }
+            Item { Layout.fillHeight: true; visible: showLane }   // absorb slack below the lane, keeping it near uptime
         }
     }
 
@@ -359,11 +376,11 @@ Item {
                     Layout.fillWidth: true; spacing: Theme.spacing.large
                     Block {
                         Layout.fillWidth: true; hero: true; label: ""      // no "Status" label — the value is the headline
-                        value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: root._st.copy; dots: root._st.d
+                        value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
                         showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                     }
                     Block {
-                        Layout.preferredWidth: root._minCard; Layout.minimumWidth: root._minCard; Layout.alignment: Qt.AlignTop
+                        Layout.preferredWidth: root._minCard; Layout.minimumWidth: root._minCard; Layout.fillHeight: true
                         label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; copyable: root.epoch !== "—"
                     }
                 }
@@ -374,7 +391,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Empowering")
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
                             // dashboard shows PROGRESS of mining (%, mined/target), not raw token totals; "—" when not started
                             value: (root.empoweringActive && root.empoweringTarget > 0) ? (Math.min(100, Math.round(root.empoweringMined / root.empoweringTarget * 100)) + "%") : "—"
                             sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : "" }
