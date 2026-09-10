@@ -179,6 +179,7 @@ Item {
         property bool copyable: false
         property bool hero: false
         property bool dots: false                 // animate a reserved-width "…" after the value
+        property bool flash: !hero                // flash green on value change (live grid tiles)
         readonly property int _vsize: hero ? 32 : 24
         backgroundColor: hero ? Qt.rgba(tint.r, tint.g, tint.b, 0.12) : Theme.palette.surfaceRaised
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
@@ -191,8 +192,19 @@ Item {
                 Info {} }
             RowLayout {
                 Layout.fillWidth: true; spacing: 0
-                LogosText { Layout.fillWidth: !dots; text: value; color: accent
-                            font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight }
+                LogosText {
+                    id: fv
+                    Layout.fillWidth: !dots; text: value
+                    property color restColor: accent
+                    color: restColor                       // binding; flashAnim overrides on change
+                    font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight
+                    onTextChanged: if (flash) flashAnim.restart()
+                    SequentialAnimation {
+                        id: flashAnim
+                        ColorAnimation { target: fv; property: "color"; to: Theme.palette.success; duration: 160; easing.type: Easing.OutQuad }
+                        ColorAnimation { target: fv; property: "color"; to: fv.restColor; duration: 1100; easing.type: Easing.InOutQuad }
+                    }
+                }
                 Row {   // reserved-width animated ellipsis (only opacity animates → no jump)
                     visible: dots; spacing: 0
                     Repeater { model: 3
