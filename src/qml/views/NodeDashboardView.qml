@@ -4,6 +4,7 @@ import QtQuick.Controls as QQC
 import Logos.Theme
 import Logos.Controls
 import Logos.BlockchainBackend 1.0
+import "infoContent.js" as InfoContent
 
 // Dashboard CONTENT (epic #56): Status/Blend hero pair + 4×3 metric grid + real Blocks table.
 // Header + top-tab nav live in BlockchainView (persist across tabs). HONEST: fields with no real
@@ -34,6 +35,7 @@ Item {
     property string uiVersion: "0.3.1"
     property string testnetVersion: "0.3.2"
     readonly property string _versionLine: qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
+    readonly property var _infoData: InfoContent.data          // (i) tooltip content per tile
 
     // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
     function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
@@ -295,9 +297,14 @@ Item {
     }
 
     component Info: Rectangle {
-        width: 15; height: 15; radius: 8; color: "transparent"
-        border.width: 1; border.color: Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
-        LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: Theme.palette.textMuted }
+        id: ib
+        signal clicked()
+        readonly property bool hovered: ma.containsMouse
+        width: 16; height: 16; radius: 8; color: "transparent"
+        border.width: 1
+        border.color: hovered ? Theme.palette.text : Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
+        LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: ib.hovered ? Theme.palette.text : Theme.palette.textMuted }
+        MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: ib.clicked() }
     }
     component CopyGlyph: Canvas {
         implicitWidth: 16; implicitHeight: 16
@@ -313,6 +320,9 @@ Item {
         }
     }
     component Block: LogosFrame {
+        id: blk
+        property var info: null                   // {title, what, calc, states, docs} for the (i) modal
+        signal infoRequested()
         property string label: ""
         property string value: "—"
         property string sub: ""
@@ -336,7 +346,7 @@ Item {
                 visible: label.length > 0        // collapse the label line when there's no label (e.g. the Status hero)
                 LogosText { text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 Item { Layout.fillWidth: true }
-                Info {} }
+                Info { visible: blk.info != null; onClicked: blk.infoRequested() } }
             RowLayout {
                 Layout.fillWidth: true; spacing: 0
                 LogosText {
@@ -375,6 +385,7 @@ Item {
                     text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
                     Layout.alignment: Qt.AlignTop
                 }
+                Info { visible: showLane && blk.info != null; Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small; onClicked: blk.infoRequested() }
             }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
@@ -402,26 +413,27 @@ Item {
                     Layout.fillWidth: true; hero: true; label: ""      // no "Status" label — the value is the headline
                     value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
                     showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
+                    info: root._infoData.status; onInfoRequested: root._openInfo(info)
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0; info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—"; info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
                             // dashboard shows PROGRESS of mining (%, mined/target), not raw token totals; "—" when not started
                             value: (root.empoweringActive && root.empoweringTarget > 0) ? (Math.min(100, Math.round(root.empoweringMined / root.empoweringTarget * 100)) + "%") : "—"
-                            sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : "" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip }
+                            sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : ""; info: root._infoData.mining; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap; info: root._infoData.cpu; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap; info: root._infoData.ram; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; info: root._infoData.height; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
                 }
                 // ---- footer: version line (+ copy) · legal disclaimer (modal) ----
                 RowLayout {
@@ -442,4 +454,6 @@ Item {
     }
 
     LegalDisclaimerModal { id: legalModal }
+    InfoModal { id: infoModal }
+    function _openInfo(i) { if (i) { infoModal.info = i; infoModal.open() } }
 }
