@@ -154,6 +154,79 @@ Item {
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Validation inactive, %1 more epoch to activate").arg(epochsToActivate) : qsTr("Validation inactive"))
                                 : ""
 
+    // Node lifecycle — HONEST: a stage only lights when we can truly detect it.
+    // Today only Started + Online have real signals; Empowered/Aged/Proposing/
+    // Earning stay dim (not-yet-reached) until their backend fields land
+    // (#64/#85, #59-#61). Values: 0 = todo (dim), 1 = current (yellow, in
+    // progress), 2 = done (green).
+    readonly property var _lifeSteps: [qsTr("Started"), qsTr("Online"), qsTr("Empowered"), qsTr("Aged"), qsTr("Proposing"), qsTr("Earning")]
+    readonly property var _lifeStates: {
+        var s = [0, 0, 0, 0, 0, 0]
+        if (!nodeConnected) return s
+        if (status === BlockchainBackend.Starting) { s[0] = 1; return s }   // starting up → Started in progress
+        if (status === BlockchainBackend.Running || nodeRecovering) {
+            s[0] = 2                                                        // Started done
+            if (status === BlockchainBackend.Running && sync.synced) {
+                s[1] = 2                                                    // Online done
+                if (empowering === "Active") s[2] = 2                       // Empowered (only if a real signal)
+                if (validation === "active") s[4] = 2                       // Proposing (only if reported active)
+                if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") s[5] = 2  // Earning
+            } else {
+                s[1] = 1                                                    // bootstrapping/replaying → Online in progress
+            }
+        }
+        return s
+    }
+
+    component Lifecycle: Item {
+        property var steps: []
+        property var stepStates: []                // NB: 'states' is a built-in Item property — don't shadow it
+        implicitHeight: 46
+        readonly property int n: steps.length
+        readonly property real padX: 10
+        readonly property real cy: 12
+        function xOf(i) { return n <= 1 ? padX : padX + i * ((width - 2 * padX) / (n - 1)) }
+        onStepStatesChanged: cv.requestPaint()
+        onWidthChanged: cv.requestPaint()
+        Component.onCompleted: cv.requestPaint()
+        Canvas {
+            id: cv; anchors.fill: parent
+            onAvailableChanged: if (available) requestPaint()
+            onPaint: {
+                var ctx = getContext("2d"); ctx.reset()
+                var green = Theme.palette.success, yellow = Theme.palette.warning, track = Theme.palette.borderTertiary
+                for (var s = 0; s < n - 1; s++) {
+                    var right = stepStates[s + 1], left = stepStates[s], col = track, w = 2
+                    if (right === 2)      { col = green;  w = 3 }
+                    else if (right === 1) { col = yellow; w = 3 }
+                    else if (left === 1)  { col = yellow; w = 3 }
+                    ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = "round"
+                    ctx.beginPath(); ctx.moveTo(xOf(s), cy); ctx.lineTo(xOf(s + 1), cy); ctx.stroke()
+                }
+                for (var i = 0; i < n; i++) {
+                    var x = xOf(i), st = stepStates[i]; ctx.beginPath()
+                    if (st === 2) { ctx.fillStyle = green; ctx.arc(x, cy, 7, 0, Math.PI * 2); ctx.fill() }
+                    else if (st === 1) {
+                        ctx.fillStyle = Theme.palette.surfaceRaised; ctx.arc(x, cy, 7.5, 0, Math.PI * 2); ctx.fill()
+                        ctx.beginPath(); ctx.strokeStyle = yellow; ctx.lineWidth = 3; ctx.arc(x, cy, 7.5, 0, Math.PI * 2); ctx.stroke()
+                    } else { ctx.fillStyle = track; ctx.arc(x, cy, 4, 0, Math.PI * 2); ctx.fill() }
+                }
+            }
+        }
+        Repeater {
+            model: steps
+            LogosText {
+                required property int index
+                required property string modelData
+                text: modelData; font.pixelSize: 12
+                color: stepStates[index] === 2 ? Theme.palette.success
+                      : stepStates[index] === 1 ? Theme.palette.warning
+                      : Theme.palette.textTertiary
+                x: xOf(index) - width / 2; y: cy + 12
+            }
+        }
+    }
+
     component Info: Rectangle {
         width: 15; height: 15; radius: 8; color: "transparent"
         border.width: 1; border.color: Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
@@ -239,6 +312,16 @@ Item {
             width: root.width; spacing: Theme.spacing.large
             ColumnLayout {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
+                // ---- lifecycle strip (top summary; only truly-detectable stages light up) ----
+                LogosFrame {
+                    Layout.fillWidth: true
+                    backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
+                    radius: Theme.spacing.radiusLarge; padding: Theme.spacing.xlarge
+                    contentItem: Lifecycle {
+                        steps: root._lifeSteps
+                        stepStates: root._lifeStates
+                    }
+                }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(2, Math.floor(width / (root._heroMin + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Status"); value: root._st.label; sub: root._st.sub; accent: root._st.c; tint: root._st.c; copyable: root._st.copy; dots: root._st.d }
