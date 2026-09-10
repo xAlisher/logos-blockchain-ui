@@ -119,20 +119,21 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
 
     // ── Status hero → {label, sub, color} ──
+    // label = base text (no ellipsis); d = animate a reserved-width "…" (transitional states)
     readonly property var _st:
         (!nodeConnected)
-            ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false })
+            ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
       : status === BlockchainBackend.Error
-            ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0 })
+            ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
       : nodeRecovering
-            ? ({ label: qsTr("Replaying blocks…"), sub: replayProgress, c: Theme.palette.warning, copy: false })
+            ? ({ label: qsTr("Replaying blocks"), sub: replayProgress, c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Starting
-            ? ({ label: qsTr("Starting…"), sub: qsTr("Checking configuration"), c: Theme.palette.warning, copy: false })
+            ? ({ label: qsTr("Starting"), sub: qsTr("Checking configuration"), c: Theme.palette.warning, copy: false, d: true })
       : (status === BlockchainBackend.Running && !sync.synced)
-            ? ({ label: qsTr("Bootstrapping…"), sub: sync.syncLabel, c: Theme.palette.warning, copy: false })
+            ? ({ label: qsTr("Bootstrapping"), sub: sync.syncLabel, c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Running
-            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0 })
-      : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false })
+            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
+      : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
@@ -167,6 +168,8 @@ Item {
         property color tint: Theme.palette.surfaceRaised
         property bool copyable: false
         property bool hero: false
+        property bool dots: false                 // animate a reserved-width "…" after the value
+        readonly property int _vsize: hero ? 32 : 24
         backgroundColor: hero ? Qt.rgba(tint.r, tint.g, tint.b, 0.12) : Theme.palette.surfaceRaised
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: hero ? 124 : 108
@@ -176,8 +179,28 @@ Item {
                 LogosText { text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 Item { Layout.fillWidth: true }
                 Info {} }
-            LogosText { Layout.fillWidth: true; text: value; color: accent
-                        font.pixelSize: hero ? 32 : 24; font.weight: Theme.typography.weightBold; elide: Text.ElideRight }
+            RowLayout {
+                Layout.fillWidth: true; spacing: 0
+                LogosText { Layout.fillWidth: !dots; text: value; color: accent
+                            font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight }
+                Row {   // reserved-width animated ellipsis (only opacity animates → no jump)
+                    visible: dots; spacing: 0
+                    Repeater { model: 3
+                        LogosText {
+                            text: "."; color: accent; font.pixelSize: _vsize; font.weight: Theme.typography.weightBold
+                            opacity: 0.25
+                            SequentialAnimation on opacity {
+                                running: dots; loops: Animation.Infinite
+                                PauseAnimation { duration: index * 260 }
+                                NumberAnimation { to: 1.0; duration: 180 }
+                                NumberAnimation { to: 0.25; duration: 180 }
+                                PauseAnimation { duration: (2 - index) * 260 + 520 }
+                            }
+                        }
+                    }
+                }
+                Item { Layout.fillWidth: dots }
+            }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 LogosText { visible: sub.length > 0; text: sub; color: Theme.palette.textTertiary
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
@@ -194,7 +217,7 @@ Item {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
                 GridLayout {
                     Layout.fillWidth: true; columns: 2; columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Status"); value: root._st.label; sub: root._st.sub; accent: root._st.c; tint: root._st.c; copyable: root._st.copy }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Status"); value: root._st.label; sub: root._st.sub; accent: root._st.c; tint: root._st.c; copyable: root._st.copy; dots: root._st.d }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; tint: root._blend.c; copyable: root.epoch !== "—" }
                 }
                 GridLayout {
