@@ -743,6 +743,48 @@ Rectangle {
                         width: settingsScrollView.availableWidth
                         spacing: Theme.spacing.large
 
+                        // Empowering (PoW mining) preferences — auto-claim lives here, on by default.
+                        LogosFrame {
+                            Layout.fillWidth: true
+                            backgroundColor: Theme.palette.surfaceRaised
+                            borderColor: "transparent"
+                            radius: Theme.spacing.radiusLarge
+                            padding: Theme.spacing.large
+                            contentItem: ColumnLayout {
+                                spacing: Theme.spacing.medium
+                                LogosText {
+                                    text: qsTr("Empowering")
+                                    color: Theme.palette.text
+                                    font.pixelSize: 20
+                                    font.weight: Theme.typography.weightBold
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacing.medium
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 2
+                                        LogosText {
+                                            text: qsTr("Auto-claim mined rewards")
+                                            color: Theme.palette.text
+                                            font.pixelSize: Theme.typography.secondaryText
+                                        }
+                                        LogosText {
+                                            text: qsTr("Claim mined tickets automatically in the background until the target balance is reached. Turn off to accumulate and claim tickets manually.")
+                                            color: Theme.palette.textSecondary
+                                            font.pixelSize: Theme.typography.secondaryText
+                                            wrapMode: Text.WordWrap
+                                            Layout.fillWidth: true
+                                        }
+                                    }
+                                    LogosSwitch {
+                                        id: autoClaimSwitch
+                                        checked: true                 // on by default
+                                        Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
+                                    }
+                                }
+                            }
+                        }
+
                         LogosFrame {
                             Layout.fillWidth: true
                             backgroundColor: Theme.palette.surfaceRaised

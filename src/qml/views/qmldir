@@ -12,3 +12,4 @@ NodeOverviewView 1.0 NodeOverviewView.qml
 NodeStatusCard 1.0 NodeStatusCard.qml
 ValidatorStatusCard 1.0 ValidatorStatusCard.qml
 NodeDashboardView 1.0 NodeDashboardView.qml
+EmpoweringModal 1.0 EmpoweringModal.qml

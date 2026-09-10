@@ -32,6 +32,7 @@ Item {
     // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
     function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
     function _short(s) { return (s && s.length > 14) ? (s.substring(0, 6) + "…" + s.substring(s.length - 4)) : (s || "—") }
+    function _fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }   // thousands with thin spaces
     readonly property var _info: _parse(infoJson)
     readonly property var _time: _parse(timeInfoJson)
     function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
@@ -51,8 +52,9 @@ Item {
     property int epochsToActivate: 0
     property string peers: "—"                               // #62 (curl)
     property string connections: ""
-    property string empowering: "—"                          // #64 (#85)
-    property string empoweringAmount: ""
+    property bool empoweringActive: false                    // #64 (#85) — mining on?
+    property real empoweringMined: -1                        // LGO mined toward target; <0 = no data
+    property real empoweringTarget: -1                       // auto-claim threshold / target balance
     property string cpu: "—"                                 // #65 (#89)
     property string cpuCap: ""
     property string ram: "—"                                 // #66 (#89)
@@ -159,7 +161,7 @@ Item {
     // Proposing/Earning are reached only once their backend fields land
     // (#64/#85, #59-#61). Progress is expressed as a single frontier index
     // (furthest reached) plus a transitioning flag (moving Started→Online).
-    readonly property var _lifeSteps: [qsTr("Started"), qsTr("Online"), qsTr("Empowered"), qsTr("Aged"), qsTr("Proposing"), qsTr("Earning")]
+    readonly property var _lifeSteps: [qsTr("Started"), qsTr("Online"), qsTr("Funded"), qsTr("Aged"), qsTr("Proposing"), qsTr("Earning")]
     // Furthest reached stage (-1 = none). Monotonic: a later confirmed stage
     // implies every earlier one (you can't propose without having aged/empowered).
     readonly property int _lifeReached: {
@@ -168,7 +170,7 @@ Item {
         if (status === BlockchainBackend.Running && !sync.synced) return 0
         if (status !== BlockchainBackend.Running) return -1
         var r = 1                                                               // Online (Running + synced)
-        if (empowering === "Active") r = Math.max(r, 2)                         // Empowered (#64/#85)
+        if (empoweringActive) r = Math.max(r, 2)                                // Funded (#64/#85)
         if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
         if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
         return r
@@ -347,7 +349,10 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in epoch"); value: root.proposed; sub: root._proposedSub }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Empowering"); value: root.empowering; sub: root.empoweringAmount }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Empowering")
+                            // dashboard shows PROGRESS of mining (%, mined/target), not raw token totals; "—" when not started
+                            value: (root.empoweringActive && root.empoweringTarget > 0) ? (Math.min(100, Math.round(root.empoweringMined / root.empoweringTarget * 100)) + "%") : "—"
+                            sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : "" }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot }
