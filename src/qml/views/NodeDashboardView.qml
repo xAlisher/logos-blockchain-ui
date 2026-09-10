@@ -167,7 +167,8 @@ Item {
     // implies every earlier one (you can't propose without having aged/empowered).
     readonly property int _lifeReached: {
         if (!nodeConnected || status === BlockchainBackend.NotStarted) return -1
-        if (status === BlockchainBackend.Starting || nodeRecovering) return 0   // Started; bootstrapping toward Online
+        if (status === BlockchainBackend.Starting) return -1                    // Started itself is in progress (live, unchecked)
+        if (nodeRecovering) return 0                                            // replaying → Started done, syncing
         if (status === BlockchainBackend.Running && !sync.synced) return 0
         if (status !== BlockchainBackend.Running) return -1
         var r = 1                                                               // Online (Running + synced)
@@ -198,11 +199,18 @@ Item {
         property real flow: 0
         implicitHeight: 30
         readonly property int n: steps.length
-        readonly property real gap: 1                  // near-interlocking chevrons
-        readonly property real notch: height * 0.45
-        function segX0(i) { return i * (width / n) }
-        function segX1(i) { return (i + 1) * (width / n) - gap }
-        function segCenter(i) { return (segX0(i) + segX1(i)) / 2 }
+        readonly property real gap: 2                  // clearance from a chevron's tip to the next's notch
+        readonly property real inset: 2                // keep the lane inside the card's rounded edge
+        readonly property real dpth: Math.min(14, height * 0.5)   // point/notch depth
+        // interlocking: each chevron overlaps the next by (dpth - gap) so the tip sits `gap` px from the notch
+        readonly property real segW: (width - 2 * inset + (n - 1) * (dpth - gap)) / Math.max(1, n)
+        function segLeft(i) { return inset + i * (segW - dpth + gap) }
+        function segRight(i) { return segLeft(i) + segW }
+        function labelCenter(i) {   // center within the readable area (between the notch and the point)
+            var l = segLeft(i) + (i > 0 ? dpth : 0)
+            var r = segRight(i) - (i < n - 1 ? dpth : 0)
+            return (l + r) / 2
+        }
         onReachedChanged: cv.requestPaint()
         onTransitioningChanged: cv.requestPaint()
         onWidthChanged: cv.requestPaint()
@@ -215,7 +223,7 @@ Item {
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
                 var green = Theme.palette.success, yellow = Theme.palette.warning
-                var h = height, r = 4
+                var h = height, r = 3, dpth = lane.dpth
                 // trace a polygon with rounded corners (arcTo from each edge midpoint)
                 function roundPoly(pts) {
                     var m = pts.length
@@ -229,11 +237,11 @@ Item {
                     ctx.closePath()
                 }
                 for (var i = 0; i < n; i++) {
-                    var x0 = lane.segX0(i), x1 = lane.segX1(i)
+                    var x0 = lane.segLeft(i), x1 = lane.segRight(i)
                     var first = (i === 0), last = (i === n - 1)
                     // while transitioning, the LIVE (pulsing) stage is the NEXT one being worked
                     // toward (e.g. aging → Aged), and the frontier itself is done (checked).
-                    var liveIdx = (reached < 0) ? -1 : (transitioning ? reached + 1 : reached)
+                    var liveIdx = transitioning ? reached + 1 : reached   // Starting: reached=-1 → live is Started(0)
                     var isLive = (i === liveIdx && liveIdx >= 0 && liveIdx < n)
                     var isDone = (reached >= 0 && i <= reached && i !== liveIdx)
                     var fill
@@ -243,9 +251,9 @@ Item {
                     else fill = Theme.palette.surfaceRecessed
                     var pts = [[x0, 0]]
                     if (last) { pts.push([x1, 0], [x1, h]) }
-                    else { pts.push([x1 - notch, 0], [x1, h / 2], [x1 - notch, h]) }
+                    else { pts.push([x1 - dpth, 0], [x1, h / 2], [x1 - dpth, h]) }
                     pts.push([x0, h])
-                    if (!first) pts.push([x0 + notch, h / 2])   // concave notch seats the previous chevron's point
+                    if (!first) pts.push([x0 + dpth, h / 2])   // concave notch seats the previous chevron's point
                     roundPoly(pts)
                     ctx.fillStyle = fill; ctx.fill()
                 }
@@ -257,15 +265,19 @@ Item {
             Row {
                 required property int index
                 required property string modelData
-                readonly property int _liveIdx: lane.reached < 0 ? -1 : (lane.transitioning ? lane.reached + 1 : lane.reached)
+                readonly property int _liveIdx: lane.transitioning ? lane.reached + 1 : lane.reached
                 readonly property bool _live: index === _liveIdx && _liveIdx >= 0 && _liveIdx < lane.n
                 readonly property bool _done: lane.reached >= 0 && index <= lane.reached && index !== _liveIdx
                 spacing: 4
-                x: lane.segCenter(index) - width / 2 + (lane.n > 1 && index < lane.n - 1 ? lane.notch / 2 : 0)
+                x: lane.labelCenter(index) - width / 2
                 y: (lane.height - height) / 2
                 LogosText { visible: parent._done; text: "✓"; color: Theme.palette.success; font.pixelSize: 12; font.weight: Theme.typography.weightBold; anchors.verticalCenter: parent.verticalCenter }
                 LogosText {
-                    text: parent.modelData; font.pixelSize: 12
+                    // a transitioning-live stage shows the in-progress verb (Online→Syncing…, Aged→Aging)
+                    text: (parent._live && lane.transitioning && index === 1) ? qsTr("Syncing…")
+                        : (parent._live && lane.transitioning && index === 3) ? qsTr("Aging")
+                        : parent.modelData
+                    font.pixelSize: 12
                     color: parent._live ? (lane.transitioning ? Theme.palette.warning : Theme.palette.success)
                           : parent._done ? Theme.palette.textSecondary : Theme.palette.textTertiary
                     anchors.verticalCenter: parent.verticalCenter
