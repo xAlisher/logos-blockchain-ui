@@ -66,11 +66,26 @@ Item {
         LogosSwitch { id: sw; Layout.alignment: Qt.AlignVCenter }
     }
 
+    // red pill with white text (DS LogosButton has no danger variant)
+    component DangerButton: Rectangle {
+        id: db
+        property alias text: lbl.text
+        signal clicked()
+        implicitHeight: Math.max(40, lbl.implicitHeight + 2 * Theme.spacing.medium)
+        implicitWidth: lbl.implicitWidth + 2 * Theme.spacing.large
+        radius: height / 2
+        color: ma.pressed ? Theme.palette.errorPressed : (ma.containsMouse ? Theme.palette.errorHover : Theme.palette.error)
+        LogosText { id: lbl; anchors.centerIn: parent; color: "#FFFFFF"; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
+        MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: db.clicked() }
+    }
+
     QQC.ScrollView {
         anchors.fill: parent; contentWidth: availableWidth
         ColumnLayout {
             width: root.width
-            Layout.margins: Theme.spacing.xlarge
+            ColumnLayout {
+            Layout.fillWidth: true
+            Layout.margins: Theme.spacing.xlarge     // side/top margins matching the dashboard (Layout.margins only applies inside a layout)
             spacing: Theme.spacing.large
 
             // NODE
@@ -122,12 +137,30 @@ Item {
                 LogosText { text: qsTr("These actions cannot be undone."); color: Theme.palette.error; font.pixelSize: Theme.typography.secondaryText }
                 RowLayout {
                     Layout.fillWidth: true; spacing: Theme.spacing.medium
-                    LogosButton { text: qsTr("Reset chain state") }
-                    LogosButton { text: qsTr("Regenerate keys") }
+                    DangerButton { text: qsTr("Reset chain state"); onClicked: resetDlg.open() }
+                    DangerButton { text: qsTr("Regenerate keys"); onClicked: regenDlg.open() }
                     Item { Layout.fillWidth: true }
                 }
             }
             Item { Layout.preferredHeight: Theme.spacing.large }
+            }
         }
+    }
+
+    LogosWarningDialog {
+        id: resetDlg
+        anchors.centerIn: parent; modal: true; width: 460
+        title: qsTr("Reset chain state?")
+        message: qsTr("This deletes the node's local chain data and re-syncs from genesis. It can take a while and cannot be undone.")
+        leftActions: [ LogosButton { text: qsTr("Cancel"); onClicked: resetDlg.close() } ]
+        rightActions: [ DangerButton { text: qsTr("Reset"); onClicked: resetDlg.close() } ]
+    }
+    LogosWarningDialog {
+        id: regenDlg
+        anchors.centerIn: parent; modal: true; width: 460
+        title: qsTr("Regenerate keys?")
+        message: qsTr("This creates a new node identity and Peer ID. Any stake, rewards or reputation tied to the current keys will no longer be reachable. Back up your keys first. This cannot be undone.")
+        leftActions: [ LogosButton { text: qsTr("Cancel"); onClicked: regenDlg.close() } ]
+        rightActions: [ DangerButton { text: qsTr("Regenerate"); onClicked: regenDlg.close() } ]
     }
 }
