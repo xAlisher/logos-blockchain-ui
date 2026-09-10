@@ -187,79 +187,73 @@ Item {
         || (status === BlockchainBackend.Running && sync.synced && empoweringActive && !funded) // → Funded (mining)
         || _lifeReached === 2                                                                   // → Aged (aging)
 
+    // Chevron/pipeline lane. green = LIVE (the one accented segment); done = gray
+    // segment + green check; transitioning = the live segment goes yellow (animated
+    // fill pulse); future = darkest segments.
     component Lifecycle: Item {
+        id: lane
         property var steps: []
-        property int reached: -1               // furthest reached node index (-1 = none)
-        property bool transitioning: false     // yellow in-progress stub after the frontier
-        property real flow: 0                  // 0→1 loop; sweeps the in-progress pulse toward the next stage
-        implicitHeight: 54
+        property int reached: -1
+        property bool transitioning: false
+        property real flow: 0
+        implicitHeight: 30
         readonly property int n: steps.length
-        readonly property real padX: width * 0.10      // 80% span, centered — breathing room to the card edges
-        readonly property real cy: height / 2          // lane centered in the block; labels hang below (ignored for centering)
-        function xOf(i) { return n <= 1 ? width / 2 : padX + i * ((width - 2 * padX) / (n - 1)) }
+        readonly property real gap: 4
+        readonly property real notch: height * 0.45
+        function segX0(i) { return i * (width / n) }
+        function segX1(i) { return (i + 1) * (width / n) - gap }
+        function segCenter(i) { return (segX0(i) + segX1(i)) / 2 }
         onReachedChanged: cv.requestPaint()
         onTransitioningChanged: cv.requestPaint()
         onWidthChanged: cv.requestPaint()
         onFlowChanged: cv.requestPaint()
         Component.onCompleted: cv.requestPaint()
-        // animate the in-progress pulse only while transitioning (respect reduced-motion off = static)
-        NumberAnimation on flow { running: transitioning; from: 0; to: 1; duration: 1500; loops: Animation.Infinite }
+        NumberAnimation on flow { running: lane.transitioning; from: 0; to: 1; duration: 1500; loops: Animation.Infinite }
         Canvas {
             id: cv; anchors.fill: parent
             onAvailableChanged: if (available) requestPaint()
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
-                // green is reserved for the LIVE stage (the frontier). Completed stages
-                // are neutral (gray checkmarks + gray trail); future is faint. This keeps
-                // green meaningful instead of a wall of green across the whole lane.
                 var green = Theme.palette.success, yellow = Theme.palette.warning
-                var track = Theme.palette.borderTertiary, done = Theme.palette.textTertiary
-                ctx.lineCap = "round"; ctx.lineJoin = "round"
-                // segments (thin): faint future track · solid gray completed trail · animated yellow live transition
-                for (var s = 0; s < n - 1; s++) {
-                    var x0 = xOf(s), x1 = xOf(s + 1)
-                    ctx.globalAlpha = 0.35; ctx.strokeStyle = track; ctx.lineWidth = 2
-                    ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
-                    ctx.globalAlpha = 1
-                    if (s + 1 <= reached) {
-                        ctx.strokeStyle = done; ctx.lineWidth = 2
-                        ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
-                    } else if (s === reached && transitioning) {
-                        var span = (x1 - x0) * 0.5
-                        ctx.strokeStyle = yellow
-                        ctx.globalAlpha = 0.35; ctx.lineWidth = 3
-                        ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x0 + span, cy); ctx.stroke()
-                        var pc = span * flow, half = 9
-                        ctx.globalAlpha = 1; ctx.lineWidth = 3.5
-                        ctx.beginPath(); ctx.moveTo(x0 + Math.max(0, pc - half), cy); ctx.lineTo(x0 + Math.min(span, pc + half), cy); ctx.stroke()
-                        ctx.globalAlpha = 1
-                    }
-                }
-                // nodes: done = gray checkmark · frontier = the ONLY green (live), yellow while transitioning · future = faint dot
+                var h = height
                 for (var i = 0; i < n; i++) {
-                    var x = xOf(i)
-                    if (reached >= 0 && i < reached) {
-                        // done = green check on a grey disc (roomy: disc r10, check inset)
-                        ctx.fillStyle = Theme.palette.textMuted; ctx.beginPath(); ctx.arc(x, cy, 10, 0, Math.PI * 2); ctx.fill()
-                        ctx.strokeStyle = green; ctx.lineWidth = 2.2
-                        ctx.beginPath(); ctx.moveTo(x - 4, cy + 0.5); ctx.lineTo(x - 1, cy + 4); ctx.lineTo(x + 5, cy - 4); ctx.stroke()
-                    } else if (reached >= 0 && i === reached) {
-                        ctx.fillStyle = Theme.palette.surfaceRaised; ctx.beginPath(); ctx.arc(x, cy, 10, 0, Math.PI * 2); ctx.fill()
-                        ctx.strokeStyle = transitioning ? yellow : green; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.arc(x, cy, 10, 0, Math.PI * 2); ctx.stroke()
-                    } else {
-                        ctx.globalAlpha = 0.5; ctx.fillStyle = track; ctx.beginPath(); ctx.arc(x, cy, 4, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1
-                    }
+                    var x0 = lane.segX0(i), x1 = lane.segX1(i)
+                    var first = (i === 0), last = (i === n - 1)
+                    var isDone = (reached >= 0 && i < reached), isLive = (reached >= 0 && i === reached)
+                    var fill
+                    if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
+                    else if (isLive) fill = Qt.rgba(green.r, green.g, green.b, 0.20)
+                    else if (isDone) fill = Theme.palette.surface
+                    else fill = Theme.palette.surfaceRecessed
+                    ctx.beginPath()
+                    ctx.moveTo(x0, 0)
+                    if (last) { ctx.lineTo(x1, 0); ctx.lineTo(x1, h) }
+                    else { ctx.lineTo(x1 - notch, 0); ctx.lineTo(x1, h / 2); ctx.lineTo(x1 - notch, h) }
+                    ctx.lineTo(x0, h)
+                    if (!first) ctx.lineTo(x0 + notch, h / 2)   // concave notch to seat the previous chevron's point
+                    ctx.closePath()
+                    ctx.fillStyle = fill; ctx.fill()
                 }
             }
         }
+        // per-segment label (+ green check for done), centered in the chevron
         Repeater {
-            model: steps
-            LogosText {
+            model: lane.steps
+            Row {
                 required property int index
                 required property string modelData
-                text: modelData; font.pixelSize: 12
-                color: Theme.palette.textSecondary     // uniform — labels are not state-colored
-                x: xOf(index) - width / 2; y: cy + 12
+                readonly property bool _done: lane.reached >= 0 && index < lane.reached
+                readonly property bool _live: lane.reached >= 0 && index === lane.reached
+                spacing: 4
+                x: lane.segCenter(index) - width / 2 + (lane.n > 1 && index < lane.n - 1 ? lane.notch / 2 : 0)
+                y: (lane.height - height) / 2
+                LogosText { visible: parent._done; text: "✓"; color: Theme.palette.success; font.pixelSize: 12; font.weight: Theme.typography.weightBold; anchors.verticalCenter: parent.verticalCenter }
+                LogosText {
+                    text: parent.modelData; font.pixelSize: 12
+                    color: parent._live ? (lane.transitioning ? Theme.palette.warning : Theme.palette.success)
+                          : parent._done ? Theme.palette.textSecondary : Theme.palette.textTertiary
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
     }
@@ -299,7 +293,7 @@ Item {
         readonly property int _vsize: hero ? 32 : 24
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
-        implicitHeight: showLane ? 176 : (hero ? 124 : 108)
+        implicitHeight: showLane ? 148 : (hero ? 124 : 108)
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true

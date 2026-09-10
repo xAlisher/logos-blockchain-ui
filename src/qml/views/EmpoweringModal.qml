@@ -9,7 +9,7 @@ import Logos.Controls
 // and resuming if it drops below. Naming (Empowering / Mine tokens) is TBD.
 LogosDialog {
     id: root
-    title: qsTr("Start Empowering")
+    title: qsTr("Fund")
     modal: true
     anchors.centerIn: parent
     width: 420
