@@ -154,7 +154,7 @@ Item {
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _proposedSub: validation === "active" ? qsTr("Validation active")
-                                : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Validation inactive, %1 more epoch to activate").arg(epochsToActivate) : qsTr("Validation inactive"))
+                                : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
                                 : ""
 
     // Node lifecycle — HONEST: a stage only counts as reached when we can truly
