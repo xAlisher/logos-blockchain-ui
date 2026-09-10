@@ -13,6 +13,8 @@ Item {
     id: root
     implicitWidth: 1040
     implicitHeight: 760
+    readonly property int _minCard: 210     // min card width; cards wrap to next line below this
+    readonly property int _heroMin: 340
 
     // ── WIRED (real backend, fed by BlockchainView) ──
     property int status: -1                                  // backend.status (-1 = not connected)
@@ -238,24 +240,24 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true; Layout.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
                 GridLayout {
-                    Layout.fillWidth: true; columns: 2; columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
+                    Layout.fillWidth: true; columns: Math.max(1, Math.min(2, Math.floor(width / (root._heroMin + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Status"); value: root._st.label; sub: root._st.sub; accent: root._st.c; tint: root._st.c; copyable: root._st.copy; dots: root._st.d }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; hero: true; label: qsTr("Blend"); value: root._blend.label; sub: root.epoch !== "—" ? qsTr("Epoch ") + root.epoch : ""; accent: root._blend.c; tint: root._blend.c; copyable: root.epoch !== "—" }
                 }
                 GridLayout {
-                    Layout.fillWidth: true; columns: 4; columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Proposed in epoch"); value: root.proposed; sub: root._proposedSub }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Peers"); value: root.peers; sub: root.connections }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Empowering"); value: root.empowering; sub: root.empoweringAmount }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Slot"); value: root.slot }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("Height"); value: root.heightStr }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("LiB"); value: root.lib }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; label: qsTr("TiP"); value: root.tip }
+                    Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0 }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : "" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in epoch"); value: root.proposed; sub: root._proposedSub }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; sub: root.foundingAddr; copyable: root.peerIdShort !== "—" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Empowering"); value: root.empowering; sub: root.empoweringAmount }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip }
                 }
             }
             // real blocks table (was the separate bottom BlocksView; folded in here) — #68
