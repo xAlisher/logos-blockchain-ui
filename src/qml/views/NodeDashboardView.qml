@@ -191,6 +191,7 @@ Item {
         property var steps: []
         property int reached: -1               // furthest reached node index (-1 = none)
         property bool transitioning: false     // yellow in-progress stub after the frontier
+        property real flow: 0                  // 0→1 loop; sweeps the in-progress pulse toward the next stage
         implicitHeight: 54
         readonly property int n: steps.length
         readonly property real padX: width * 0.10      // 80% span, centered — breathing room to the card edges
@@ -199,7 +200,10 @@ Item {
         onReachedChanged: cv.requestPaint()
         onTransitioningChanged: cv.requestPaint()
         onWidthChanged: cv.requestPaint()
+        onFlowChanged: cv.requestPaint()
         Component.onCompleted: cv.requestPaint()
+        // animate the in-progress pulse only while transitioning (respect reduced-motion off = static)
+        NumberAnimation on flow { running: transitioning; from: 0; to: 1; duration: 1500; loops: Animation.Infinite }
         Canvas {
             id: cv; anchors.fill: parent
             onAvailableChanged: if (available) requestPaint()
@@ -216,8 +220,15 @@ Item {
                         ctx.strokeStyle = green; ctx.lineWidth = 3
                         ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); ctx.stroke()
                     } else if (s === reached && transitioning) {
-                        ctx.strokeStyle = yellow; ctx.lineWidth = 3
-                        ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x0 + (x1 - x0) * 0.45, cy); ctx.stroke()
+                        // in-progress: faint yellow base stub + a bright pulse sweeping frontier → next
+                        var span = (x1 - x0) * 0.5
+                        ctx.strokeStyle = yellow
+                        ctx.globalAlpha = 0.35; ctx.lineWidth = 3
+                        ctx.beginPath(); ctx.moveTo(x0, cy); ctx.lineTo(x0 + span, cy); ctx.stroke()
+                        var pc = span * flow, half = 9
+                        ctx.globalAlpha = 1; ctx.lineWidth = 3.5
+                        ctx.beginPath(); ctx.moveTo(x0 + Math.max(0, pc - half), cy); ctx.lineTo(x0 + Math.min(span, pc + half), cy); ctx.stroke()
+                        ctx.globalAlpha = 1
                     }
                 }
                 // nodes: passed = solid green · frontier = green ring · future = solid gray
