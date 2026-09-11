@@ -49,6 +49,21 @@ Item {
     function _fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }   // thousands with thin spaces
     // Numeric value of a formatted amount ("0 LGO" → 0, "12.5 LGO" → 12.5, "—" → 0).
     function _amt(s) { var m = String(s).match(/-?[0-9][0-9.,]*/); return m ? parseFloat(m[0].replace(/,/g, "")) : 0 }
+    // Width-responsive amount: keep the full number if it fits maxChars, else step up
+    // magnitude (K→M→B→T) to the most precise form that fits. Suffix (e.g. " LGO") kept.
+    function _tierNum(v) { return v >= 100 ? String(Math.round(v)) : (v >= 10 ? v.toFixed(0) : v.toFixed(1)) }
+    function _abbrevFit(s, maxChars) {
+        if (!s || s.length <= maxChars) return s
+        var m = String(s).match(/^\s*(-?\d[\d,]*(?:\.\d+)?)(.*)$/)
+        if (!m) return s                                   // non-numeric → leave (elide handles it)
+        var n = parseFloat(m[1].replace(/,/g, "")); var suf = m[2] || ""
+        if (!isFinite(n)) return s
+        var tiers = [[1, ""], [1e3, "K"], [1e6, "M"], [1e9, "B"], [1e12, "T"]]
+        var cands = []
+        for (var i = 0; i < tiers.length; i++) { var v = n / tiers[i][0]; if (i === 0 || v >= 1) cands.push(_tierNum(v) + tiers[i][1] + suf) }
+        for (var j = 0; j < cands.length; j++) if (cands[j].length <= maxChars) return cands[j]
+        return cands[cands.length - 1]                     // even T doesn't fit → shortest we have
+    }
     readonly property var _info: _parse(infoJson)
     readonly property var _time: _parse(timeInfoJson)
     function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
@@ -213,7 +228,7 @@ Item {
     readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
     // While the node is Aging (funded, not yet eligible to propose — lane stage 2),
     // the Proposed card reflects that dedicated state instead of a bare "—".
-    readonly property string _proposedSub: _lifeReached === 2 ? qsTr("Aging — eligible to propose in ~2 epochs")
+    readonly property string _proposedSub: _lifeReached === 2 ? qsTr("Aging — eligible in ~2 epochs")
                                 : validation === "active" ? qsTr("Validation active")
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
                                 : ""
@@ -396,7 +411,13 @@ Item {
         property var laneSteps: []
         property int laneReached: -1
         property bool laneTransitioning: false
+        property bool abbreviate: false           // width-responsive number abbreviation (e.g. Stake)
         readonly property int _vsize: hero ? 32 : 24
+        // Measure the value font's digit width so the value can abbreviate to fit the card.
+        TextMetrics { id: _chTM; font.pixelSize: blk._vsize; font.weight: Theme.typography.weightBold; text: "0000000000" }
+        readonly property real _chPx: _chTM.advanceWidth > 0 ? _chTM.advanceWidth / 10 : 12
+        readonly property int _valMaxChars: Math.max(6, Math.floor((blk.width - 2 * Theme.spacing.large - (dots ? 34 : 0)) / _chPx))
+        readonly property string _fitValue: abbreviate ? root._abbrevFit(value, _valMaxChars) : value
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: showLane ? 118 : (hero ? 124 : 108)
@@ -411,7 +432,7 @@ Item {
                 Layout.fillWidth: true; spacing: 0
                 LogosText {
                     id: fv
-                    Layout.fillWidth: false; text: value
+                    Layout.fillWidth: false; text: blk._fitValue
                     property color restColor: accent
                     color: restColor                       // binding; flashAnim overrides on change
                     font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight
@@ -491,7 +512,7 @@ Item {
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
