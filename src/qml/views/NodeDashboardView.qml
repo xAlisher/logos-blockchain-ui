@@ -383,6 +383,7 @@ Item {
         property string sub: ""
         property color accent: Theme.palette.text
         property color tint: Theme.palette.surfaceRaised
+        property color subColor: Theme.palette.textTertiary   // sub-line color (overridable, e.g. yellow while Aging)
         property bool copyable: false
         property string copyValue: ""            // if set, the sub row is just a copy button (copies this full value)
         signal copyRequested(string t)
@@ -441,7 +442,7 @@ Item {
                 // merged hero: uptime/countdown pinned to the card's upper-right corner
                 LogosText {
                     visible: showLane && sub.length > 0
-                    text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
+                    text: sub; color: subColor; font.pixelSize: Theme.typography.secondaryText
                     Layout.alignment: Qt.AlignTop
                 }
                 Info { visible: showLane && blk.info != null; Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small; onClicked: blk.infoRequested() }
@@ -449,10 +450,10 @@ Item {
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
                 // normal sub text (hidden when the row is a copy-only button)
-                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
+                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: subColor
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 // short display text alongside a full-value copy (e.g. Stake address)
-                LogosText { visible: copyValue.length > 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
+                LogosText { visible: copyValue.length > 0 && sub.length > 0; text: sub; color: subColor
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 // copy button — copies copyValue (full) or the sub; flashes "Copied" to its right
                 CopyGlyph {
@@ -494,7 +495,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
