@@ -19,6 +19,8 @@ Item {
 
     // ── WIRED (real backend, fed by BlockchainView) ──
     property int status: -1                                  // backend.status (-1 = not connected)
+    property bool autoPaused: false                          // node stopped by a resource-cap breach
+    property string autoPauseReason: ""                      // e.g. "CPU cap of 95%"
     property bool nodeRecovering: false
     property string lastErrorMessage: ""
     property string infoJson: ""                             // get_cryptarchia_info
@@ -220,7 +222,9 @@ Item {
     // ── Status hero → {label, sub, color} ──
     // label = base text (no ellipsis); d = animate a reserved-width "…" (transitional states)
     readonly property var _st:
-        (!nodeConnected)
+        autoPaused
+            ? ({ label: qsTr("Node auto-paused"), sub: qsTr("Node hit %1").arg(autoPauseReason.length ? autoPauseReason : qsTr("a resource cap")), c: Theme.palette.warning, copy: false, d: false })
+      : (!nodeConnected)
             ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })

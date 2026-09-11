@@ -1,4 +1,5 @@
 import QtQuick
+import QtCore
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
@@ -894,26 +895,44 @@ Rectangle {
     // PREVIEW (#81): Settings hardware caps — app-side enforcement. While enabled and
     // the node is Running, the CPU cap is enforced by stopping the node if sampled CPU%
     // stays over the cap. RAM/disk caps are saved; their auto-stop lands next.
-    property bool  _capsEnabled: false
-    property string _cpuCap: "90"
-    property string _ramCap: "90"
-    property string _diskCap: "50"
+    // Persisted across restarts (QtCore.Settings → QSettings). Caps + rewards auto-claim
+    // used to be in-session only and reset on every restart.
+    Settings {
+        id: nodeSettings
+        category: "logos_node_1click"
+        property bool capsEnabled: false
+        property string cpuCap: "90"
+        property string ramCap: "90"
+        property string diskCap: "50"
+        property bool rewardsAutoClaim: true
+    }
     property int   _cpuOverCount: 0
+    property int   _ramOverCount: 0
+    property bool   _autoPaused: false          // node was stopped by a cap breach (not the user)
+    property string _autoPauseReason: ""        // e.g. "CPU cap of 95%"
     function _numOf(s) { var m = String(s).match(/[0-9.]+/); return m ? parseFloat(m[0]) : NaN }
+    function _ramPct(s) { var m = String(s).match(/([0-9.]+)\s*%/); return m ? parseFloat(m[1]) : NaN }  // the "/ N%" part
+    function _autoPause(res, cap) {
+        root._cpuOverCount = 0; root._ramOverCount = 0
+        root._autoPauseReason = res + qsTr(" cap of %1%").arg(Math.round(cap))
+        root._autoPaused = true
+        if (root.backend) root.backend.stopBlockchain()
+    }
     Timer {
+        // Enforce CPU and RAM caps: two consecutive breaches (~6s, so a transient spike
+        // doesn't trip it) → auto-pause the node with a reason the hero surfaces.
         interval: 3000; repeat: true
-        running: root._capsEnabled && root.ready && root.backend
+        running: nodeSettings.capsEnabled && root.ready && root.backend
                  && root.backend.status === BlockchainBackend.Running
         onTriggered: {
-            var cpu = root._numOf(root.backend.cpuUsage)
-            var cap = root._numOf(root._cpuCap)
-            if (!isNaN(cpu) && !isNaN(cap) && cap > 0 && cpu > cap) {
-                root._cpuOverCount += 1
-                // Require 2 consecutive breaches (~6s) so a transient spike doesn't stop the node.
-                if (root._cpuOverCount >= 2) { root._cpuOverCount = 0; root.backend.stopBlockchain() }
-            } else {
-                root._cpuOverCount = 0
-            }
+            var cpu = root._numOf(root.backend.cpuUsage), cpuCap = root._numOf(nodeSettings.cpuCap)
+            if (!isNaN(cpu) && cpuCap > 0 && cpu > cpuCap) {
+                if (++root._cpuOverCount >= 2) { root._autoPause("CPU", cpuCap); return }
+            } else root._cpuOverCount = 0
+            var ram = root._ramPct(root.backend.ramUsage), ramCap = root._numOf(nodeSettings.ramCap)
+            if (!isNaN(ram) && ramCap > 0 && ram > ramCap) {
+                if (++root._ramOverCount >= 2) { root._autoPause("RAM", ramCap); return }
+            } else root._ramOverCount = 0
         }
     }
 
@@ -1421,6 +1440,8 @@ Rectangle {
                 if (!nodeRunning && (operationTabBar.currentIndex === 3
                                      || operationTabBar.currentIndex === 4))
                     operationTabBar.currentIndex = 0
+                // A manual (re)start clears any cap auto-pause.
+                if (nodeRunning) root._autoPaused = false
             }
 
             RowLayout {
@@ -1588,6 +1609,8 @@ Rectangle {
 
                         // --- consensus / status ---
                         status: root.backend ? root.backend.status : -1
+                        autoPaused: root._autoPaused
+                        autoPauseReason: root._autoPauseReason
                         nodeRunning: opPage.nodeRunning
                         nodeRecovering: root.recoveryActive
                         lastErrorMessage: (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
@@ -1636,11 +1659,11 @@ Rectangle {
                         // in /proc by the backend (self-liquidates when the node exposes them).
                         // Cap sub-lines show the configured caps when enforcement is on (Settings).
                         cpu: (root.backend && root.backend.cpuUsage.length) ? root.backend.cpuUsage : "—"
-                        cpuCap: root._capsEnabled && root._cpuCap.length ? qsTr("Cap %1%").arg(root._cpuCap) : ""
+                        cpuCap: nodeSettings.capsEnabled && nodeSettings.cpuCap.length ? qsTr("Cap %1%").arg(nodeSettings.cpuCap) : ""
                         ram: (root.backend && root.backend.ramUsage.length) ? root.backend.ramUsage : "—"
-                        ramCap: root._capsEnabled && root._ramCap.length ? qsTr("Cap %1%").arg(root._ramCap) : ""
+                        ramCap: nodeSettings.capsEnabled && nodeSettings.ramCap.length ? qsTr("Cap %1%").arg(nodeSettings.ramCap) : ""
                         disk: (root.backend && root.backend.diskUsage.length) ? root.backend.diskUsage : "—"
-                        diskCap: root._capsEnabled && root._diskCap.length ? qsTr("Cap %1 GB").arg(root._diskCap) : ""
+                        diskCap: nodeSettings.capsEnabled && nodeSettings.diskCap.length ? qsTr("Cap %1 GB").arg(nodeSettings.diskCap) : ""
                         uptime: ""
 
                         // version footer defaults to Module v<moduleVersion> (0.2.20)
@@ -1786,6 +1809,7 @@ Rectangle {
 
                         LeaderRewardsView {
                             id: leaderRewardsView
+                            autoClaim: nodeSettings.rewardsAutoClaim   // persisted (survives restarts)
                             vouchersJson: root.claimableVouchersJson
                             claimsJson: root.claimsJson
                             proposalsJson: root.proposalsJson
@@ -1956,13 +1980,13 @@ Rectangle {
                         ? nodeConfigPath.replace(/[^\/]*$/, "keystore.yaml") : "—"
                     // real bootstrap peers, rewards state, live CPU/RAM
                     bootstrapPeers: root.defaultBootstrapPeers.join("\n")
-                    rewardsAutoClaim: leaderRewardsView.autoClaim
+                    rewardsAutoClaim: nodeSettings.rewardsAutoClaim
                     cpuUsage: root.backend ? root.backend.cpuUsage : ""
                     ramUsage: root.backend ? root.backend.ramUsage : ""
                     diskUsage: root.backend ? root.backend.diskUsage : ""
                     // hardware caps (session state, enforced by the host watcher)
-                    capsEnabled: root._capsEnabled
-                    cpuCap: root._cpuCap; ramCap: root._ramCap; diskCap: root._diskCap
+                    capsEnabled: nodeSettings.capsEnabled
+                    cpuCap: nodeSettings.cpuCap; ramCap: nodeSettings.ramCap; diskCap: nodeSettings.diskCap
 
                     onCopyText: (text) => root.copyText(text)
                     onResetChainRequested: if (root.backend)
@@ -1972,12 +1996,12 @@ Rectangle {
                     onBackupConfigRequested: if (root.backend)
                         logos.watch(root.backend.backupUserConfig(),
                             function(r){ if (r.success && r.value) root.copyText(r.value) }, function(e){})
-                    onRewardsAutoClaimToggled: (on) => { leaderRewardsView.autoClaim = on }
+                    onRewardsAutoClaimToggled: (on) => { nodeSettings.rewardsAutoClaim = on }
                     onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
                     onChangeConfigRequested: operationTabBar.currentIndex = 0
                     onCapsChanged: (enabled, cpu, ram, disk) => {
-                        root._capsEnabled = enabled
-                        root._cpuCap = cpu; root._ramCap = ram; root._diskCap = disk
+                        nodeSettings.capsEnabled = enabled
+                        nodeSettings.cpuCap = cpu; nodeSettings.ramCap = ram; nodeSettings.diskCap = disk
                     }
                 }
             }
