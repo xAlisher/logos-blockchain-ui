@@ -238,6 +238,7 @@ Item {
         property var steps: []
         property int reached: -1
         property bool transitioning: false
+        property bool stalled: false                   // live stage wedged (no progress) → red, not pulsing
         property real flow: 0
         implicitHeight: 30
         readonly property int n: steps.length
@@ -255,6 +256,7 @@ Item {
         }
         onReachedChanged: cv.requestPaint()
         onTransitioningChanged: cv.requestPaint()
+        onStalledChanged: cv.requestPaint()
         onWidthChanged: cv.requestPaint()
         onFlowChanged: cv.requestPaint()
         Component.onCompleted: cv.requestPaint()
@@ -264,7 +266,7 @@ Item {
             onAvailableChanged: if (available) requestPaint()
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
-                var green = Theme.palette.success, yellow = Theme.palette.warning
+                var green = Theme.palette.success, yellow = Theme.palette.warning, red = Theme.palette.error
                 var h = height, r = 3, dpth = lane.dpth
                 // trace a polygon with rounded corners (arcTo from each edge midpoint)
                 function roundPoly(pts) {
@@ -287,7 +289,8 @@ Item {
                     var isLive = (i === liveIdx && liveIdx >= 0 && liveIdx < n)
                     var isDone = (reached >= 0 && i <= reached && i !== liveIdx)
                     var fill
-                    if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
+                    if (isLive && lane.stalled) fill = Qt.rgba(red.r, red.g, red.b, 0.22)
+                    else if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
                     else if (isLive) fill = Qt.rgba(green.r, green.g, green.b, 0.20)
                     else if (isDone) fill = Theme.palette.surface
                     else fill = Theme.palette.surfaceRecessed
@@ -316,11 +319,12 @@ Item {
                 LogosText { visible: parent._done; text: "✓"; color: Theme.palette.success; font.pixelSize: 12; font.weight: Theme.typography.weightBold; anchors.verticalCenter: parent.verticalCenter }
                 LogosText {
                     // a transitioning-live stage shows the in-progress verb (Online→Syncing…, Aged→Aging)
-                    text: (parent._live && lane.transitioning && index === 1) ? qsTr("Syncing…")
+                    text: (parent._live && lane.stalled && index === 1) ? qsTr("Stalled")
+                        : (parent._live && lane.transitioning && index === 1) ? qsTr("Syncing…")
                         : (parent._live && lane.transitioning && index === 3) ? qsTr("Aging")
                         : parent.modelData
                     font.pixelSize: 12
-                    color: parent._live ? (lane.transitioning ? Theme.palette.warning : Theme.palette.success)
+                    color: parent._live ? (lane.stalled ? Theme.palette.error : (lane.transitioning ? Theme.palette.warning : Theme.palette.success))
                           : parent._done ? Theme.palette.textSecondary : Theme.palette.textTertiary
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -447,6 +451,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacing.large    // equal gap to the value line, matching the card padding
                 steps: laneSteps; reached: laneReached; transitioning: laneTransitioning
+                stalled: root.nodeStalled
             }
         }
     }
