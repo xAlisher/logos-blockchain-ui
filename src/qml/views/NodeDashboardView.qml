@@ -219,7 +219,7 @@ Item {
       : (status === BlockchainBackend.Running && !sync.synced)
             ? ({ label: qsTr("Bootstrapping"), sub: (_bootTotal - _bootSecs > 0) ? ("~" + _fmtSecs(_bootTotal - _bootSecs)) : qsTr("Takes a bit longer."), c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Running
-            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
+            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Following the chain")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
