@@ -6,13 +6,13 @@
 var data = {
     status: {
         title: "Status",
-        what: "The node's current lifecycle state — off, starting, catching up, or fully online and validating. The dashboard's headline.",
+        what: "The node's current lifecycle state — off, starting, catching up, or fully online and following the chain. The dashboard's headline.",
         calc: "From the backend status enum (NotStarted / Starting / Running / Stopping / Stopped / Error). 'Online' vs 'Bootstrapping' is decided client-side: the node is synced when it reports mode Online and its tip is within ~3 slots of the network head. The bootstrapping countdown is a client-side ~60:00 timer, not a backend progress field.",
         states: [
             { label: "Not started", meaning: "Node is off / idle." },
             { label: "Starting", meaning: "Launching and checking configuration." },
             { label: "Bootstrapping", meaning: "Running but the chain is behind the head; shows a rough countdown." },
-            { label: "Online", meaning: "Running and synced — validating." },
+            { label: "Online", meaning: "Running and synced, following the chain." },
             { label: "Error", meaning: "The node reported an error (message shown)." }
         ],
         docs: "https://docs.logos.co/blockchain/get-started/run-a-logos-blockchain-node-from-basecamp"

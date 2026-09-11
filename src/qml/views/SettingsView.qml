@@ -20,6 +20,7 @@ Item {
     property bool miningAutoClaim: true
 
     signal copyText(string t)
+    signal keysBackedUp()          // Download keystore.yaml → host clears the "back up your keys" banner
 
     // ---- reusable rows ----
     component Card: LogosFrame {
@@ -40,7 +41,6 @@ Item {
         LogosText { text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90 }
         LogosText { text: path; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideMiddle; Layout.fillWidth: true }
         LogosButton { text: qsTr("Change") }
-        LogosButton { text: qsTr("Backup") }   // → <file>_backup_<date>.zip in the same folder
     }
     component SwitchRow: RowLayout {
         property string label: ""
@@ -98,6 +98,17 @@ Item {
                     Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
                     LogosButton { text: qsTr("Apply"); variant: LogosButton.Variant.Primary }   // restarts the node
                     LogosText { text: qsTr("Applying restarts the node."); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter; Layout.leftMargin: Theme.spacing.small }
+                    Item { Layout.fillWidth: true }
+                }
+            }
+
+            // BACK UP YOUR KEYS
+            Card {
+                heading: qsTr("Back up your keys")
+                LogosText { text: qsTr("Your keystore holds the keys that control this node's identity, stake, and rewards. There is no way to recover them if lost. Download and store the file somewhere safe."); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                RowLayout {
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.medium
+                    LogosButton { text: qsTr("Download keystore.yaml"); variant: LogosButton.Variant.Primary; onClicked: root.keysBackedUp() }
                     Item { Layout.fillWidth: true }
                 }
             }

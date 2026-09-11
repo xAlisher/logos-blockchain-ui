@@ -27,4 +27,4 @@ export QML_IMPORT_PATH="$DS_DIR/src/qml:$HERE/mock:$QTD/lib/qt-6/qml"
 export QT_PLUGIN_PATH="$QTD/lib/qt-6/plugins:$QTSVG/lib/qt-6/plugins"
 export QT_QUICK_BACKEND=software     # software rasterizer — no GPU needed
 
-exec "$QTD/bin/qml" "$HERE/proto-studio.qml"
+exec "$QTD/bin/qml" "$HERE/proto-studio.qml" "$@"

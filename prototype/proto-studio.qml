@@ -17,6 +17,9 @@ Window {
     color: Theme.palette.background
     title: "Blockchain Node — Prototype Studio"
 
+    property bool _onboarding: false      // onboarding flow overlay (launched from the control panel)
+    property bool _keysBackedUp: false    // false ⇒ show the "back up your keys" banner (Quick start leaves it false)
+
     // number formatting helpers
     function fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }
     function fmtHMS(s) { var t = Math.floor(s); var h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), ss = t % 60; function p(x) { return x < 10 ? "0" + x : x } return h + ":" + p(m) + ":" + p(ss) }
@@ -195,7 +198,19 @@ Window {
     readonly property bool _grabMode: Qt.application.arguments.indexOf("--grab") >= 0
     readonly property int _grabScenario: { var i = Qt.application.arguments.indexOf("--scenario"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? parseInt(Qt.application.arguments[i + 1]) : 4 }
     readonly property int _grabTab: { var i = Qt.application.arguments.indexOf("--tab"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? parseInt(Qt.application.arguments[i + 1]) : 0 }
-    Component.onCompleted: { win._reset(win.scenarios[_grabMode ? _grabScenario : 3].val); if (_grabMode) studioTabs.currentIndex = _grabTab }
+    readonly property bool _grabOnboarding: Qt.application.arguments.indexOf("--onboarding") >= 0
+    readonly property int _grabObStep: { var i = Qt.application.arguments.indexOf("--ob-step"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? parseInt(Qt.application.arguments[i + 1]) : -1 }
+    Component.onCompleted: {
+        win._reset(win.scenarios[_grabMode ? _grabScenario : 3].val)
+        if (_grabMode) studioTabs.currentIndex = _grabTab
+        if (_grabOnboarding) {
+            win._onboarding = true
+            if (_grabObStep >= 0) {
+                onboardingFlow.advanced = true; onboardingFlow.step = _grabObStep
+                onboardingFlow.mode = (Qt.application.arguments.indexOf("--ob-existing") >= 0) ? "existing" : "generate"
+            }   // else: landing
+        }
+    }
 
     // ── layout: dashboard (left) + control panel (right) ──────────────────────
     RowLayout {
@@ -203,6 +218,27 @@ Window {
 
         ColumnLayout {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: 0
+
+            // thin "back up your keys" banner — shows while the node is up and keys
+            // aren't backed up yet. Quick start leaves keys unbacked (banner on);
+            // Download in Settings, or backing up during Advanced setup, clears it.
+            Rectangle {
+                Layout.fillWidth: true
+                visible: st.running && !win._keysBackedUp
+                color: Theme.palette.error
+                implicitHeight: bannerRow.implicitHeight + Theme.spacing.small * 2
+                RowLayout {
+                    id: bannerRow
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Theme.spacing.large; anchors.rightMargin: Theme.spacing.large
+                    spacing: Theme.spacing.medium
+                    LogosText {
+                        Layout.fillWidth: true; text: qsTr("Back up your keys. If you lose them, you lose access to this node.")
+                        color: "#FFFFFF"; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium
+                    }
+                    LogosButton { text: qsTr("Back up"); onClicked: studioTabs.currentIndex = 5 }   // → Settings
+                }
+            }
 
             // header (prototype chrome — mirrors BlockchainView's real header)
             RowLayout {
@@ -278,7 +314,7 @@ Window {
                 LogosText { text: qsTr("Rewards — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 LogosText { text: qsTr("Explorer — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 LogosText { text: qsTr("Wallet — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                V.SettingsView { onCopyText: (t) => {} }
+                V.SettingsView { onCopyText: (t) => {}; onKeysBackedUp: win._keysBackedUp = true }
             }
         }
 
@@ -309,6 +345,13 @@ Window {
                         }
                     }
 
+                    // flows (full-screen prototype journeys)
+                    LogosText { text: "FLOWS"; color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold; Layout.leftMargin: Theme.spacing.large }
+                    ColumnLayout {
+                        Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; spacing: Theme.spacing.small
+                        LogosButton { Layout.fillWidth: true; text: "▶ Start onboarding"; variant: LogosButton.Variant.Primary; onClicked: win._onboarding = true }
+                    }
+
                     // live actions
                     LogosText { text: "INTERACTIONS"; color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold; Layout.leftMargin: Theme.spacing.large }
                     ColumnLayout {
@@ -326,6 +369,19 @@ Window {
                     Item { Layout.fillHeight: true }
                 }
             }
+        }
+    }
+
+    // Onboarding prototype — full-window first-run flow, launched from the control panel.
+    // "Start from it": takes over the window; Finish/Exit returns to the studio.
+    Rectangle {
+        anchors.fill: parent; visible: win._onboarding; z: 100
+        color: Theme.palette.background
+        OnboardingProto {
+            id: onboardingFlow
+            anchors.fill: parent
+            onFinished: (keysBackedUp) => { win._onboarding = false; win._keysBackedUp = keysBackedUp; win.playStart() }
+            onExitRequested: win._onboarding = false
         }
     }
 
