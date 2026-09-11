@@ -84,6 +84,20 @@ Item {
     readonly property string _libFull: _field("lib") ? String(_field("lib")) : ""
     readonly property string _tipFull: _field("tip") ? String(_field("tip")) : ""
     readonly property string peerIdShort: (peerId && peerId.length) ? _short(peerId) : "—"
+    // Epoch progress (prototype calc): epoch = floor(slot / epochLen); slot-in-epoch × slot
+    // duration gives elapsed. PREVIEW: epochLen is a testnet-measured const (~36000 slots ≈ 10h)
+    // until the node exposes it — verified consistent (596k/36000 ≈ epoch 16).
+    readonly property int _epochLenSlots: 36000
+    readonly property string _epochSub: {
+        if (!_time || _time.current_slot === undefined || _time.slot_duration_ms === undefined) return ""
+        var dur = Number(_time.slot_duration_ms) / 1000            // seconds per slot
+        if (!(dur > 0)) return ""
+        var inEpoch = Number(_time.current_slot) % _epochLenSlots
+        var elapsedM = Math.floor(inEpoch * dur / 60)
+        var lenH = Math.round(_epochLenSlots * dur / 3600)
+        var h = Math.floor(elapsedM / 60), m = elapsedM % 60
+        return (h > 0 ? h + "h " : "") + m + "m of " + lenH + "h"
+    }
 
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
@@ -522,7 +536,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
