@@ -541,10 +541,24 @@ void LogosNode1clickBackend::sampleNodeResources()
         const QRegularExpression re(QStringLiteral("VmRSS:\\s+(\\d+)\\s+kB"));
         const auto m = re.match(QString::fromLatin1(body));
         if (m.hasMatch()) {
-            const double mb = m.captured(1).toDouble() / 1024.0;
-            setRamUsage(mb >= 1024.0
-                ? QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
-                : QStringLiteral("%1 MB").arg(mb, 0, 'f', 0));
+            const double rssKb = m.captured(1).toDouble();
+            const double mb = rssKb / 1024.0;
+            QString v = mb >= 1024.0 ? QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
+                                     : QStringLiteral("%1 MB").arg(mb, 0, 'f', 0);
+            // Append % of total system RAM (/proc/meminfo MemTotal) → "106 MB / 0.2%".
+            QFile mi(QStringLiteral("/proc/meminfo"));
+            if (mi.open(QIODevice::ReadOnly)) {
+                const QByteArray meminfo = mi.readAll(); mi.close();
+                const auto mt = QRegularExpression(QStringLiteral("MemTotal:\\s+(\\d+)\\s+kB")).match(QString::fromLatin1(meminfo));
+                if (mt.hasMatch()) {
+                    const double totKb = mt.captured(1).toDouble();
+                    if (totKb > 0) {
+                        const double pct = rssKb * 100.0 / totKb;
+                        v += QStringLiteral(" / %1%").arg(pct, 0, 'f', pct < 10 ? 1 : 0);
+                    }
+                }
+            }
+            setRamUsage(v);
         }
     }
 
