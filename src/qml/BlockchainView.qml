@@ -902,14 +902,6 @@ Rectangle {
         if (bs === BlockchainBackend.Core || bs === BlockchainBackend.Broadcast) return "core"
         return "none"
     }
-    // proposalsJson is a JSON array of {id,txs,removed,time} → "<n> Blocks".
-    function _dashProposed(j) {
-        try {
-            var a = JSON.parse(j)
-            if (Array.isArray(a)) return a.length + qsTr(" Blocks")
-            return "—"
-        } catch (e) { return "—" }
-    }
 
     Timer {
         id: cryptarchiaTimer
@@ -1547,8 +1539,11 @@ Rectangle {
                         connections: root.nodeConnections >= 0
                             ? (root.nodeConnections + qsTr(" connections")) : ""
 
-                        // --- proposed / validation (#61) ---
-                        proposed: root._dashProposed(root.proposalsJson)
+                        // PREVIEW: keep "—" (#61). getProposals() returns this node's CUMULATIVE
+                        // log proposals with no per-entry epoch/slot to filter on, so any count here is
+                        // misleading — it showed 500 before sync even finished. Needs a real
+                        // current-epoch proposed count from the node. The full list is the Proposals tab.
+                        proposed: "—"
                         validation: ""
                         epochsToActivate: 0
 
