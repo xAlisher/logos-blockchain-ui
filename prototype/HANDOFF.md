@@ -24,6 +24,24 @@ validating, merged-hero, full-dashboard, settings, stub-animation.gif.
 
 ---
 
+## 1b. Onboarding flow
+
+Launch from the right panel: **FLOWS → ▶ Start onboarding** (or `bash prototype/run.sh --onboarding`).
+
+- **First screen is one click.** Two routes, no wizard chrome: **Quick start** (default testnet config,
+  straight to the node) and **Advanced setup**. Options route on click (no radios).
+- **Steps live only under Advanced:** Setup (generate, or point at an existing config + keystore) ·
+  Network & peers · Back up keys · Fund. Steps are **user actions only** — start / sync / aging are
+  node-driven and belong on the dashboard lifecycle lane, not clicked through in a wizard.
+- **Key-backup is a banner, not a gate.** Quick start lands on the dashboard with a thin red
+  "Back up your keys" banner → **Settings › Back up your keys › Download keystore.yaml**. It clears
+  once keys are backed up, and never shows if they were backed up during Advanced setup.
+- Source: `prototype/OnboardingProto.qml`. Upstream API mapping (what the module/CLI already supports
+  vs what the UI must add — keystore backup and `participate` are UI-absent today):
+  `prototype/onboarding-map.md`.
+
+---
+
 ## 2. Dashboard layout
 
 - **Node hero (full width):** status value as the headline (no "Status" label), uptime/countdown in
