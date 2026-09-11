@@ -29,6 +29,7 @@
 #include <QVariant>
 
 #include <algorithm>
+#include <unistd.h>   // sysconf(_SC_CLK_TCK) for /proc CPU sampling (PREVIEW #65/#66)
 
 const QString LogosNode1clickBackend::BLOCKCHAIN_MODULE_NAME =
     QStringLiteral("blockchain_module");
@@ -483,6 +484,91 @@ LogosNode1clickBackend::LogosNode1clickBackend(QObject* parent)
             .setValue("deploymentConfigPath", deploymentConfig());
     });
 
+    // PREVIEW (#65/#66): sample the blockchain_module process for CPU%/RAM while the
+    // node runs. Self-liquidates when the node exposes resource stats over the API.
+    m_resourceTimer = new QTimer(this);
+    m_resourceTimer->setInterval(2000);
+    connect(m_resourceTimer, &QTimer::timeout, this, [this]() { sampleNodeResources(); });
+    m_resourceTimer->start();
+}
+
+// PREVIEW (#65/#66): locate the sibling blockchain_module host process by scanning
+// /proc for a cmdline containing "--name blockchain_module". Cached; re-scanned when
+// the cached pid disappears. Linux-only (returns -1 elsewhere → tiles show "—").
+qint64 LogosNode1clickBackend::findBlockchainModulePid() const
+{
+    if (m_nodePid > 0 && QFile::exists(QStringLiteral("/proc/%1/cmdline").arg(m_nodePid)))
+        return m_nodePid;
+    QDir proc(QStringLiteral("/proc"));
+    const QStringList pids = proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString& entry : pids) {
+        bool ok = false;
+        const qint64 pid = entry.toLongLong(&ok);
+        if (!ok || pid <= 0) continue;
+        QFile f(QStringLiteral("/proc/%1/cmdline").arg(pid));
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        QByteArray cmd = f.readAll();
+        f.close();
+        if (cmd.contains("blockchain_module") && cmd.contains("--name"))
+            return pid;
+    }
+    return -1;
+}
+
+// PREVIEW (#65/#66): compute CPU% (delta of utime+stime over the sample interval)
+// and RSS from /proc/<pid>/{stat,status}. Empty strings when the node isn't running
+// or /proc is unavailable → the tiles fall back to "—". Self-liquidates when the
+// node exposes resource stats over its API.
+void LogosNode1clickBackend::sampleNodeResources()
+{
+    if (status() != Running) {
+        m_nodePid = -1; m_prevCpuTicks = 0; m_prevSampleMs = 0;
+        if (!cpuUsage().isEmpty()) setCpuUsage(QString());
+        if (!ramUsage().isEmpty()) setRamUsage(QString());
+        return;
+    }
+    const qint64 pid = findBlockchainModulePid();
+    if (pid <= 0) { setCpuUsage(QString()); setRamUsage(QString()); return; }
+    m_nodePid = pid;
+
+    // RSS from /proc/<pid>/status (VmRSS: N kB).
+    QFile stt(QStringLiteral("/proc/%1/status").arg(pid));
+    if (stt.open(QIODevice::ReadOnly)) {
+        const QByteArray body = stt.readAll();
+        stt.close();
+        const QRegularExpression re(QStringLiteral("VmRSS:\\s+(\\d+)\\s+kB"));
+        const auto m = re.match(QString::fromLatin1(body));
+        if (m.hasMatch()) {
+            const double mb = m.captured(1).toDouble() / 1024.0;
+            setRamUsage(mb >= 1024.0
+                ? QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
+                : QStringLiteral("%1 MB").arg(mb, 0, 'f', 0));
+        }
+    }
+
+    // CPU% from /proc/<pid>/stat fields 14 (utime) + 15 (stime), in clock ticks.
+    QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
+    if (!stat.open(QIODevice::ReadOnly)) return;
+    const QByteArray line = stat.readAll();
+    stat.close();
+    // The comm field (2nd) may contain spaces/parens — parse after the trailing ')'.
+    const int rp = line.lastIndexOf(')');
+    if (rp < 0) return;
+    const QList<QByteArray> f = line.mid(rp + 2).split(' ');
+    // After ')' the next field is #3 (state); utime is #14 → index 11, stime #15 → index 12.
+    if (f.size() < 13) return;
+    const unsigned long long ticks = f.at(11).toULongLong() + f.at(12).toULongLong();
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    if (m_prevSampleMs > 0 && nowMs > m_prevSampleMs && ticks >= m_prevCpuTicks) {
+        const double clk = (double) sysconf(_SC_CLK_TCK);
+        const double elapsedSec = (nowMs - m_prevSampleMs) / 1000.0;
+        const double busySec = (ticks - m_prevCpuTicks) / (clk > 0 ? clk : 100.0);
+        double pct = elapsedSec > 0 ? (busySec / elapsedSec) * 100.0 : 0.0;
+        if (pct < 0) pct = 0;
+        setCpuUsage(QStringLiteral("%1%").arg(pct, 0, 'f', pct >= 10 ? 0 : 1));
+    }
+    m_prevCpuTicks = ticks;
+    m_prevSampleMs = nowMs;
 }
 
 // Universal ui_qml lifecycle hook (interface: universal). modules() is live here;
@@ -2446,6 +2532,58 @@ QVariantMap LogosNode1clickBackend::resetChainState()
     setStatus(NotStarted);
     return result::toVariantMap(
         LogosResult{true, QVariant(removed.join(", ")), QVariant()});
+}
+
+// PREVIEW (#81): copy the node config (and keystore, if present) beside itself with a
+// timestamp. A real workaround for the Settings "Back up config" action until the node
+// offers one. Returns the backup path in `value`.
+QVariantMap LogosNode1clickBackend::backupUserConfig()
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("No config loaded — nothing to back up.")));
+    QFileInfo fi(cfg);
+    if (!fi.exists())
+        return result::toVariantMap(result::err(QStringLiteral("Config file not found: %1").arg(cfg)));
+    const QString ts = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QDir dir = fi.absoluteDir();
+    QStringList made;
+    const QStringList names{fi.fileName(), QStringLiteral("keystore.yaml")};
+    for (const QString& name : names) {
+        const QString src = dir.filePath(name);
+        if (!QFile::exists(src)) continue;
+        QFileInfo sfi(name);
+        const QString suffix = sfi.suffix().isEmpty() ? QStringLiteral("bak") : sfi.suffix();
+        const QString dst = dir.filePath(QStringLiteral("%1_backup_%2.%3").arg(sfi.completeBaseName(), ts, suffix));
+        if (QFile::copy(src, dst)) made.append(QFileInfo(dst).fileName());
+    }
+    if (made.isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("Backup failed (nothing copied).")));
+    return result::toVariantMap(LogosResult{true, QVariant(dir.filePath(made.first())), QVariant()});
+}
+
+// PREVIEW (#81): back up then remove the keystore so the node mints a fresh identity on
+// the next start. The backup keeps the old identity recoverable. A workaround for the
+// Settings "Regenerate keys" action until the node exposes a safe key-rotation API.
+QVariantMap LogosNode1clickBackend::regenerateNodeKeys()
+{
+    if (status() == Running || status() == Starting || status() == Stopping)
+        return result::toVariantMap(result::err(QStringLiteral("Stop the node before regenerating keys.")));
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("No config loaded.")));
+    const QDir dir = QFileInfo(cfg).absoluteDir();
+    const QString keystore = dir.filePath(QStringLiteral("keystore.yaml"));
+    if (!QFile::exists(keystore))
+        return result::toVariantMap(result::err(QStringLiteral("No keystore found to regenerate.")));
+    const QString ts = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QString backup = dir.filePath(QStringLiteral("keystore_backup_%1.yaml").arg(ts));
+    if (!QFile::copy(keystore, backup))
+        return result::toVariantMap(result::err(QStringLiteral("Could not back up the keystore — aborting.")));
+    if (!QFile::remove(keystore))
+        return result::toVariantMap(result::err(QStringLiteral("Backed up but could not remove the old keystore.")));
+    setStatus(NotStarted);
+    return result::toVariantMap(LogosResult{true, QVariant(backup), QVariant()});
 }
 
 void LogosNode1clickBackend::copyToClipboard(QString text)

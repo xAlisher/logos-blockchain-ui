@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -86,6 +87,9 @@ public slots:
                                     QString optionalTipHex) override;
     void clearBlocks() override;
     QVariantMap resetChainState() override;
+    // PREVIEW (#81) config/key management workarounds (app-side file ops).
+    QVariantMap backupUserConfig() override;
+    QVariantMap regenerateNodeKeys() override;
     void copyToClipboard(QString text) override;
     // Recompute the Blend status (blendStatus + lastBlendEvent) from the node
     // state, the blend::service log, and the live /blend/info. Driven by the
@@ -148,6 +152,16 @@ private:
     // (input note − change output) can be resolved exactly. The block carries
     // only the input's id, never its value.
     void rememberNoteValues(const QString& notesJson);
+
+    // PREVIEW resource sampling (#65/#66): find the blockchain_module process and
+    // sample /proc for CPU%/RSS while the node runs. Self-liquidates when the node
+    // exposes resource stats over the API.
+    QTimer* m_resourceTimer = nullptr;
+    qint64 m_nodePid = -1;
+    unsigned long long m_prevCpuTicks = 0;
+    qint64 m_prevSampleMs = 0;
+    qint64 findBlockchainModulePid() const;
+    void sampleNodeResources();
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;

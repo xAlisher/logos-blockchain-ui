@@ -4,22 +4,38 @@ import QtQuick.Controls as QQC
 import Logos.Theme
 import Logos.Controls
 
-// Settings — prototype. Node/Dev/Keys config (change · backup · apply=restart),
-// bootstrap nodes, rewards/mining auto-claim, hardware caps, destructive actions.
-// Mock local state; real wiring (file dialogs, zip backup, restart, backend
-// toggles) lands later. Backup creates <filename>_backup_<date>.zip beside the file.
+// Settings — community preview. Every value here is fed from the live backend by the
+// host (BlockchainView); nothing is mocked. Actions the 0.2.4 node has no direct API
+// for are implemented as self-liquidating WORKAROUNDS (marked PREVIEW in the host):
+//   • bootstrap peers  → generateConfig(edited peers) + restart
+//   • hardware caps     → app-side enforcement using /proc CPU/RAM sampling
+//   • config backup     → backend copies the file next to itself
+// They graduate to the node's own API as it lands.
 Item {
     id: root
 
-    // mock state (would be fed from / written to config + backend)
-    property string nodeConfigPath: "~/.logos/node/config.yaml"
-    property string devConfigPath: "~/.logos/node/deployment.yaml"
-    property string keysConfigPath: "~/.logos/node/keys.json"
-    property string bootstrapIps: "104.21.5.11:3000\n172.67.190.44:3000"
-    property bool rewardsAutoClaim: true
+    // Live backend state (fed by the host).
+    property string nodeConfigPath: "—"
+    property string devConfigPath: "—"
+    property string keysConfigPath: "—"
+    property string bootstrapPeers: ""           // real initial peers, one per line
+    property bool rewardsAutoClaim: false
+    property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
+    property string ramUsage: ""
+    // Persisted caps (host-backed); enforcement runs app-side in the host.
+    property string cpuCap: "80"
+    property string ramCap: "80"
+    property string diskCap: "50"
+    property bool capsEnabled: false
 
     signal copyText(string t)
-    signal resetChainRequested()      // wired to backend.resetChainState() by the host
+    signal resetChainRequested()
+    signal regenerateKeysRequested()
+    signal rewardsAutoClaimToggled(bool on)
+    signal applyBootstrapPeers(string peersText)   // host: generateConfig + restart
+    signal changeConfigRequested()                 // host: open the config setup screen
+    signal backupConfigRequested()                 // host: copy the node config beside itself
+    signal capsChanged(bool enabled, string cpu, string ram, string disk)
 
     // ---- reusable rows ----
     component Card: LogosFrame {
@@ -39,34 +55,37 @@ Item {
         Layout.fillWidth: true; spacing: Theme.spacing.medium
         LogosText { text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90 }
         LogosText { text: path; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideMiddle; Layout.fillWidth: true }
-        LogosButton { text: qsTr("Change") }
-        LogosButton { text: qsTr("Backup") }   // → <file>_backup_<date>.zip in the same folder
+        LogosButton { text: qsTr("Copy"); enabled: path.length > 0 && path !== "—"; onClicked: root.copyText(path) }
     }
     component SwitchRow: RowLayout {
         property string label: ""
         property string desc: ""
         property alias checked: sw.checked
+        signal userToggled(bool on)
         Layout.fillWidth: true; spacing: Theme.spacing.medium
         ColumnLayout {
             Layout.fillWidth: true; spacing: 2
             LogosText { text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText }
             LogosText { visible: desc.length > 0; text: desc; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         }
-        LogosSwitch { id: sw; Layout.alignment: Qt.AlignVCenter }
+        LogosSwitch { id: sw; Layout.alignment: Qt.AlignVCenter
+            onCheckedChanged: if (checked !== root.rewardsAutoClaim) parent.userToggled(checked) }
     }
+    // A cap row: label · current live usage · editable cap · unit.
     component CapRow: RowLayout {
         property string label: ""
-        property string valueText: ""
+        property string usage: ""              // live value (real), read-only
+        property alias capValue: cap.text
         property string unit: "%"
         Layout.fillWidth: true; spacing: Theme.spacing.medium
-        LogosText { text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90 }
-        LogosTextField { text: valueText; Layout.preferredWidth: 80; enabled: sw.checked }
-        LogosText { text: unit; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
+        LogosText { text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 80 }
+        LogosText { text: usage.length ? usage : "—"; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90 }
         Item { Layout.fillWidth: true }
-        LogosSwitch { id: sw; Layout.alignment: Qt.AlignVCenter }
+        LogosText { text: qsTr("cap"); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
+        LogosTextField { id: cap; Layout.preferredWidth: 70; enabled: root.capsEnabled }
+        LogosText { text: unit; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
     }
 
-    // red pill with white text (DS LogosButton has no danger variant)
     component DangerButton: Rectangle {
         id: db
         property alias text: lbl.text
@@ -85,7 +104,7 @@ Item {
             width: root.width
             ColumnLayout {
             Layout.fillWidth: true
-            Layout.margins: Theme.spacing.xlarge     // side/top margins matching the dashboard (Layout.margins only applies inside a layout)
+            Layout.margins: Theme.spacing.xlarge
             spacing: Theme.spacing.large
 
             // NODE
@@ -95,9 +114,9 @@ Item {
                 ConfigRow { label: qsTr("Dev config"); path: root.devConfigPath }
                 ConfigRow { label: qsTr("Keys config"); path: root.keysConfigPath }
                 RowLayout {
-                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
-                    LogosButton { text: qsTr("Apply"); variant: LogosButton.Variant.Primary }   // restarts the node
-                    LogosText { text: qsTr("Applying restarts the node."); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter; Layout.leftMargin: Theme.spacing.small }
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.medium
+                    LogosButton { text: qsTr("Change config"); onClicked: root.changeConfigRequested() }
+                    LogosButton { text: qsTr("Back up config"); enabled: root.nodeConfigPath !== "—"; onClicked: root.backupConfigRequested() }
                     Item { Layout.fillWidth: true }
                 }
             }
@@ -105,24 +124,45 @@ Item {
             // BOOTSTRAP NODES
             Card {
                 heading: qsTr("Bootstrap nodes")
-                LogosText { text: qsTr("Peers the node dials on start, one per line (IP:port)."); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                LogosTextArea { text: root.bootstrapIps; Layout.fillWidth: true; Layout.preferredHeight: 96 }
-                RowLayout { Layout.fillWidth: true; LogosButton { text: qsTr("Apply"); variant: LogosButton.Variant.Primary } Item { Layout.fillWidth: true } }
+                LogosText { text: qsTr("Peers the node dials on start (libp2p multiaddrs, one per line). Applying regenerates the config and restarts the node."); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                LogosTextArea { id: peersArea; text: root.bootstrapPeers; Layout.fillWidth: true; Layout.preferredHeight: 120 }
+                RowLayout {
+                    Layout.fillWidth: true; spacing: Theme.spacing.medium
+                    LogosButton { text: qsTr("Apply"); variant: LogosButton.Variant.Primary; onClicked: root.applyBootstrapPeers(peersArea.text) }
+                    LogosButton { text: qsTr("Reset to default"); onClicked: peersArea.text = root.bootstrapPeers }
+                    Item { Layout.fillWidth: true }
+                }
             }
 
-            // REWARDS  (Mining auto-claim dropped — no mining/empowering on the 0.2.4 line, #81)
+            // REWARDS
             Card {
                 heading: qsTr("Rewards")
-                SwitchRow { label: qsTr("Auto-claim leader rewards"); desc: qsTr("Claim proposing rewards automatically in the background."); checked: root.rewardsAutoClaim }
+                SwitchRow {
+                    label: qsTr("Auto-claim leader rewards")
+                    desc: qsTr("Claim proposing rewards automatically in the background.")
+                    checked: root.rewardsAutoClaim
+                    onUserToggled: (on) => root.rewardsAutoClaimToggled(on)
+                }
             }
 
             // HARDWARE
             Card {
                 heading: qsTr("Hardware")
-                CapRow { label: qsTr("CPU cap"); valueText: "80"; unit: "%" }
-                CapRow { label: qsTr("RAM cap"); valueText: "80"; unit: "%" }
-                CapRow { label: qsTr("Disk cap"); valueText: "50"; unit: "GB" }
-                LogosText { text: qsTr("When the CPU or RAM cap is hit, the node stops automatically. When the disk cap is hit, older logs are pruned automatically."); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                SwitchRow {
+                    id: capsSwitch
+                    label: qsTr("Enforce resource caps")
+                    desc: qsTr("Stop the node if it exceeds the CPU or RAM cap; prune old logs at the disk cap. Enforced by the app while it's open.")
+                    checked: root.capsEnabled
+                    onUserToggled: (on) => root.capsChanged(on, cpuRow.capValue, ramRow.capValue, diskRow.capValue)
+                }
+                CapRow { id: cpuRow; label: qsTr("CPU"); usage: root.cpuUsage; capValue: root.cpuCap; unit: "%" }
+                CapRow { id: ramRow; label: qsTr("RAM"); usage: root.ramUsage; capValue: root.ramCap; unit: "%" }
+                CapRow { id: diskRow; label: qsTr("Disk"); usage: ""; capValue: root.diskCap; unit: "GB" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosButton { text: qsTr("Apply caps"); enabled: root.capsEnabled; onClicked: root.capsChanged(true, cpuRow.capValue, ramRow.capValue, diskRow.capValue) }
+                    Item { Layout.fillWidth: true }
+                }
             }
 
             // DESTRUCTIVE
@@ -155,6 +195,6 @@ Item {
         title: qsTr("Regenerate keys?")
         message: qsTr("This creates a new node identity and Peer ID. Any stake, rewards or reputation tied to the current keys will no longer be reachable. Back up your keys first. This cannot be undone.")
         leftActions: [ LogosButton { text: qsTr("Cancel"); onClicked: regenDlg.close() } ]
-        rightActions: [ DangerButton { text: qsTr("Regenerate"); onClicked: regenDlg.close() } ]
+        rightActions: [ DangerButton { text: qsTr("Regenerate"); onClicked: { regenDlg.close(); root.regenerateKeysRequested() } } ]
     }
 }

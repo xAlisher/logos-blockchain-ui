@@ -16,6 +16,11 @@ class BlockchainBackend
     PROP(QString leaderKey READONLY)
     PROP(BlendStatus blendStatus READONLY)
     PROP(QString lastBlendEvent READONLY)
+    // PREVIEW (#65/#66): the node exposes no resource API yet, so the UI backend
+    // samples the blockchain_module process in /proc (Linux). "" when unknown.
+    // Remove when the node returns CPU/RAM itself.
+    PROP(QString cpuUsage READONLY)
+    PROP(QString ramUsage READONLY)
 
     SLOT(void startBlockchain())
     SLOT(void stopBlockchain())
@@ -48,6 +53,12 @@ class BlockchainBackend
     SLOT(QVariantMap channelDepositWithNotes(QString channelIdHex, QStringList inputNoteIdHexes, QString metadataBase58, QString changePublicKeyHex, QStringList fundingPublicKeyHexes, QString maxTxFee, QString optionalTipHex))
     SLOT(void clearBlocks())
     SLOT(QVariantMap resetChainState())
+    // PREVIEW (#81): Settings actions the node has no direct API for, done app-side.
+    // backupUserConfig copies the node config (+ keystore) beside itself with a
+    // timestamp; regenerateNodeKeys backs up then removes the keystore so the node
+    // mints a fresh identity on the next start. Remove when the node offers these.
+    SLOT(QVariantMap backupUserConfig())
+    SLOT(QVariantMap regenerateNodeKeys())
     SLOT(void copyToClipboard(QString text))
     SLOT(void refreshBlendStatus())
 }

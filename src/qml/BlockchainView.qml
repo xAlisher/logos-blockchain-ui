@@ -882,6 +882,81 @@ Rectangle {
     property string cryptarchiaInfoJson: ""
     property string cryptarchiaInfoError: ""
 
+    // Canonical known-good testnet bootstrap peers — the single source used both to
+    // generate the node config (runNodeOneClick) and to show the real peers in Settings.
+    readonly property var defaultBootstrapPeers: [
+        "/ip4/65.109.51.37/udp/3000/quic-v1/p2p/12D3KooWFrouXfmrR4nsLMtE7wu15DoMJ6VtoUtHinREZCvbWHar",
+        "/ip4/65.109.51.37/udp/3001/quic-v1/p2p/12D3KooWJRGau8M1rjT7R5e4YYsgdFhsMX35nRDtMwCDjxQkXAHz",
+        "/ip4/65.109.51.37/udp/3002/quic-v1/p2p/12D3KooWQXJavMDTRscjauFSgVAB1VLB6Rzpy2uY5SU9Tk7927tb",
+        "/ip4/65.109.51.37/udp/50001/quic-v1/p2p/12D3KooWSQc7CcGtvWDPF1yCbBthFnQjprfCVHmfmNDUrSmqQsU1"
+    ]
+
+    // PREVIEW (#81): Settings hardware caps — app-side enforcement. While enabled and
+    // the node is Running, the CPU cap is enforced by stopping the node if sampled CPU%
+    // stays over the cap. RAM/disk caps are saved; their auto-stop lands next.
+    property bool  _capsEnabled: false
+    property string _cpuCap: "80"
+    property string _ramCap: "80"
+    property string _diskCap: "50"
+    property int   _cpuOverCount: 0
+    function _numOf(s) { var m = String(s).match(/[0-9.]+/); return m ? parseFloat(m[0]) : NaN }
+    Timer {
+        interval: 3000; repeat: true
+        running: root._capsEnabled && root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: {
+            var cpu = root._numOf(root.backend.cpuUsage)
+            var cap = root._numOf(root._cpuCap)
+            if (!isNaN(cpu) && !isNaN(cap) && cap > 0 && cpu > cap) {
+                root._cpuOverCount += 1
+                // Require 2 consecutive breaches (~6s) so a transient spike doesn't stop the node.
+                if (root._cpuOverCount >= 2) { root._cpuOverCount = 0; root.backend.stopBlockchain() }
+            } else {
+                root._cpuOverCount = 0
+            }
+        }
+    }
+
+    // PREVIEW (#81): apply edited bootstrap peers = regenerate the config with them and
+    // restart the node (the node reads bootstrap.ibd.peers from initial_peers at start).
+    property var _pendingPeerApply: null
+    function applyBootstrapPeers(peersText) {
+        if (!root.backend) return
+        var peers = String(peersText).split("\n").map(function(s){ return s.trim() })
+                    .filter(function(s){ return s.length > 0 })
+        if (peers.length === 0) return
+        var genAndStart = function() {
+            logos.watch(
+                root.backend.generateConfig("", peers, 0, 0, "", "", false, 0, "", ""),
+                function(r) {
+                    if (!r.success) return
+                    root.backend.userConfig = (r.value !== undefined && r.value !== "")
+                        ? r.value : root.backend.generatedUserConfigPath
+                    root.backend.startBlockchain()
+                },
+                function(e) {}
+            )
+        }
+        if (root.backend.status === BlockchainBackend.Running
+            || root.backend.status === BlockchainBackend.Starting) {
+            root._pendingPeerApply = genAndStart
+            root.backend.stopBlockchain()
+        } else {
+            genAndStart()
+        }
+    }
+    Connections {
+        target: root.backend
+        function onStatusChanged() {
+            if (root._pendingPeerApply && root.backend
+                && root.backend.status === BlockchainBackend.Stopped) {
+                var fn = root._pendingPeerApply
+                root._pendingPeerApply = null
+                fn()
+            }
+        }
+    }
+
     // --- Redesigned NodeDashboardView adapters (v0.2.20 backend → redesigned props) ---
     // The merged get_cryptarchia_info carries a nested time_info object; the redesigned
     // view wants it as its own JSON string (current_slot / slot_duration_ms / current_epoch).
@@ -1211,12 +1286,7 @@ Rectangle {
         // startBlockchain() fills bootstrap.ibd.peers from these before starting.
         function runNodeOneClick() {
             if (!root.backend) return
-            var peers = [
-                "/ip4/65.109.51.37/udp/3000/quic-v1/p2p/12D3KooWFrouXfmrR4nsLMtE7wu15DoMJ6VtoUtHinREZCvbWHar",
-                "/ip4/65.109.51.37/udp/3001/quic-v1/p2p/12D3KooWJRGau8M1rjT7R5e4YYsgdFhsMX35nRDtMwCDjxQkXAHz",
-                "/ip4/65.109.51.37/udp/3002/quic-v1/p2p/12D3KooWQXJavMDTRscjauFSgVAB1VLB6Rzpy2uY5SU9Tk7927tb",
-                "/ip4/65.109.51.37/udp/50001/quic-v1/p2p/12D3KooWSQc7CcGtvWDPF1yCbBthFnQjprfCVHmfmNDUrSmqQsU1"
-            ]
+            var peers = root.defaultBootstrapPeers
             logos.watch(
                 root.backend.generateConfig("", peers, 0, 0, "", "", false, 0, "", ""),
                 function(result) {
@@ -1561,11 +1631,12 @@ Rectangle {
                         feePct: leaderRewardsView.feePct >= 0
                             ? String(leaderRewardsView.feePct) : ""
 
-                        // PREVIEW: remove when process sampling lands (#86; tiles #65/#66).
-                        // CPU/RAM need /proc (or ps) sampling of the node PID + the Settings cap;
-                        // honest "—" until then rather than a fake number.
-                        cpu: "—"; cpuCap: ""
-                        ram: "—"; ramCap: ""
+                        // PREVIEW (#65/#66): CPU%/RAM sampled from the blockchain_module process
+                        // in /proc by the backend (self-liquidates when the node exposes them).
+                        cpu: (root.backend && root.backend.cpuUsage.length) ? root.backend.cpuUsage : "—"
+                        cpuCap: ""
+                        ram: (root.backend && root.backend.ramUsage.length) ? root.backend.ramUsage : "—"
+                        ramCap: ""
                         uptime: ""
 
                         // version footer defaults to Module v<moduleVersion> (0.2.20)
@@ -1871,8 +1942,38 @@ Rectangle {
                 // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----
                 SettingsView {
                     id: settingsView
+                    // real config paths (keystore sits beside the node config)
+                    nodeConfigPath: root.backend
+                        ? ((root.backend.userConfig && root.backend.userConfig.length)
+                            ? root.backend.userConfig : root.backend.generatedUserConfigPath) : "—"
+                    devConfigPath: (root.backend && root.backend.deploymentConfig.length)
+                        ? root.backend.deploymentConfig : "—"
+                    keysConfigPath: (nodeConfigPath && nodeConfigPath.length && nodeConfigPath !== "—")
+                        ? nodeConfigPath.replace(/[^\/]*$/, "keystore.yaml") : "—"
+                    // real bootstrap peers, rewards state, live CPU/RAM
+                    bootstrapPeers: root.defaultBootstrapPeers.join("\n")
+                    rewardsAutoClaim: leaderRewardsView.autoClaim
+                    cpuUsage: root.backend ? root.backend.cpuUsage : ""
+                    ramUsage: root.backend ? root.backend.ramUsage : ""
+                    // hardware caps (session state, enforced by the host watcher)
+                    capsEnabled: root._capsEnabled
+                    cpuCap: root._cpuCap; ramCap: root._ramCap; diskCap: root._diskCap
+
                     onCopyText: (text) => root.copyText(text)
-                    onResetChainRequested: if (root.backend) root.backend.resetChainState()
+                    onResetChainRequested: if (root.backend)
+                        logos.watch(root.backend.resetChainState(), function(r){}, function(e){})
+                    onRegenerateKeysRequested: if (root.backend)
+                        logos.watch(root.backend.regenerateNodeKeys(), function(r){}, function(e){})
+                    onBackupConfigRequested: if (root.backend)
+                        logos.watch(root.backend.backupUserConfig(),
+                            function(r){ if (r.success && r.value) root.copyText(r.value) }, function(e){})
+                    onRewardsAutoClaimToggled: (on) => { leaderRewardsView.autoClaim = on }
+                    onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
+                    onChangeConfigRequested: operationTabBar.currentIndex = 0
+                    onCapsChanged: (enabled, cpu, ram, disk) => {
+                        root._capsEnabled = enabled
+                        root._cpuCap = cpu; root._ramCap = ram; root._diskCap = disk
+                    }
                 }
             }
 
