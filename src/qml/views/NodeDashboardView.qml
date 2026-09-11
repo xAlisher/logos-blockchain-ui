@@ -86,6 +86,22 @@ Item {
     property string bootCountdown: ""
     property bool bootOverran: false
 
+    // Stall / crash detection. The backend can keep reporting Running after the node
+    // process has crashed or IBD has wedged (peers incompatible) — the info poll then
+    // silently keeps its last values, so the hero would sit on "Bootstrapping…" forever
+    // on frozen numbers. Flag a stall when Height stops advancing during bootstrap.
+    property bool nodeStalled: false
+    readonly property int _stallMs: 90000
+    property double _heightAdvancedAt: 0
+    property string _heightSeen: ""
+    onHeightStrChanged: {
+        if (heightStr !== "—" && heightStr !== _heightSeen) {
+            _heightSeen = heightStr
+            _heightAdvancedAt = Date.now()
+            nodeStalled = false
+        }
+    }
+
     // sync-rate + ETA engine (ported from NodeStatusCard, #57) → real bootstrapping countdown
     onInfoJsonChanged: sync.sampleRate(sync.tipSlot)
     QtObject {
@@ -144,8 +160,14 @@ Item {
     function _fmtSecs(s) { var m = Math.floor(s / 60); var ss = s % 60; return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss }
     Timer {
         interval: 1000; repeat: true; running: root._bootstrapping
-        onTriggered: if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
-        onRunningChanged: if (!running) root._bootSecs = 0
+        onTriggered: {
+            if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
+            // Height hasn't advanced for _stallMs while bootstrapping ⇒ the node is
+            // wedged or has crashed (the backend still says Running). Surface it.
+            root.nodeStalled = root._heightAdvancedAt > 0
+                && (Date.now() - root._heightAdvancedAt > root._stallMs)
+        }
+        onRunningChanged: if (!running) { root._bootSecs = 0; root.nodeStalled = false }
     }
 
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
@@ -157,6 +179,8 @@ Item {
             ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
+      : nodeStalled
+            ? ({ label: qsTr("Sync stalled"), sub: qsTr("No block progress — the node may have stopped or lost peers. Try stopping and starting it again."), c: Theme.palette.error, copy: false, d: false })
       : nodeRecovering
             ? ({ label: qsTr("Replaying blocks"), sub: replayProgress, c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Starting
