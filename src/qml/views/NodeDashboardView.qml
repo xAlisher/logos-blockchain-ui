@@ -404,6 +404,9 @@ Item {
                 // normal sub text (hidden when the row is a copy-only button)
                 LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
+                // short display text alongside a full-value copy (e.g. Stake address)
+                LogosText { visible: copyValue.length > 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
+                            font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 // copy button — copies copyValue (full) or the sub; flashes "Copied" to its right
                 CopyGlyph {
                     visible: copyValue.length > 0 || (copyable && sub.length > 0)
@@ -439,7 +442,7 @@ Item {
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0; info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }

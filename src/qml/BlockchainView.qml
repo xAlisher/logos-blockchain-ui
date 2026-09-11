@@ -1354,10 +1354,10 @@ Rectangle {
             // the Operations tab is open, fall back to the Node tab so the user
             // isn't stranded on a disabled tab.
             onNodeRunningChanged: {
-                // Only the node-gated tabs (Operations=1, Explorer=2) strand the
-                // user when the node stops; Node(0) and Settings(3) stay valid.
-                if (!nodeRunning && (operationTabBar.currentIndex === 1
-                                     || operationTabBar.currentIndex === 2))
+                // Only the node-gated tabs (Operations=3, Explorer=4) strand the
+                // user when the node stops; Node/Blocks/Proposals/Settings stay valid.
+                if (!nodeRunning && (operationTabBar.currentIndex === 3
+                                     || operationTabBar.currentIndex === 4))
                     operationTabBar.currentIndex = 0
             }
 
@@ -1369,6 +1369,8 @@ Rectangle {
                     id: operationTabBar
                     spacing: Theme.spacing.large   // more room between the tabs
                     LogosTabButton { text: qsTr("Node") }
+                    LogosTabButton { text: qsTr("Blocks") }
+                    LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
                         text: qsTr("Operations")
                         enabled: opPage.nodeRunning
@@ -1514,7 +1516,7 @@ Rectangle {
                 Layout.fillHeight: true
                 currentIndex: operationTabBar.currentIndex
 
-                // ---- Tab 0: dashboard + Blocks/Proposals, one page (no split handle) ----
+                // ---- Tab 0: Node dashboard (Blocks/Proposals promoted to their own tabs) ----
                 ColumnLayout {
                     spacing: Theme.spacing.large
 
@@ -1577,46 +1579,29 @@ Rectangle {
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
                     }
 
-                    // Small, left-aligned Blocks / Proposals tabs.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        LogosTabBar {
-                            id: blocksTabBar
-                            LogosTabButton { text: qsTr("Blocks"); width: implicitWidth + 24 }
-                            LogosTabButton { text: qsTr("Proposals"); width: implicitWidth + 24 }
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
+                }
 
-                    StackLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        currentIndex: blocksTabBar.currentIndex
+                // ---- Tab 1: Blocks (promoted from a Node sub-tab to the main nav) ----
+                BlocksView {
+                    blockModel: root.blockModel
+                    myKey: root.backend ? (root.backend.primaryAddress || "") : ""
+                    onClearRequested: if (root.backend) root.backend.clearBlocks()
+                    onCopyToClipboard: (text) => root.copyText(text)
+                }
 
-                        BlocksView {
-                            blockModel: root.blockModel
-                            myKey: root.backend ? (root.backend.primaryAddress || "") : ""
-                            onClearRequested: if (root.backend) root.backend.clearBlocks()
-                            onCopyToClipboard: (text) => root.copyText(text)
-                        }
-
-                        // Proposals (#14) — blocks proposed by this node (parsed from the node log).
-                        ProposalsView {
-                            proposalsJson: root.proposalsJson
-                            voucherCount: root.voucherCount
-                            onCopyToClipboard: (text) => root.copyText(text)
-                            // Operations tab, then the Leader Rewards pane
-                            // (operationIndex 2 — see the NavItem list).
-                            onOpenLeaderRewardsRequested: {
-                                operationTabBar.currentIndex = 1
-                                opPage.operationIndex = 2
-                            }
-                        }
+                // ---- Tab 2: Proposals (promoted from a Node sub-tab to the main nav) ----
+                ProposalsView {
+                    proposalsJson: root.proposalsJson
+                    voucherCount: root.voucherCount
+                    onCopyToClipboard: (text) => root.copyText(text)
+                    // jump to Operations (now tab 3) → the Leader Rewards pane (operationIndex 2)
+                    onOpenLeaderRewardsRequested: {
+                        operationTabBar.currentIndex = 3
+                        opPage.operationIndex = 2
                     }
                 }
 
-                // ---- Tab 1: Wallet operations (sidebar nav + panels) ----
+                // ---- Tab 3: Wallet operations (sidebar nav + panels) ----
                 // Anchor-based (not a Layout): StackLayout force-fills this Item,
                 // and anchors give the SplitView explicit geometry. The panels
                 // have ~zero implicit height, so a plain Layout would collapse
@@ -1832,7 +1817,7 @@ Rectangle {
                     }
                 }
 
-                // ---- Tab 2: Explorer (block / transaction lookup) ----
+                // ---- Tab 4: Explorer (block / transaction lookup) ----
                 ExplorerView {
                     id: explorerView
                     nodeRunning: opPage.nodeRunning
@@ -1888,7 +1873,7 @@ Rectangle {
                     onCopyToClipboard: (text) => root.copyText(text)
                 }
 
-                // ---- Tab 3: Settings (node config, bootstrap, rewards, hardware, destructive) ----
+                // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----
                 SettingsView {
                     id: settingsView
                     onCopyText: (text) => root.copyText(text)
