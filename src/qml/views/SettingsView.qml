@@ -59,9 +59,10 @@ Item {
         LogosButton { text: qsTr("Copy"); enabled: path.length > 0 && path !== "—"; onClicked: root.copyText(path) }
     }
     component SwitchRow: RowLayout {
+        id: row
         property string label: ""
         property string desc: ""
-        property alias checked: sw.checked
+        property bool value: false        // the source-of-truth value (host binds this)
         signal userToggled(bool on)
         Layout.fillWidth: true; spacing: Theme.spacing.medium
         ColumnLayout {
@@ -69,10 +70,12 @@ Item {
             LogosText { text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText }
             LogosText { visible: desc.length > 0; text: desc; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         }
-        // toggled() fires only on user interaction (not on the host's binding writes),
-        // so it works for ANY switch — no per-row hardcoded compare.
+        // Reflect the source via `value`, and emit ONLY when the switch diverges from it
+        // (a real user toggle) — not when the host's write flows back. Guarding against the
+        // row's own `value` (not a hardcoded prop) is what makes this work for any switch.
         LogosSwitch { id: sw; Layout.alignment: Qt.AlignVCenter
-            onToggled: parent.userToggled(checked) }
+            checked: row.value
+            onCheckedChanged: if (checked !== row.value) row.userToggled(checked) }
     }
     // A cap row: label · current live usage · editable cap · unit.
     component CapRow: RowLayout {
@@ -143,7 +146,7 @@ Item {
                 SwitchRow {
                     label: qsTr("Auto-claim leader rewards")
                     desc: qsTr("Claim proposing rewards automatically in the background.")
-                    checked: root.rewardsAutoClaim
+                    value: root.rewardsAutoClaim
                     onUserToggled: (on) => root.rewardsAutoClaimToggled(on)
                 }
             }
@@ -155,7 +158,7 @@ Item {
                     id: capsSwitch
                     label: qsTr("Enforce resource caps")
                     desc: qsTr("Stop the node if it exceeds the CPU or RAM cap; prune old logs at the disk cap. Enforced by the app while it's open.")
-                    checked: root.capsEnabled
+                    value: root.capsEnabled
                     onUserToggled: (on) => root.capsChanged(on, cpuRow.capValue, ramRow.capValue, diskRow.capValue)
                 }
                 CapRow { id: cpuRow; label: qsTr("CPU"); usage: root.cpuUsage; capValue: root.cpuCap; unit: "%" }
