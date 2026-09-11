@@ -1634,12 +1634,13 @@ Rectangle {
 
                         // PREVIEW (#65/#66): CPU%/RAM sampled from the blockchain_module process
                         // in /proc by the backend (self-liquidates when the node exposes them).
+                        // Cap sub-lines show the configured caps when enforcement is on (Settings).
                         cpu: (root.backend && root.backend.cpuUsage.length) ? root.backend.cpuUsage : "—"
-                        cpuCap: ""
+                        cpuCap: root._capsEnabled && root._cpuCap.length ? qsTr("Cap %1%").arg(root._cpuCap) : ""
                         ram: (root.backend && root.backend.ramUsage.length) ? root.backend.ramUsage : "—"
-                        ramCap: ""
+                        ramCap: root._capsEnabled && root._ramCap.length ? qsTr("Cap %1%").arg(root._ramCap) : ""
                         disk: (root.backend && root.backend.diskUsage.length) ? root.backend.diskUsage : "—"
-                        diskCap: ""
+                        diskCap: root._capsEnabled && root._diskCap.length ? qsTr("Cap %1 GB").arg(root._diskCap) : ""
                         uptime: ""
 
                         // version footer defaults to Module v<moduleVersion> (0.2.20)
