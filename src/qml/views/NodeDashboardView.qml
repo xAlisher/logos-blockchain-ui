@@ -50,7 +50,15 @@ Item {
     readonly property var _info: _parse(infoJson)
     readonly property var _time: _parse(timeInfoJson)
     function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
-    readonly property string mode: (_info && _info.mode) ? String(_info.mode) : ""
+    // The node's sync state. Accept whichever key this build exposes: `mode` (IPC
+    // get_cryptarchia_info), or `state` / nested cryptarchia_info.state (HTTP-shaped).
+    readonly property string mode: {
+        if (!_info) return ""
+        if (_info.mode) return String(_info.mode)
+        if (_info.state) return String(_info.state)
+        if (_info.cryptarchia_info && _info.cryptarchia_info.state) return String(_info.cryptarchia_info.state)
+        return ""
+    }
     readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
                                    : (_field("slot") !== undefined ? String(_field("slot")) : "—")
     readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
@@ -112,8 +120,12 @@ Item {
         readonly property var currentSlot: (root._time && root._time.current_slot !== undefined) ? Number(root._time.current_slot) : undefined
         readonly property var slotDurationMs: (root._time && root._time.slot_duration_ms !== undefined) ? Number(root._time.slot_duration_ms) : undefined
         readonly property var remaining: (tipSlot === undefined || currentSlot === undefined) ? undefined : Math.max(0, currentSlot - tipSlot)
-        readonly property int syncedSlack: 3
-        readonly property bool synced: root.mode === "Online" && remaining !== undefined && remaining <= syncedSlack
+        readonly property int syncedSlack: 3   // (retained for the ETA engine below; NOT used to gate `synced`)
+        // Trust the node's own sync state. It only reports "Online" once it's caught up
+        // and following the chain; a slot-gap check here false-fired on this sparse chain,
+        // where the tip legitimately trails wall-clock by tens of slots between blocks —
+        // which made the hero flap Online↔Bootstrapping every time a block landed.
+        readonly property bool synced: root.mode === "Online"
         property real emaRate: NaN
         property real lastTip: NaN
         property real lastAt: 0
