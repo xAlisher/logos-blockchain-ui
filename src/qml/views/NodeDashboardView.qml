@@ -88,12 +88,12 @@ Item {
     property string bootCountdown: ""
     property bool bootOverran: false
 
-    // Stall / crash detection. The backend can keep reporting Running after the node
-    // process has crashed or IBD has wedged (peers incompatible) — the info poll then
-    // silently keeps its last values, so the hero would sit on "Bootstrapping…" forever
-    // on frozen numbers. Flag a stall when Height stops advancing during bootstrap.
+    // Stall / crash detection. Catches a DEAD node (crashed / IBD wedged) that the
+    // backend still reports as Running — those stay frozen for hours. Threshold is
+    // deliberately generous (10 min): a live bootstrap legitimately advances Height only
+    // every few minutes during peer churn, so a tight window false-fires on slow sync.
     property bool nodeStalled: false
-    readonly property int _stallMs: 90000
+    readonly property int _stallMs: 600000        // 10 min of ZERO height progress ⇒ actually stuck
     property double _heightAdvancedAt: 0
     property string _heightSeen: ""
     onHeightStrChanged: {
