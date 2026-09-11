@@ -47,6 +47,8 @@ Item {
     function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
     function _short(s) { return (s && s.length > 14) ? (s.substring(0, 6) + "…" + s.substring(s.length - 4)) : (s || "—") }
     function _fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }   // thousands with thin spaces
+    // Numeric value of a formatted amount ("0 LGO" → 0, "12.5 LGO" → 12.5, "—" → 0).
+    function _amt(s) { var m = String(s).match(/-?[0-9][0-9.,]*/); return m ? parseFloat(m[0].replace(/,/g, "")) : 0 }
     readonly property var _info: _parse(infoJson)
     readonly property var _time: _parse(timeInfoJson)
     function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
@@ -228,9 +230,9 @@ Item {
         if (status === BlockchainBackend.Running && !sync.synced) return 0
         if (status !== BlockchainBackend.Running) return -1
         var r = 1                                                               // Online (Running + synced)
-        if (funded) r = Math.max(r, 2)                                          // Funded — has stake (mining is one way to get there)
+        if (funded || _amt(stakeStr) > 0) r = Math.max(r, 2)                    // Funded — wallet actually holds stake
         if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
-        if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
+        if (_amt(earnedStr) > 0) r = Math.max(r, 5)                             // Earning — a POSITIVE reward, not "0 LGO" (#60)
         return r
     }
     // Actively moving from the frontier toward the next stage. Two detectable
