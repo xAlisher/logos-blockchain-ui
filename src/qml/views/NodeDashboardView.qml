@@ -413,11 +413,18 @@ Item {
         property bool laneTransitioning: false
         property bool abbreviate: false           // width-responsive number abbreviation (e.g. Stake)
         readonly property int _vsize: hero ? 32 : 24
-        // Measure the value font's digit width so the value can abbreviate to fit the card.
+        // Measure the ACTUAL rendered width of the full value (letters + space included, not
+        // a digit estimate) so we abbreviate the moment it no longer fits the card, with a
+        // small breathing-room margin. _chPx (a digit width) only sizes the shorter tiers.
+        TextMetrics { id: _valTM; font.pixelSize: blk._vsize; font.weight: Theme.typography.weightBold; text: blk.value }
         TextMetrics { id: _chTM; font.pixelSize: blk._vsize; font.weight: Theme.typography.weightBold; text: "0000000000" }
         readonly property real _chPx: _chTM.advanceWidth > 0 ? _chTM.advanceWidth / 10 : 12
-        readonly property int _valMaxChars: Math.max(6, Math.floor((blk.width - 2 * Theme.spacing.large - (dots ? 34 : 0)) / _chPx))
-        readonly property string _fitValue: abbreviate ? root._abbrevFit(value, _valMaxChars) : value
+        readonly property real _valAvail: blk.width - 2 * Theme.spacing.large - (dots ? 34 : 0) - 12
+        readonly property string _fitValue: {
+            if (!abbreviate) return value
+            if (_valTM.advanceWidth > 0 && _valTM.advanceWidth <= _valAvail) return value
+            return root._abbrevFit(value, Math.max(5, Math.floor(_valAvail / _chPx)))
+        }
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: showLane ? 118 : (hero ? 124 : 108)
