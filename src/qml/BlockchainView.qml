@@ -1619,7 +1619,8 @@ Rectangle {
 
                         // --- funding / stake (faucet line — no mining on 0.2.4) ---
                         funded: root.nodeBalance !== "—" && root.nodeBalance !== "0" && root.nodeBalance !== ""
-                        stakeStr: root.nodeBalance
+                        // The chain's raw balance IS LGO (amounts.js: no sub-unit) — just label it.
+                        stakeStr: (root.nodeBalance !== "—" && root.nodeBalance !== "") ? (root.nodeBalance + " LGO") : "—"
                         foundingAddr: root.balanceKey
                         empoweringActive: false
                         empoweringMined: -1

@@ -211,7 +211,10 @@ Item {
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
-    readonly property string _proposedSub: validation === "active" ? qsTr("Validation active")
+    // While the node is Aging (funded, not yet eligible to propose — lane stage 2),
+    // the Proposed card reflects that dedicated state instead of a bare "—".
+    readonly property string _proposedSub: _lifeReached === 2 ? qsTr("Aging — eligible to propose in ~2 epochs")
+                                : validation === "active" ? qsTr("Validation active")
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
                                 : ""
 

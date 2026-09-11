@@ -69,8 +69,10 @@ Item {
             LogosText { text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText }
             LogosText { visible: desc.length > 0; text: desc; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
         }
+        // toggled() fires only on user interaction (not on the host's binding writes),
+        // so it works for ANY switch — no per-row hardcoded compare.
         LogosSwitch { id: sw; Layout.alignment: Qt.AlignVCenter
-            onCheckedChanged: if (checked !== root.rewardsAutoClaim) parent.userToggled(checked) }
+            onToggled: parent.userToggled(checked) }
     }
     // A cap row: label · current live usage · editable cap · unit.
     component CapRow: RowLayout {
