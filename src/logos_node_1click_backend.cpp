@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -522,9 +523,10 @@ qint64 LogosNode1clickBackend::findBlockchainModulePid() const
 void LogosNode1clickBackend::sampleNodeResources()
 {
     if (status() != Running) {
-        m_nodePid = -1; m_prevCpuTicks = 0; m_prevSampleMs = 0;
+        m_nodePid = -1; m_prevCpuTicks = 0; m_prevSampleMs = 0; m_diskSampleTick = 0;
         if (!cpuUsage().isEmpty()) setCpuUsage(QString());
         if (!ramUsage().isEmpty()) setRamUsage(QString());
+        if (!diskUsage().isEmpty()) setDiskUsage(QString());
         return;
     }
     const qint64 pid = findBlockchainModulePid();
@@ -543,6 +545,21 @@ void LogosNode1clickBackend::sampleNodeResources()
             setRamUsage(mb >= 1024.0
                 ? QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
                 : QStringLiteral("%1 MB").arg(mb, 0, 'f', 0));
+        }
+    }
+
+    // Disk: node data-dir footprint (db + state + logs + config). Scanned every
+    // ~20s (every 10th 2s tick) — cheaper than each tick for a multi-GB db.
+    if (m_diskSampleTick++ % 10 == 0) {
+        const QString cfg = userConfig();
+        if (!cfg.isEmpty()) {
+            const qint64 bytes = dirSizeBytes(QFileInfo(cfg).absolutePath());
+            if (bytes >= 0) {
+                const double mb = bytes / (1024.0 * 1024.0);
+                setDiskUsage(mb >= 1024.0
+                    ? QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
+                    : QStringLiteral("%1 MB").arg(mb, 0, 'f', 0));
+            }
         }
     }
 
@@ -569,6 +586,17 @@ void LogosNode1clickBackend::sampleNodeResources()
     }
     m_prevCpuTicks = ticks;
     m_prevSampleMs = nowMs;
+}
+
+// Recursively sum file sizes under `path` (the node data dir). -1 on error/missing.
+qint64 LogosNode1clickBackend::dirSizeBytes(const QString& path) const
+{
+    if (path.isEmpty() || !QFileInfo::exists(path)) return -1;
+    qint64 total = 0;
+    QDirIterator it(path, QDir::Files | QDir::NoSymLinks | QDir::Hidden,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) { it.next(); total += it.fileInfo().size(); }
+    return total;
 }
 
 // Universal ui_qml lifecycle hook (interface: universal). modules() is live here;

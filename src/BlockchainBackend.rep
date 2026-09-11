@@ -21,6 +21,7 @@ class BlockchainBackend
     // Remove when the node returns CPU/RAM itself.
     PROP(QString cpuUsage READONLY)
     PROP(QString ramUsage READONLY)
+    PROP(QString diskUsage READONLY)
 
     SLOT(void startBlockchain())
     SLOT(void stopBlockchain())

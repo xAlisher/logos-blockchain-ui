@@ -895,8 +895,8 @@ Rectangle {
     // the node is Running, the CPU cap is enforced by stopping the node if sampled CPU%
     // stays over the cap. RAM/disk caps are saved; their auto-stop lands next.
     property bool  _capsEnabled: false
-    property string _cpuCap: "80"
-    property string _ramCap: "80"
+    property string _cpuCap: "90"
+    property string _ramCap: "90"
     property string _diskCap: "50"
     property int   _cpuOverCount: 0
     function _numOf(s) { var m = String(s).match(/[0-9.]+/); return m ? parseFloat(m[0]) : NaN }
@@ -1637,6 +1637,8 @@ Rectangle {
                         cpuCap: ""
                         ram: (root.backend && root.backend.ramUsage.length) ? root.backend.ramUsage : "—"
                         ramCap: ""
+                        disk: (root.backend && root.backend.diskUsage.length) ? root.backend.diskUsage : "—"
+                        diskCap: ""
                         uptime: ""
 
                         // version footer defaults to Module v<moduleVersion> (0.2.20)
@@ -1955,6 +1957,7 @@ Rectangle {
                     rewardsAutoClaim: leaderRewardsView.autoClaim
                     cpuUsage: root.backend ? root.backend.cpuUsage : ""
                     ramUsage: root.backend ? root.backend.ramUsage : ""
+                    diskUsage: root.backend ? root.backend.diskUsage : ""
                     // hardware caps (session state, enforced by the host watcher)
                     capsEnabled: root._capsEnabled
                     cpuCap: root._cpuCap; ramCap: root._ramCap; diskCap: root._diskCap

@@ -102,20 +102,30 @@ var data = {
     cpu: {
         title: "CPU",
         what: "How much processor the node process is using on this machine.",
-        calc: "Requires OS-level process sampling; not wired in the 0.3 module yet — shows —. The sub shows the configured cap.",
+        calc: "Community preview: the app finds the blockchain_module process and samples /proc (utime+stime) every 2s. Real, until the node reports it directly.",
         states: [
-            { label: "NN%", meaning: "Current usage, with 'Cap: NN%' or 'Cap not set'." },
-            { label: "—", meaning: "Not sampled yet." }
+            { label: "NN%", meaning: "Current usage. A cap can be set in Settings → Hardware." },
+            { label: "—", meaning: "Node not running — nothing to sample." }
         ],
         docs: ""
     },
     ram: {
         title: "RAM",
         what: "How much memory the node process is using on this machine.",
-        calc: "Requires OS-level process sampling; not wired in the 0.3 module yet — shows —.",
+        calc: "Community preview: sampled from the node process's /proc VmRSS every 2s. Real, until the node reports it directly.",
         states: [
-            { label: "N.N GB", meaning: "Current usage, with the cap beneath." },
-            { label: "—", meaning: "Not sampled yet." }
+            { label: "N.N GB", meaning: "Current resident memory." },
+            { label: "—", meaning: "Node not running — nothing to sample." }
+        ],
+        docs: ""
+    },
+    disk: {
+        title: "Disk",
+        what: "How much disk the node's data directory (chain db, state, logs, config) occupies.",
+        calc: "Community preview: the app sums the node data-dir size every ~20s. Real, until the node reports it directly.",
+        states: [
+            { label: "N.N GB", meaning: "Current on-disk footprint. A cap can be set in Settings → Hardware." },
+            { label: "—", meaning: "Node not running / config not located." }
         ],
         docs: ""
     },

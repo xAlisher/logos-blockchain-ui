@@ -160,8 +160,10 @@ private:
     qint64 m_nodePid = -1;
     unsigned long long m_prevCpuTicks = 0;
     qint64 m_prevSampleMs = 0;
+    int m_diskSampleTick = 0;                 // throttle dir-size scans (every Nth CPU tick)
     qint64 findBlockchainModulePid() const;
     void sampleNodeResources();
+    qint64 dirSizeBytes(const QString& path) const;   // recursive node-data-dir size
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;

@@ -22,9 +22,10 @@ Item {
     property bool rewardsAutoClaim: false
     property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
     property string ramUsage: ""
+    property string diskUsage: ""                 // real, node data-dir footprint
     // Persisted caps (host-backed); enforcement runs app-side in the host.
-    property string cpuCap: "80"
-    property string ramCap: "80"
+    property string cpuCap: "90"
+    property string ramCap: "90"
     property string diskCap: "50"
     property bool capsEnabled: false
 
@@ -82,7 +83,7 @@ Item {
         LogosText { text: usage.length ? usage : "—"; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90 }
         Item { Layout.fillWidth: true }
         LogosText { text: qsTr("cap"); color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
-        LogosTextField { id: cap; Layout.preferredWidth: 70; enabled: root.capsEnabled }
+        LogosTextField { id: cap; Layout.preferredWidth: 70 }   // always editable; the switch controls enforcement
         LogosText { text: unit; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
     }
 
@@ -157,7 +158,7 @@ Item {
                 }
                 CapRow { id: cpuRow; label: qsTr("CPU"); usage: root.cpuUsage; capValue: root.cpuCap; unit: "%" }
                 CapRow { id: ramRow; label: qsTr("RAM"); usage: root.ramUsage; capValue: root.ramCap; unit: "%" }
-                CapRow { id: diskRow; label: qsTr("Disk"); usage: ""; capValue: root.diskCap; unit: "GB" }
+                CapRow { id: diskRow; label: qsTr("Disk"); usage: root.diskUsage; capValue: root.diskCap; unit: "GB" }
                 RowLayout {
                     Layout.fillWidth: true
                     LogosButton { text: qsTr("Apply caps"); enabled: root.capsEnabled; onClicked: root.capsChanged(true, cpuRow.capValue, ramRow.capValue, diskRow.capValue) }
