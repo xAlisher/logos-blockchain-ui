@@ -61,6 +61,11 @@ Item {
     property string proposed: "—"                            // #61
     property string validation: ""                           // active|inactive|""
     property int epochsToActivate: 0
+    // Real eligibility signal: the node's /leader/aged-notes `count` (#61). A note can
+    // lead exactly 2 epochs after it is minted (stake snapshot = start of the previous
+    // epoch). -1 = node version doesn't report it (pre-0.3), 0 = funded but not yet aged,
+    // >0 = eligible to propose now.
+    property int eligibleNoteCount: -1
     property string peers: "—"                               // #62 (curl)
     property string connections: ""
     property bool empoweringActive: false                    // #64 (#85) — mining currently on (drives the tile)
@@ -165,7 +170,9 @@ Item {
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
-    readonly property string _proposedSub: validation === "active" ? qsTr("Validation active")
+    readonly property string _proposedSub: _lifeReached === 3 ? qsTr("Eligible to propose")
+                                : _lifeReached === 2 ? (eligibleNoteCount === 0 ? qsTr("Aging") : qsTr("Aging, eligibility not reported."))
+                                : validation === "active" ? qsTr("Validation active")
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
                                 : ""
 
@@ -185,6 +192,7 @@ Item {
         if (status !== BlockchainBackend.Running) return -1
         var r = 1                                                               // Online (Running + synced)
         if (funded) r = Math.max(r, 2)                                          // Funded — has stake (mining is one way to get there)
+        if (eligibleNoteCount > 0) r = Math.max(r, 3)                           // Aged — a note is in the aged UTXO snapshot (#61)
         if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
         if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
         return r
@@ -228,7 +236,13 @@ Item {
         onWidthChanged: cv.requestPaint()
         onFlowChanged: cv.requestPaint()
         Component.onCompleted: cv.requestPaint()
-        NumberAnimation on flow { running: lane.transitioning; from: 0; to: 1; duration: 1500; loops: Animation.Infinite }
+        // breathe: ease up, then ease back down. Was a sawtooth (0→1 then a hard snap
+        // back to 0) which read as a sharp, fast drop from filled to transparent.
+        SequentialAnimation on flow {
+            running: lane.transitioning; loops: Animation.Infinite
+            NumberAnimation { from: 0; to: 1; duration: 1400; easing.type: Easing.InOutSine }
+            NumberAnimation { from: 1; to: 0; duration: 1400; easing.type: Easing.InOutSine }
+        }
         Canvas {
             id: cv; anchors.fill: parent
             onAvailableChanged: if (available) requestPaint()
@@ -328,6 +342,7 @@ Item {
         property string label: ""
         property string value: "—"
         property string sub: ""
+        property color subColor: Theme.palette.textTertiary   // sub-line color (e.g. yellow while Aging, green when Eligible)
         property color accent: Theme.palette.text
         property color tint: Theme.palette.surfaceRaised
         property bool copyable: false
@@ -388,7 +403,7 @@ Item {
                 // merged hero: uptime/countdown pinned to the card's upper-right corner
                 LogosText {
                     visible: showLane && sub.length > 0
-                    text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
+                    text: sub; color: blk.subColor; font.pixelSize: Theme.typography.secondaryText
                     Layout.alignment: Qt.AlignTop
                 }
                 Info { visible: showLane && blk.info != null; Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small; onClicked: blk.infoRequested() }
@@ -396,7 +411,7 @@ Item {
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
                 // normal sub text (hidden when the row is a copy-only button)
-                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: Theme.palette.textTertiary
+                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: blk.subColor
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 // copy button — copies copyValue (full) or the sub; flashes "Copied" to its right
                 CopyGlyph {
@@ -437,7 +452,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Fees this epoch: ") + root.feePct : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Proposed in current epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached === 3 ? Theme.palette.success : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")

@@ -37,6 +37,7 @@ Window {
         property string blend: "none"
         property string validation: ""
         property int epochsToActivate: 0
+        property int eligibleNoteCount: -1     // 0.3 /leader/aged-notes count; -1 unknown, 0 aging, >0 eligible
         property string stake: "—"
         property string addr: ""
         // numeric knobs for the not-yet-built metrics; <0 / false ⇒ "—"/absent
@@ -94,6 +95,7 @@ Window {
         st.blend = p.blend || "none"
         st.validation = p.validation || ""
         st.epochsToActivate = p.epochsToActivate || 0
+        st.eligibleNoteCount = ("eligibleNoteCount" in p) ? p.eligibleNoteCount : -1
         st.stake = p.stake || "—"; st.addr = p.addr || ""
         st.epochN = ("epoch" in p) ? p.epoch : -1
         st.epochElapsed = ("epochElapsed" in p) ? p.epochElapsed : -1
@@ -121,11 +123,15 @@ Window {
         { key: "Online",                  val: { status: 2, mode: "Online", tip: 148905, head: 148905, upSecs: 12 * 3600 + 4 * 60 + 37, peerId: win._peer, epoch: 172, epochElapsed: 200,
                                                   peers: 38, conn: 43, cpu: 9, cpuCap: 30, ram: 1.2, ramCapSet: false } },
         { key: "Funded — aging",          val: { status: 2, mode: "Online", tip: 150000, head: 150000, upSecs: 1 * 3600 + 12 * 60, peerId: win._peer,
-                                                  funded: true,                       // mining finished (stopped at 100%); wallet funded, notes now aging
-                                                  proposed: 0, validation: "inactive", epochsToActivate: 2, epoch: 173, epochElapsed: 500,
+                                                  funded: true,                       // wallet funded, notes aging; node reports 0 aged notes yet
+                                                  proposed: 0, eligibleNoteCount: 0, epoch: 173, epochElapsed: 500,
                                                   peers: 40, conn: 46, cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: "5T LGO", addr: "0x71bd…9e4a" } },
+        { key: "Aged — eligible",         val: { status: 2, mode: "Online", tip: 150800, head: 150800, upSecs: 22 * 3600, peerId: win._peer,
+                                                  funded: true, eligibleNoteCount: 3,  // aged into the snapshot; eligible to propose (not yet won a slot)
+                                                  proposed: 0, epoch: 175, epochElapsed: 120,
+                                                  peers: 41, conn: 47, cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: "5T LGO", addr: "0x71bd…9e4a" } },
         { key: "Validating",              val: { status: 2, mode: "Online", tip: 151548, head: 151548, upSecs: 345 * 3600 + 43 * 60 + 23, peerId: win._peer, funded: true,
-                                                  blend: "core", epoch: 174, epochElapsed: 372, proposed: 234, validation: "active", peers: 83, conn: 87,
+                                                  blend: "core", epoch: 174, epochElapsed: 372, proposed: 234, validation: "active", eligibleNoteCount: 5, peers: 83, conn: 87,
                                                   empowering: true, empoweringMined: 2500, empoweringTarget: 5000, cpu: 12, cpuCap: 30, ram: 1.4, ramCapSet: false,
                                                   stake: "5T LGO", addr: "0x71bd…9e4a", earned: 1530, fee: 56 } },
         { key: "Error",                   val: { status: 5, err: "Node error: connection refused (rpc :3000)" } }
@@ -297,6 +303,7 @@ Window {
                 proposed: st.proposed
                 validation: st.validation
                 epochsToActivate: st.epochsToActivate
+                eligibleNoteCount: st.eligibleNoteCount
                 peers: st.peers
                 connections: st.connections
                 empoweringActive: st.empoweringActive
