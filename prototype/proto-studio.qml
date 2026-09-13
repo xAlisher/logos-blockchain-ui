@@ -63,7 +63,7 @@ Window {
 
         // computed strings the view consumes (honest "—"/"" when absent)
         readonly property string epoch: epochN >= 0 ? String(epochN) : "—"
-        readonly property string proposed: proposedN >= 0 ? (proposedN + " Blocks") : "—"
+        readonly property string proposed: proposedN >= 0 ? String(proposedN) : "—"
         readonly property string peers: peersN >= 0 ? String(peersN) : "—"
         readonly property string connections: connN >= 0 ? (connN + " connections") : ""
         readonly property string cpu: cpuN >= 0 ? (Math.round(cpuN) + "%") : "—"
@@ -71,7 +71,7 @@ Window {
         readonly property string ram: ramN >= 0 ? (ramN.toFixed(1) + "GB") : "—"
         readonly property string ramCap: ramN >= 0 ? (ramCapSet ? qsTr("Cap set") : qsTr("Cap not set")) : ""
         readonly property string earned: earnedN >= 0 ? Amounts.precise(earnedN) : "—"   // earnedN = raw lepta; precise → tiny rewards visible
-        readonly property string fee: feeN >= 0 ? (feeN + "%") : ""
+        readonly property string fee: feeN >= 0 ? String(feeN) : ""   // bare number; view adds "%"
         readonly property string uptime: upSecs >= 0 ? win.fmtHMS(upSecs) : ""
 
         readonly property string infoJson: mode.length
