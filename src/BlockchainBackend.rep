@@ -48,6 +48,7 @@ class BlockchainBackend
     // array, never deleted: totals, backfill suppression and the alarm's
     // failure counting all look through the archive.
     SLOT(QVariantMap clearLeaderClaims())
+    SLOT(QVariantMap clearProposals())
     SLOT(QVariantMap getProposals())
     SLOT(QVariantMap generateConfig(QString outputPath, QStringList initialPeers, int netPort, int blendPort, QString httpAddr, QString externalAddress, bool noPublicIpCheck, int deploymentMode, QString deploymentConfigPath, QString statePath))
     SLOT(QVariantMap getNotes(QString walletAddressHex, QString optionalTipHex))

@@ -113,6 +113,8 @@ Item {
     // epoch). -1 = the node version doesn't report it (pre-0.3, e.g. this 0.2.4 line →
     // 404), 0 = funded but not yet aged, >0 = eligible to propose now.
     property int eligibleNoteCount: -1
+    property int vouchersSubmitted: -1                       // claims in flight (submitted, awaiting settle); -1 = n/a
+    property int vouchersReady: -1                           // claimable vouchers ready; -1 = n/a
     property string peers: "—"                               // #62 (curl)
     property string connections: ""
     property bool empoweringActive: false                    // #64 (#85) — mining currently on (drives the tile)
@@ -556,6 +558,9 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
+                    // Vouchers — the two honest numbers the Rewards tab shows:
+                    // "Ready to claim" (claimable now) headlines; "Submitted" = claims in flight.
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Ready to claim"); value: root.vouchersReady >= 0 ? String(root.vouchersReady) : "—"; sub: root.vouchersSubmitted >= 0 ? qsTr("Submitted: %1").arg(root.vouchersSubmitted) : "" }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")

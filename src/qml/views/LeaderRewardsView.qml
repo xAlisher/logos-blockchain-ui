@@ -17,9 +17,9 @@ import "../amounts.js" as Amounts
 // belongs to the CLAIM, which has identity, cost, duration and an outcome.
 //
 // Design and the evidence behind it: docs/VOUCHER-STATE-MAP.md
-ScrollView {
+ColumnLayout {
     id: root
-    clip: true
+    spacing: Theme.spacing.large
 
     // JSON from wallet_get_claimable_vouchers:
     //   { "tip": "<hex>", "vouchers": [ {commitment, nullifier}, ... ] }
@@ -47,6 +47,27 @@ ScrollView {
     signal claimLeaderRewardsRequested()
     signal clearClaimsRequested()
     signal copyToClipboard(string text)
+
+    // --- epoch sidebar (Rewards page) ---
+    property int currentEpoch: -1
+    function _cEpoch(c) { var sl = (c && c.slot !== undefined) ? Number(c.slot) : NaN; return isNaN(sl) ? -1 : Math.floor(sl / 36000) }
+    readonly property var _claimEpochs: {
+        var seen = ({}), list = []
+        for (var i = 0; i < claims.length; i++) { var e = _cEpoch(claims[i]); if (e >= 0 && !seen[e]) { seen[e] = 1; list.push(e) } }
+        list.sort(function(a, b) { return b - a }); return list
+    }
+    // Claims per epoch, shown in the sidebar rows (epoch -> count).
+    readonly property var _claimCounts: {
+        var m = ({})
+        for (var i = 0; i < claims.length; i++) { var e = _cEpoch(claims[i]); if (e >= 0) m[e] = (m[e] || 0) + 1 }
+        return m
+    }
+    readonly property var filteredClaims: {
+        if (rewardsEpochNav.selected === -1) return claims
+        var out = []
+        for (var i = 0; i < claims.length; i++) if (_cEpoch(claims[i]) === rewardsEpochNav.selected) out.push(claims[i])
+        return out
+    }
 
     Dialog {
         id: clearConfirm
@@ -266,22 +287,12 @@ ScrollView {
         return qsTr("Claiming…")
     }
 
-    // The page outgrows the pane once the claims ledger fills, so the whole
-    // thing scrolls. Same pattern as ChannelDepositView.
-    ColumnLayout {
-        width: root.availableWidth
-        spacing: Theme.spacing.large
-
-        // ======================= PAGE TITLE (outside the boxes) =======================
-        LogosText {
-            text: qsTr("Leader Rewards")
-            font.pixelSize: Theme.typography.titleText
-            font.weight: Theme.typography.weightMedium
-        }
-
-        // ======================= VOUCHERS =======================
+    // Vouchers summary spans the full width, ABOVE the [epoch sidebar | ledger]
+    // row: it is global state (not per-epoch), so it sits over both columns.
+    // ======================= VOUCHERS =======================
         RowLayout {
             Layout.fillWidth: true
+            Layout.fillHeight: false   // nested layouts default fillHeight=true; pin it so only the ledger row grows
             spacing: Theme.spacing.medium
             LogosText {
                 text: qsTr("Vouchers")
@@ -365,25 +376,22 @@ ScrollView {
         // minimum tile size, so tiles drop to the next line instead.
         GridLayout {
             Layout.fillWidth: true
+            Layout.fillHeight: false   // nested layouts default fillHeight=true → tiles ballooned; pin it
             columnSpacing: Theme.spacing.medium
             rowSpacing: Theme.spacing.medium
             columns: Math.max(1, Math.floor((width + columnSpacing) / (180 + columnSpacing)))
 
             StatTile {
-                // fillHeight equalises the tile heights; topAligned keeps the two
-                // LABELS on one line even though these tiles carry a different
-                // number of rows (CTA here, sub-line opposite).
-                Layout.fillHeight: true
                 topAligned: true
                 label: qsTr("Ready to claim")
                 value: String(root.vouchers.length)
+                info: qsTr("Vouchers the wallet can prove and claim right now. Each block your node leads mints a voucher; claiming turns it into spendable balance (auto-claim does this at each epoch start). Counted from wallet_get_claimable_vouchers, which returns only the READY set — the node's own reserved/in-flight vouchers are never sent to the UI, and a voucher the wallet cannot prove at the current tip is hidden until it can. Click a tile with vouchers to inspect each one.")
                 // No value here: "Unclaimed" in Rewards already carries it.
                 interactive: root.vouchers.length > 0
                 onClicked: if (root.vouchers.length > 0) voucherDialog.open()
             }
 
             StatTile {
-                Layout.fillHeight: true
                 topAligned: true
                 // "Submitted" matches the status word used on the claim rows.
                 label: qsTr("Submitted")
@@ -392,9 +400,10 @@ ScrollView {
             }
         }
 
-        // Why the button is unavailable, stated rather than left to guess.
+        // Why the button is unavailable, stated rather than left to guess. Suppressed
+        // in the no-vouchers case: the "Ready to claim: 0" tile already says it.
         LogosText {
-            visible: !root.canClaim && root.claimBlockedReason.length > 0
+            visible: !root.canClaim && root.claimBlockedReason.length > 0 && root.vouchers.length > 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: root.claimBlockedReason
@@ -409,6 +418,30 @@ ScrollView {
             color: Theme.palette.error
             font.pixelSize: Theme.typography.secondaryText
         }
+
+        // The epoch sidebar filters the claims ledger; the page scrolls once it fills.
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: Theme.spacing.large
+
+            EpochNav {
+                id: rewardsEpochNav
+                Layout.fillHeight: true
+                epochs: root._claimEpochs
+                currentEpoch: root.currentEpoch
+                counts: root._claimCounts
+                total: root.claims.length
+            }
+            ScrollView {
+                id: rewardsScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                contentWidth: availableWidth
+            ColumnLayout {
+                width: rewardsScroll.availableWidth
+                spacing: Theme.spacing.large
 
         // ======================= REWARDS =======================
         LogosText {
@@ -601,14 +634,14 @@ ScrollView {
                 spacing: Theme.spacing.small
 
                 LogosText {
-                    visible: root.claims.length === 0
+                    visible: root.filteredClaims.length === 0
                     text: qsTr("No claims yet.")
                     color: Theme.palette.textSecondary
                     font.pixelSize: Theme.typography.secondaryText
                 }
 
                 Repeater {
-                    model: root.claims
+                    model: root.filteredClaims
                     delegate: Rectangle {
                         id: claimRow
                         Layout.fillWidth: true
@@ -895,6 +928,8 @@ ScrollView {
                 }
             }
         }
+    }
+    }
     }
 
 }

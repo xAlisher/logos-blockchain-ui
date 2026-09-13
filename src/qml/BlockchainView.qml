@@ -1138,6 +1138,7 @@ Rectangle {
     // PREVIEW: per-epoch proposed count from our claims' slots. epoch_length is the
     // testnet constant (36000 slots); the node doesn't expose it on the 0.2.4 line (#61).
     readonly property int _proposedEpoch: {
+        if (!opPage.nodeRunning) return -1        // no current epoch while stopped → "—"
         var e = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
         if (isNaN(e)) return -1
         var cs = leaderRewardsView.claims, L = 36000, n = 0
@@ -1462,10 +1463,9 @@ Rectangle {
             // the Operations tab is open, fall back to the Node tab so the user
             // isn't stranded on a disabled tab.
             onNodeRunningChanged: {
-                // Only the node-gated tabs (Operations=3, Explorer=4) strand the
-                // user when the node stops; Node/Blocks/Proposals/Settings stay valid.
-                if (!nodeRunning && (operationTabBar.currentIndex === 3
-                                     || operationTabBar.currentIndex === 4))
+                // Only the node-gated tab (Operations=4) strands the user when the
+                // node stops; Node/Rewards/Blocks/Proposals/Settings stay valid.
+                if (!nodeRunning && operationTabBar.currentIndex === 4)
                     operationTabBar.currentIndex = 0
                 // A manual (re)start clears any cap auto-pause.
                 if (nodeRunning) root._autoPaused = false
@@ -1479,14 +1479,11 @@ Rectangle {
                     id: operationTabBar
                     spacing: Theme.spacing.large   // more room between the tabs
                     LogosTabButton { text: qsTr("Node") }
+                    LogosTabButton { text: qsTr("Rewards") }
                     LogosTabButton { text: qsTr("Blocks") }
                     LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
-                        text: qsTr("Operations")
-                        enabled: opPage.nodeRunning
-                    }
-                    LogosTabButton {
-                        text: qsTr("Explorer")
+                        text: qsTr("Wallet")
                         enabled: opPage.nodeRunning
                     }
                     // Settings is reachable before the node runs (configure first).
@@ -1494,130 +1491,49 @@ Rectangle {
                 }
                 Item { Layout.fillWidth: true }   // push node control + gear to the right
 
-                // Node run/stop — outlined pill with a white glyph, near settings.
-                // The reminder label nudges users to stop cleanly before closing
-                // Basecamp (a dirty shutdown is what forced the DB-recovery pain).
-                Rectangle {
-                    id: nodeCtlBtn
-                    Layout.alignment: Qt.AlignVCenter
-                    readonly property int st: root.backend ? root.backend.status : -1
-                    readonly property bool running: st === BlockchainBackend.Running
-                    // Disabled mid-transition so a second start can't fire (#18).
-                    readonly property bool busy: st === BlockchainBackend.Starting
-                                                 || st === BlockchainBackend.Stopping
-                    enabled: root.backend && !busy
-                    opacity: busy ? 0.5 : 1
-                    implicitHeight: 28
-                    implicitWidth: nodeCtlRow.implicitWidth + 22
-                    radius: 14
-                    color: nodeCtlM.pressed ? Qt.rgba(1, 1, 1, 0.10)
-                           : (nodeCtlM.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
-                    border.width: 1
-                    border.color: nodeCtlM.containsMouse ? Theme.palette.text : Theme.palette.border
-                    RowLayout {
-                        id: nodeCtlRow
-                        anchors.centerIn: parent
-                        spacing: Theme.spacing.small
-                        // white stop square (running) / play triangle (idle); none while busy
-                        Rectangle {
-                            visible: nodeCtlBtn.running
-                            Layout.alignment: Qt.AlignVCenter
-                            width: 9; height: 9; radius: 1
-                            color: Theme.palette.text
-                        }
-                        LogosText {
-                            visible: !nodeCtlBtn.running && !nodeCtlBtn.busy
-                            Layout.alignment: Qt.AlignVCenter
-                            text: "▶"
-                            color: Theme.palette.text
-                            font.pixelSize: 11
-                        }
-                        LogosText {
-                            text: nodeCtlBtn.st === BlockchainBackend.Starting ? qsTr("Starting…")
-                                  : nodeCtlBtn.st === BlockchainBackend.Stopping ? qsTr("Stopping…")
-                                  : nodeCtlBtn.running ? qsTr("Stop node before closing Basecamp")
-                                  : qsTr("Run node")
-                            color: Theme.palette.text
-                            font.pixelSize: Theme.typography.secondaryText
-                            font.weight: Theme.typography.weightMedium
-                        }
-                    }
-                    MouseArea {
-                        id: nodeCtlM
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (!root.backend || nodeCtlBtn.busy) return
-                            if (nodeCtlBtn.running) root.backend.stopBlockchain()
-                            else root.backend.startBlockchain()
-                        }
-                    }
-                }
+                // Header controls mirror the prototype: Fund (secondary) then the
+                // node Start/Stop (primary), plain LogosButtons with no glyphs. Fork
+                // labels kept (Start / Stop / Fund + transitional Starting…/Stopping…).
 
-                // Fund the node (auto-stake) — orange-accented CTA. Always visible;
-                // greyed + non-interactive until the node is Online (issue #22).
-                Rectangle {
+                // Fund the node (auto-stake). Enabled only once the node is Online and
+                // has an address (issue #22).
+                LogosButton {
                     id: fundBtn
                     Layout.alignment: Qt.AlignVCenter
                     readonly property bool online: root.backend
                         && root.backend.status === BlockchainBackend.Running
                     readonly property bool ready: online && root.backend
                         && (root.backend.primaryAddress || "").length > 0
+                    text: qsTr("Fund")
                     enabled: ready
-                    opacity: ready ? 1 : 0.4
-                    implicitHeight: 28
-                    implicitWidth: fundRow.implicitWidth + 22
-                    radius: 14
-                    readonly property color accent: Theme.palette.primaryHover
-                    color: fundM.pressed ? Qt.rgba(accent.r, accent.g, accent.b, 0.20)
-                           : (fundM.containsMouse && ready ? Qt.rgba(accent.r, accent.g, accent.b, 0.12)
-                                                           : "transparent")
-                    border.width: 1
-                    border.color: ready ? accent : Theme.palette.border
-                    ToolTip.visible: fundM.containsMouse && !fundBtn.ready
+                    onClicked: if (ready) fundDialog.open()
+                    ToolTip.visible: hovered && !fundBtn.ready
                     ToolTip.text: qsTr("Fund the node once it's online")
-                    RowLayout {
-                        id: fundRow
-                        anchors.centerIn: parent
-                        spacing: Theme.spacing.small
-                        LogosText {
-                            Layout.alignment: Qt.AlignVCenter
-                            text: "＋"
-                            color: fundBtn.ready ? fundBtn.accent : Theme.palette.textSecondary
-                            font.pixelSize: 14
-                            font.weight: Theme.typography.weightMedium
-                        }
-                        LogosText {
-                            text: qsTr("Fund the node")
-                            color: fundBtn.ready ? fundBtn.accent : Theme.palette.textSecondary
-                            font.pixelSize: Theme.typography.secondaryText
-                            font.weight: Theme.typography.weightMedium
-                        }
-                    }
-                    MouseArea {
-                        id: fundM
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: fundBtn.ready ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: if (fundBtn.ready) fundDialog.open()
+                }
+
+                // Node run/stop — primary CTA. Disabled mid-transition so a second
+                // start can't fire (#18). Stopping cleanly avoids the DB-recovery pain.
+                LogosButton {
+                    id: nodeCtlBtn
+                    Layout.alignment: Qt.AlignVCenter
+                    variant: LogosButton.Variant.Primary
+                    readonly property int st: root.backend ? root.backend.status : -1
+                    readonly property bool running: st === BlockchainBackend.Running
+                    readonly property bool busy: st === BlockchainBackend.Starting
+                                                 || st === BlockchainBackend.Stopping
+                    enabled: root.backend && !busy
+                    text: st === BlockchainBackend.Starting ? qsTr("Starting…")
+                          : st === BlockchainBackend.Stopping ? qsTr("Stopping…")
+                          : running ? qsTr("Stop")
+                          : qsTr("Start")
+                    onClicked: {
+                        if (!root.backend || nodeCtlBtn.busy) return
+                        if (nodeCtlBtn.running) root.backend.stopBlockchain()
+                        else root.backend.startBlockchain()
                     }
                 }
 
-                // Settings gear → the #12 settings modal (was a dead-end config page).
-                LogosText {
-                    Layout.alignment: Qt.AlignVCenter
-                    Layout.rightMargin: Theme.spacing.small
-                    text: "⚙"
-                    font.pixelSize: 18
-                    color: gearMouse.containsMouse ? Theme.palette.text : Theme.palette.textSecondary
-                    MouseArea {
-                        id: gearMouse
-                        anchors.fill: parent; anchors.margins: -6
-                        hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: settingsDialog.open()
-                    }
-                }
+                // (Settings gear removed — Settings is now its own top tab.)
             }
 
             StackLayout {
@@ -1644,19 +1560,21 @@ Rectangle {
                             ? root.cryptarchiaInfoError
                             : ((root.backend && root.backend.status === BlockchainBackend.Error)
                                 ? root.backend.lastErrorMessage : "")
-                        infoJson: root.cryptarchiaInfoJson
-                        timeInfoJson: root._dashTimeInfo(root.cryptarchiaInfoJson)
-                        peerId: root.peerId
+                        // Live chain/network/identity values are only meaningful while the
+                        // node is running — when it's stopped these go "—" instead of stale.
+                        infoJson: opPage.nodeRunning ? root.cryptarchiaInfoJson : ""
+                        timeInfoJson: opPage.nodeRunning ? root._dashTimeInfo(root.cryptarchiaInfoJson) : ""
+                        peerId: opPage.nodeRunning ? root.peerId : ""
                         blockModel: root.blockModel
 
                         // --- epoch / blend (#58) ---
-                        epoch: root._dashEpoch(root.cryptarchiaInfoJson)
+                        epoch: opPage.nodeRunning ? root._dashEpoch(root.cryptarchiaInfoJson) : "—"
                         epochProgress: ""                                  // no epoch_length from the node yet (#61)
-                        blendState: root._dashBlend(root.backend ? root.backend.blendStatus : 0)
+                        blendState: opPage.nodeRunning ? root._dashBlend(root.backend ? root.backend.blendStatus : 0) : "none"
 
                         // --- peers / connections (#62, real via curl bridge) ---
-                        peers: root.nodePeers >= 0 ? String(root.nodePeers) : "—"
-                        connections: root.nodeConnections >= 0
+                        peers: opPage.nodeRunning && root.nodePeers >= 0 ? String(root.nodePeers) : "—"
+                        connections: opPage.nodeRunning && root.nodeConnections >= 0
                             ? (root.nodeConnections + qsTr(" connections")) : ""
 
                         // PREVIEW: keep "—" (#61). getProposals() returns this node's CUMULATIVE
@@ -1682,6 +1600,9 @@ Rectangle {
                         earnedStr: root._earnedLepta > 0 ? Amounts.precise(root._earnedLepta) : "—"
                         feePct: leaderRewardsView.feePct >= 0
                             ? String(leaderRewardsView.feePct) : ""
+                        // voucher pipeline (live only): submitted = claims in flight, ready = claimable
+                        vouchersSubmitted: opPage.nodeRunning ? leaderRewardsView.claimingCount : -1
+                        vouchersReady: opPage.nodeRunning ? root.voucherCount : -1
 
                         // PREVIEW (#65/#66): CPU%/RAM sampled from the blockchain_module process
                         // in /proc by the backend (self-liquidates when the node exposes them).
@@ -1702,27 +1623,150 @@ Rectangle {
 
                 }
 
-                // ---- Tab 1: Blocks (promoted from a Node sub-tab to the main nav) ----
+                // ---- Tab 1: Rewards (leader-reward claims — promoted to its own tab) ----
+                        LeaderRewardsView {
+                            id: leaderRewardsView
+                            currentEpoch: opPage.nodeRunning ? parseInt(root._dashEpoch(root.cryptarchiaInfoJson)) : -1
+                            autoClaim: nodeSettings.rewardsAutoClaim   // persisted (survives restarts)
+                            vouchersJson: root.claimableVouchersJson
+                            claimsJson: root.claimsJson
+                            proposalsJson: root.proposalsJson
+                            // Gate the Claim button: a claim is a transaction and
+                            // must be paid for, so an empty wallet cannot claim.
+                            balance: {
+                                var n = Number(root.nodeBalance)
+                                return isNaN(n) ? -1 : n
+                            }
+
+                            onClearClaimsRequested: function() {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.clearLeaderClaims(),
+                                    function(result) { root.refreshLeaderClaims() },
+                                    function(error) { /* list stays; user can retry */ }
+                                )
+                            }
+
+                            onClaimLeaderRewardsRequested: function() {
+                                if (!root.backend) { leaderRewardsView.claimInFlight = false; return }
+                                logos.watch(
+                                    root.backend.claimLeaderRewards(),
+                                    function(result) {
+                                        leaderRewardsView.claimInFlight = false
+                                        if (result.success) {
+                                            leaderRewardsView.setLeaderClaimResult(result.value)
+                                        } else {
+                                            leaderRewardsView.setLeaderClaimResult(_d.errorText(result.error))
+                                        }
+                                        // The claimed voucher leaves the ready list, the
+                                        // new row enters the ledger, and the balance is
+                                        // the number that actually proves it worked —
+                                        // refresh all three, not just the first.
+                                        root.refreshClaimableVouchers()
+                                        root.refreshLeaderClaims()
+                                        // The leader key is the one a claim charges,
+                                        // so it is the balance that moves.
+                                        if (root.balanceKey.length > 0) {
+                                            logos.watch(
+                                                root.backend.getBalance(root.balanceKey),
+                                                function(r) {
+                                                    if (r.success && r.value !== undefined && r.value !== null)
+                                                        root.nodeBalance = String(r.value)
+                                                },
+                                                function(e) { /* keep last known */ }
+                                            )
+                                        }
+                                    },
+                                    function(error) {
+                                        leaderRewardsView.claimInFlight = false
+                                        leaderRewardsView.setLeaderClaimResult(_d.errorText(error))
+                                    }
+                                )
+                            }
+                            onCopyToClipboard: (text) => {
+                                root.copyText(text)
+                            }
+                        }
+
+                // ---- Tab 2: Blocks (block list + embedded explorer on top) ----
                 BlocksView {
+                    id: blocksView
                     blockModel: root.blockModel
                     myKey: root.backend ? (root.backend.primaryAddress || "") : ""
+                    currentEpoch: parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+                    nodeRunning: opPage.nodeRunning
                     onClearRequested: if (root.backend) root.backend.clearBlocks()
                     onCopyToClipboard: (text) => root.copyText(text)
-                }
 
-                // ---- Tab 2: Proposals (promoted from a Node sub-tab to the main nav) ----
-                ProposalsView {
-                    proposalsJson: root.proposalsJson
-                    voucherCount: root.voucherCount
-                    onCopyToClipboard: (text) => root.copyText(text)
-                    // jump to Operations (now tab 3) → the Leader Rewards pane (operationIndex 2)
-                    onOpenLeaderRewardsRequested: {
-                        operationTabBar.currentIndex = 3
-                        opPage.operationIndex = 2
+                    // Auto-detect the id kind. The node can't fetch a mined
+                    // transaction by hash (its tx store is mempool-only, pruned
+                    // ~10 min after inclusion), so resolve a tx in this order:
+                    //   1. loaded blocks — the blocks view already holds each
+                    //      tx and its id, so a copied tx id resolves locally;
+                    //   2. get_block — the id is a block header id;
+                    //   3. get_transaction — a still-pending mempool tx.
+                    onSearchRequested: function(id) {
+                        if (!root.backend) return
+
+                        // Every backend call is remoted through QtRO, so each
+                        // must be resolved via logos.watch (even the local scan,
+                        // whose search runs synchronously on the source side).
+
+                        // Step 1: scan the loaded blocks for the tx by its id.
+                        logos.watch(
+                            root.backend.findTransactionInBlocks(id),
+                            function(local) {
+                                if (local.success) {
+                                    blocksView.setTransactionResult(id, local.value, local.slot, local.blockId)
+                                    return
+                                }
+                                // Step 2: block by header id.
+                                logos.watch(
+                                    root.backend.getBlock(id),
+                                    function(blockResult) {
+                                        if (blockResult.success) {
+                                            blocksView.setBlockResult(id, blockResult.value)
+                                            return
+                                        }
+                                        // Step 3: pending transaction via the node.
+                                        logos.watch(
+                                            root.backend.getTransaction(id),
+                                            function(txResult) {
+                                                if (txResult.success)
+                                                    blocksView.setTransactionResult(id, txResult.value)
+                                                else
+                                                    blocksView.setNotFound(id)
+                                            },
+                                            function(error) { blocksView.setError(id, _d.errorText(error)) }
+                                        )
+                                    },
+                                    function(error) { blocksView.setError(id, _d.errorText(error)) }
+                                )
+                            },
+                            function(error) { blocksView.setError(id, _d.errorText(error)) }
+                        )
                     }
                 }
 
-                // ---- Tab 3: Wallet operations (sidebar nav + panels) ----
+                // ---- Tab 3: Proposals ----
+                ProposalsView {
+                    proposalsJson: root.proposalsJson
+                    voucherCount: root.voucherCount
+                    currentEpoch: parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+                    onClearRequested: {
+                        if (!root.backend) return
+                        logos.watch(root.backend.clearProposals(),
+                                    function(result) { root.refreshProposals() },
+                                    function(error) { /* keep list; user can retry */ })
+                    }
+                    onCopyToClipboard: (text) => root.copyText(text)
+                    // jump to the Rewards tab (now a top-level tab)
+                    onOpenLeaderRewardsRequested: {
+                        operationTabBar.currentIndex = 1   // Rewards is now its own top tab
+                    }
+                }
+
+                // ---- Tab 4: Wallet operations (Rewards moved out to its own tab) ----
                 // Anchor-based (not a Layout): StackLayout force-fills this Item,
                 // and anchors give the SplitView explicit geometry. The panels
                 // have ~zero implicit height, so a plain Layout would collapse
@@ -1739,8 +1783,7 @@ Rectangle {
 
                         NavItem { label: qsTr("Accounts"); index: 0; pinnable: true }
                         NavItem { label: qsTr("Transfer"); index: 1 }
-                        NavItem { label: qsTr("Leader Rewards"); index: 2 }
-                        NavItem { label: qsTr("Channel Deposit"); index: 3 }
+                        NavItem { label: qsTr("Channel Deposit"); index: 2 }
 
                         Item { Layout.fillHeight: true }
                     }
@@ -1804,7 +1847,7 @@ Rectangle {
                         }
 
                         // Transfer / Leader Rewards / Channel Deposit.
-                        // operationIndex 1,2,3 maps to stack index 0,1,2.
+                        // operationIndex 1,2 maps to stack index 0,1 (Transfer, Channel Deposit).
                         StackLayout {
                             id: otherOpsStack
                             SplitView.fillHeight: true
@@ -1828,69 +1871,6 @@ Rectangle {
                                         }
                                     },
                                     function(error) { transferView.setTransferResult(_d.errorText(error)) }
-                                )
-                            }
-                            onCopyToClipboard: (text) => {
-                                root.copyText(text)
-                            }
-                        }
-
-                        LeaderRewardsView {
-                            id: leaderRewardsView
-                            autoClaim: nodeSettings.rewardsAutoClaim   // persisted (survives restarts)
-                            vouchersJson: root.claimableVouchersJson
-                            claimsJson: root.claimsJson
-                            proposalsJson: root.proposalsJson
-                            // Gate the Claim button: a claim is a transaction and
-                            // must be paid for, so an empty wallet cannot claim.
-                            balance: {
-                                var n = Number(root.nodeBalance)
-                                return isNaN(n) ? -1 : n
-                            }
-
-                            onClearClaimsRequested: function() {
-                                if (!root.backend) return
-                                logos.watch(
-                                    root.backend.clearLeaderClaims(),
-                                    function(result) { root.refreshLeaderClaims() },
-                                    function(error) { /* list stays; user can retry */ }
-                                )
-                            }
-
-                            onClaimLeaderRewardsRequested: function() {
-                                if (!root.backend) { leaderRewardsView.claimInFlight = false; return }
-                                logos.watch(
-                                    root.backend.claimLeaderRewards(),
-                                    function(result) {
-                                        leaderRewardsView.claimInFlight = false
-                                        if (result.success) {
-                                            leaderRewardsView.setLeaderClaimResult(result.value)
-                                        } else {
-                                            leaderRewardsView.setLeaderClaimResult(_d.errorText(result.error))
-                                        }
-                                        // The claimed voucher leaves the ready list, the
-                                        // new row enters the ledger, and the balance is
-                                        // the number that actually proves it worked —
-                                        // refresh all three, not just the first.
-                                        root.refreshClaimableVouchers()
-                                        root.refreshLeaderClaims()
-                                        // The leader key is the one a claim charges,
-                                        // so it is the balance that moves.
-                                        if (root.balanceKey.length > 0) {
-                                            logos.watch(
-                                                root.backend.getBalance(root.balanceKey),
-                                                function(r) {
-                                                    if (r.success && r.value !== undefined && r.value !== null)
-                                                        root.nodeBalance = String(r.value)
-                                                },
-                                                function(e) { /* keep last known */ }
-                                            )
-                                        }
-                                    },
-                                    function(error) {
-                                        leaderRewardsView.claimInFlight = false
-                                        leaderRewardsView.setLeaderClaimResult(_d.errorText(error))
-                                    }
                                 )
                             }
                             onCopyToClipboard: (text) => {
@@ -1937,62 +1917,6 @@ Rectangle {
                         }
                         }
                     }
-                }
-
-                // ---- Tab 4: Explorer (block / transaction lookup) ----
-                ExplorerView {
-                    id: explorerView
-                    nodeRunning: opPage.nodeRunning
-
-                    // Auto-detect the id kind. The node can't fetch a mined
-                    // transaction by hash (its tx store is mempool-only, pruned
-                    // ~10 min after inclusion), so resolve a tx in this order:
-                    //   1. loaded blocks — the blocks view already holds each
-                    //      tx and its id, so a copied tx id resolves locally;
-                    //   2. get_block — the id is a block header id;
-                    //   3. get_transaction — a still-pending mempool tx.
-                    onSearchRequested: function(id) {
-                        if (!root.backend) return
-
-                        // Every backend call is remoted through QtRO, so each
-                        // must be resolved via logos.watch (even the local scan,
-                        // whose search runs synchronously on the source side).
-
-                        // Step 1: scan the loaded blocks for the tx by its id.
-                        logos.watch(
-                            root.backend.findTransactionInBlocks(id),
-                            function(local) {
-                                if (local.success) {
-                                    explorerView.setTransactionResult(id, local.value, local.slot, local.blockId)
-                                    return
-                                }
-                                // Step 2: block by header id.
-                                logos.watch(
-                                    root.backend.getBlock(id),
-                                    function(blockResult) {
-                                        if (blockResult.success) {
-                                            explorerView.setBlockResult(id, blockResult.value)
-                                            return
-                                        }
-                                        // Step 3: pending transaction via the node.
-                                        logos.watch(
-                                            root.backend.getTransaction(id),
-                                            function(txResult) {
-                                                if (txResult.success)
-                                                    explorerView.setTransactionResult(id, txResult.value)
-                                                else
-                                                    explorerView.setNotFound(id)
-                                            },
-                                            function(error) { explorerView.setError(id, _d.errorText(error)) }
-                                        )
-                                    },
-                                    function(error) { explorerView.setError(id, _d.errorText(error)) }
-                                )
-                            },
-                            function(error) { explorerView.setError(id, _d.errorText(error)) }
-                        )
-                    }
-                    onCopyToClipboard: (text) => root.copyText(text)
                 }
 
                 // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----

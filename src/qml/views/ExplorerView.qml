@@ -36,6 +36,11 @@ ColumnLayout {
     property string txSlot: ""
     property string txBlockId: ""
 
+    // True when a lookup produced something to show (result or a not-found/error).
+    // The host page (Blocks) shows the block list instead when this is false.
+    readonly property bool hasResult: kind === "block" || kind === "transaction"
+                                      || kind === "notfound" || kind === "error"
+
     // Parsed block fields (populated when kind === "block").
     property var block: null
 
@@ -190,6 +195,20 @@ ColumnLayout {
                     Connections {
                         target: idField.textInput
                         function onAccepted() { root.doSearch() }
+                    }
+
+                    // ✕ clear — clears the field AND the result, returning to the block list.
+                    LogosText {
+                        visible: idField.text.length > 0 || root.hasResult
+                        anchors.right: parent.right; anchors.rightMargin: Theme.spacing.small
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "✕"; font.pixelSize: 13
+                        color: clearMa.containsMouse ? Theme.palette.text : Theme.palette.textSecondary
+                        MouseArea {
+                            id: clearMa; anchors.fill: parent; anchors.margins: -6
+                            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: { idField.text = ""; root._reset() }
+                        }
                     }
                 }
 
@@ -439,8 +458,13 @@ ColumnLayout {
         }
     }
 
+    // Absorb the slack in the not-found / error case (the result ScrollView is
+    // hidden then, so nothing else has fillHeight) — this keeps the search bar
+    // pinned to the top instead of the layout centring it. For a block/tx result
+    // the ScrollView above is the fillHeight child, so this stays collapsed.
     Item {
+        Layout.fillWidth: true
         Layout.fillHeight: true
-        visible: root.kind === "" || root.kind === "notfound" || root.kind === "error"
+        visible: root.kind === "notfound" || root.kind === "error"
     }
 }

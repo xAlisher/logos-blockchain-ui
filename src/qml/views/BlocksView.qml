@@ -7,56 +7,108 @@ import Logos.Controls
 
 import "../controls"
 
-// Structured view of recent blocks (BlockModel). Newest block is at the top;
-// only the latest 100 are retained by the model.
+// Blocks page. A block/transaction explorer sits on top (spanning both columns);
+// searching shows the result there, and clearing it (the ✕ in the field) returns
+// to the block list below: an epoch sidebar + the recent blocks, grouped by epoch
+// under "All epochs" and filtered to one epoch otherwise.
 Control {
     id: root
 
-    // --- Public API ---
     required property var blockModel
-    property string myKey: ""   // node's own leader key → highlight our blocks (#3)
+    property string myKey: ""       // node's own leader key → highlight our blocks (#3)
+    property int currentEpoch: -1   // chain's current epoch (sidebar marks it)
+    property bool nodeRunning: false
 
     signal clearRequested()
     signal copyToClipboard(string text)
+    signal searchRequested(string id)   // host orchestrates the block/tx lookup
 
-    background: Rectangle {
-        color: Theme.palette.background
+    // Host feeds explorer results back through these (delegated to the embedded view).
+    function setBlockResult(id, v) { explorer.setBlockResult(id, v) }
+    function setTransactionResult(id, v, s, b) { explorer.setTransactionResult(id, v, s, b) }
+    function setNotFound(id) { explorer.setNotFound(id) }
+    function setError(id, m) { explorer.setError(id, m) }
+
+    background: Rectangle { color: Theme.palette.background }
+
+    // Epochs present in the (remoted) model — delegates read the `epoch` role.
+    Instantiator {
+        id: epochCollector
+        model: root.blockModel
+        delegate: QtObject { property int e: (model.epoch !== undefined ? model.epoch : -1) }
+        property var epochs: []
+        function rebuild() {
+            var seen = ({}), list = []
+            for (var i = 0; i < count; i++) { var o = objectAt(i); var e = o ? o.e : -1; if (e >= 0 && !seen[e]) { seen[e] = 1; list.push(e) } }
+            list.sort(function(a, b) { return b - a }); epochs = list
+        }
+        onCountChanged: rebuild()
+        onObjectAdded: rebuild()
+        onObjectRemoved: rebuild()
     }
 
     ColumnLayout {
         anchors.fill: parent
         anchors.topMargin: Theme.spacing.small
-        spacing: Theme.spacing.medium
+        spacing: Theme.spacing.large
 
-        // Block list (the "Blocks" tab label is header enough)
-        Rectangle {
+        // Explorer on top (both columns). Fills only when it has a result to show.
+        ExplorerView {
+            id: explorer
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            color: Theme.palette.backgroundSecondary
-            radius: Theme.spacing.radiusLarge
-            border.width: 0
+            Layout.fillHeight: explorer.hasResult
+            nodeRunning: root.nodeRunning
+            onSearchRequested: (id) => root.searchRequested(id)
+            onCopyToClipboard: (t) => root.copyToClipboard(t)
+        }
 
-            ListView {
-                id: blocksListView
-                anchors.fill: parent
-                anchors.margins: Theme.spacing.small
-                clip: true
-                model: root.blockModel
-                spacing: Theme.spacing.small
+        // Block list (epoch sidebar + list) — shown when there's no explorer result.
+        RowLayout {
+            visible: !explorer.hasResult
+            Layout.fillWidth: true; Layout.fillHeight: true
+            spacing: Theme.spacing.large
 
-                delegate: BlockDelegate {
-                    myKey: root.myKey
-                    onCopyToClipboard: (text) => root.copyToClipboard(text)
-                }
+            EpochNav {
+                id: epochNav
+                Layout.fillHeight: true
+                epochs: epochCollector.epochs
+                currentEpoch: root.currentEpoch
+            }
 
-                LogosText {
-                    // ListView's `count` has a NOTIFY signal, unlike the remoted
-                    // model's own count property — use it for the empty state.
-                    visible: blocksListView.count === 0
-                    anchors.centerIn: parent
-                    text: qsTr("No blocks yet...")
-                    font.pixelSize: Theme.typography.secondaryText
-                    color: Theme.palette.textSecondary
+            Rectangle {
+                Layout.fillWidth: true; Layout.fillHeight: true
+                color: Theme.palette.backgroundSecondary; radius: Theme.spacing.radiusLarge; border.width: 0
+
+                ListView {
+                    id: blocksListView
+                    anchors.fill: parent; anchors.margins: Theme.spacing.small
+                    clip: true; spacing: Theme.spacing.small
+                    model: root.blockModel
+
+                    section.property: epochNav.selected === -1 ? "epoch" : ""
+                    section.delegate: Rectangle {
+                        width: blocksListView.width; height: 26; color: "transparent"
+                        LogosText {
+                            anchors.left: parent.left; anchors.leftMargin: Theme.spacing.small
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("Epoch %1").arg(section)
+                            color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold
+                        }
+                        Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
+                    }
+
+                    delegate: BlockDelegate {
+                        myKey: root.myKey
+                        collapsed: epochNav.selected !== -1 && (model.epoch === undefined || model.epoch !== epochNav.selected)
+                        onCopyToClipboard: (text) => root.copyToClipboard(text)
+                    }
+
+                    LogosText {
+                        visible: blocksListView.count === 0
+                        anchors.centerIn: parent
+                        text: qsTr("No blocks yet...")
+                        font.pixelSize: Theme.typography.secondaryText; color: Theme.palette.textSecondary
+                    }
                 }
             }
         }

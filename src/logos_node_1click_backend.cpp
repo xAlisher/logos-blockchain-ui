@@ -2116,6 +2116,30 @@ QVariantMap LogosNode1clickBackend::clearLeaderClaims()
     return res;
 }
 
+// Clear the persisted proposals history (the durable proposals-history.json). Used by
+// the Proposals "Clear" button and on reset/regenerate (a fresh chain or identity makes
+// the old proposals stale). A subsequent getProposals() log scan repopulates only
+// current-chain proposals (and after a chain reset the logs are gone too).
+QVariantMap LogosNode1clickBackend::clearProposals()
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("No config loaded.")));
+    const QString path = QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("proposals-history.json"));
+    int removed = 0;
+    QFile f(path);
+    if (f.exists() && f.open(QIODevice::ReadOnly)) {
+        const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+        f.close();
+        if (doc.isArray()) removed = doc.array().size();
+    }
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QJsonDocument(QJsonArray()).toJson(QJsonDocument::Compact));
+        f.close();
+    }
+    return result::toVariantMap(LogosResult{true, QVariant(QString::number(removed)), QVariant()});
+}
+
 // Blocks THIS node proposed, parsed from the node's own log. Cryptarchia leadership
 // is private (each block's leader_key is per-note-derived, not a stable identity), so
 // an on-chain leader_key match can't identify our blocks — but the node LOGS every block
@@ -2571,6 +2595,10 @@ QVariantMap LogosNode1clickBackend::resetChainState()
         return result::toVariantMap(result::err(
             QStringLiteral("Could not remove: %1").arg(failed.join(", "))));
 
+    // A reset re-IBDs from genesis; the old proposals/claims history is stale → clear it.
+    QFile::remove(dir.filePath(QStringLiteral("proposals-history.json")));
+    QFile::remove(dir.filePath(QStringLiteral("claims-history.json")));
+
     setStatus(NotStarted);
     return result::toVariantMap(
         LogosResult{true, QVariant(removed.join(", ")), QVariant()});
@@ -2624,6 +2652,9 @@ QVariantMap LogosNode1clickBackend::regenerateNodeKeys()
         return result::toVariantMap(result::err(QStringLiteral("Could not back up the keystore — aborting.")));
     if (!QFile::remove(keystore))
         return result::toVariantMap(result::err(QStringLiteral("Backed up but could not remove the old keystore.")));
+    // New identity → the old proposals/claims history no longer belongs to this node.
+    QFile::remove(dir.filePath(QStringLiteral("proposals-history.json")));
+    QFile::remove(dir.filePath(QStringLiteral("claims-history.json")));
     setStatus(NotStarted);
     return result::toVariantMap(LogosResult{true, QVariant(backup), QVariant()});
 }
