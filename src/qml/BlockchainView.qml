@@ -12,6 +12,7 @@ import Logos.Controls
 import Logos.BlockchainBackend 1.0
 
 import "views"
+import "amounts.js" as Amounts
 
 Rectangle {
     id: root
@@ -1120,6 +1121,32 @@ Rectangle {
     // chain (docs/VOUCHER-STATE-MAP.md). NOT refreshed per block like the vouchers —
     // each call advances a bounded chain scan, so it runs on its own slower timer.
     property string claimsJson: ""
+    // Real 0.2.4 lifecycle signals from our leader claims (no /leader/aged-notes API):
+    // led a block → Proposing; a reward credited → Earning; per-epoch proposed count.
+    readonly property bool _hasLed: leaderRewardsView.claims.length > 0
+                                  || leaderRewardsView.vouchers.length > 0
+                                  || leaderRewardsView.blocksLed > 0
+    readonly property real _earnedLepta: {
+        var cs = leaderRewardsView.claims, t = 0
+        for (var i = 0; i < cs.length; ++i) {
+            var c = cs[i]
+            if (c && Number(c.reward) > 0 && (c.status === "settled" || c.status === "in_block"))
+                t += Number(c.reward) - Number(c.fee || 0)   // NET earned — what actually lands in the balance (matches the stake increment); fee % shown in the sub
+        }
+        return t
+    }
+    // PREVIEW: per-epoch proposed count from our claims' slots. epoch_length is the
+    // testnet constant (36000 slots); the node doesn't expose it on the 0.2.4 line (#61).
+    readonly property int _proposedEpoch: {
+        var e = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+        if (isNaN(e)) return -1
+        var cs = leaderRewardsView.claims, L = 36000, n = 0
+        for (var i = 0; i < cs.length; ++i) {
+            var sl = cs[i] ? Number(cs[i].slot) : NaN
+            if (!isNaN(sl) && Math.floor(sl / L) === e) n++
+        }
+        return n
+    }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
@@ -1636,22 +1663,23 @@ Rectangle {
                         // log proposals with no per-entry epoch/slot to filter on, so any count here is
                         // misleading — it showed 500 before sync even finished. Needs a real
                         // current-epoch proposed count from the node. The full list is the Proposals tab.
-                        proposed: "—"
-                        validation: ""
+                        proposed: root._proposedEpoch >= 0 ? String(root._proposedEpoch) : "—"
+                        validation: root._hasLed ? "active" : ""
                         epochsToActivate: 0
 
                         // --- funding / stake (faucet line — no mining on 0.2.4) ---
                         funded: root.nodeBalance !== "—" && root.nodeBalance !== "0" && root.nodeBalance !== ""
-                        // The chain's raw balance IS LGO (amounts.js: no sub-unit) — just label it.
-                        stakeStr: (root.nodeBalance !== "—" && root.nodeBalance !== "") ? (root.nodeBalance + " LGO") : "—"
+                        // raw balance is lepta (amounts.js: decimals=9) — convert to LGO.
+                        stakeStr: (root.nodeBalance !== "—" && root.nodeBalance !== "") ? Amounts.precise(root.nodeBalance) : "—"
                         foundingAddr: root.balanceKey
                         empoweringActive: false
                         empoweringMined: -1
                         empoweringTarget: -1
 
                         // --- rewards (real, from getLeaderClaims summary) ---
-                        earnedStr: leaderRewardsView.summary
-                            ? leaderRewardsView.fmtLgo(leaderRewardsView.summary.claimed) : "—"
+                        // cumulative reward that has landed (credited to balance), full lepta
+                        // precision so a micro-LGO reward stays visible.
+                        earnedStr: root._earnedLepta > 0 ? Amounts.precise(root._earnedLepta) : "—"
                         feePct: leaderRewardsView.feePct >= 0
                             ? String(leaderRewardsView.feePct) : ""
 

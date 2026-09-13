@@ -134,15 +134,17 @@ ScrollView {
 
     // Reward per claim is read from ledger state at execution and CAN change, so
     // the pool's value is an estimate from the most recent settled claim.
+    // Most recent LANDED claim (in a block, settled or not) — the fee/reward are known
+    // once it's in_block, so the fee % shows without waiting for settlement.
     readonly property real lastReward: {
         for (var i = 0; i < claims.length; ++i)
-            if (claims[i].status === "settled" && claims[i].reward > 0)
+            if ((claims[i].status === "settled" || claims[i].status === "in_block") && claims[i].reward > 0)
                 return claims[i].reward
         return 0
     }
     readonly property real lastFee: {
         for (var i = 0; i < claims.length; ++i)
-            if (claims[i].status === "settled" && claims[i].fee > 0)
+            if ((claims[i].status === "settled" || claims[i].status === "in_block") && claims[i].fee > 0)
                 return claims[i].fee
         return 0
     }
@@ -226,9 +228,9 @@ ScrollView {
     }
 
     // Bare number — for counts and slot numbers, which have no unit.
-    function fmt(n) { return Amounts.plain(n) }
+    function fmt(n) { return Amounts.preciseNum(n) }
     // With the ticker — for amounts. See amounts.js: the raw u64 IS LGO.
-    function fmtLgo(n) { return Amounts.exact(n) }
+    function fmtLgo(n) { return Amounts.precise(n) }
 
     // Claim status → colour. NOTE: Theme.palette.orange does NOT exist on
     // DarkTheme (only overlayOrange does) — an undefined colour renders BLACK,
