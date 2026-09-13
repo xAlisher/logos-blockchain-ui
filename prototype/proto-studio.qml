@@ -5,6 +5,7 @@ import QtQuick.Controls as QQC
 import Logos.Theme
 import Logos.Controls
 import "../src/qml/views" as V
+import "../src/qml/amounts.js" as Amounts
 
 // Blockchain-node dashboard PROTOTYPE STUDIO.
 // Drives the REAL NodeDashboardView with mock state — no node, no backend — so
@@ -38,7 +39,7 @@ Window {
         property string validation: ""
         property int epochsToActivate: 0
         property int eligibleNoteCount: -1     // 0.3 /leader/aged-notes count; -1 unknown, 0 aging, >0 eligible
-        property string stake: "—"
+        property real stakeLepta: -1     // raw lepta (decimals=9); Amounts.short → LGO
         property string addr: ""
         // numeric knobs for the not-yet-built metrics; <0 / false ⇒ "—"/absent
         property int epochN: -1
@@ -69,7 +70,7 @@ Window {
         readonly property string cpuCap: cpuN >= 0 ? (cpuCapN >= 0 ? ("Cap: " + cpuCapN + "%") : qsTr("Cap not set")) : ""
         readonly property string ram: ramN >= 0 ? (ramN.toFixed(1) + "GB") : "—"
         readonly property string ramCap: ramN >= 0 ? (ramCapSet ? qsTr("Cap set") : qsTr("Cap not set")) : ""
-        readonly property string earned: earnedN >= 0 ? (win.fmtK(earnedN) + " LGO") : "—"
+        readonly property string earned: earnedN >= 0 ? Amounts.short(earnedN) : "—"   // earnedN = raw lepta
         readonly property string fee: feeN >= 0 ? (feeN + "%") : ""
         readonly property string uptime: upSecs >= 0 ? win.fmtHMS(upSecs) : ""
 
@@ -96,7 +97,7 @@ Window {
         st.validation = p.validation || ""
         st.epochsToActivate = p.epochsToActivate || 0
         st.eligibleNoteCount = ("eligibleNoteCount" in p) ? p.eligibleNoteCount : -1
-        st.stake = p.stake || "—"; st.addr = p.addr || ""
+        st.stakeLepta = ("stake" in p) ? p.stake : -1; st.addr = p.addr || ""
         st.epochN = ("epoch" in p) ? p.epoch : -1
         st.epochElapsed = ("epochElapsed" in p) ? p.epochElapsed : -1
         st.proposedN = ("proposed" in p) ? p.proposed : -1
@@ -125,15 +126,15 @@ Window {
         { key: "Funded — aging",          val: { status: 2, mode: "Online", tip: 150000, head: 150000, upSecs: 1 * 3600 + 12 * 60, peerId: win._peer,
                                                   funded: true,                       // wallet funded, notes aging; node reports 0 aged notes yet
                                                   proposed: 0, eligibleNoteCount: 0, epoch: 173, epochElapsed: 500,
-                                                  peers: 40, conn: 46, cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: "5T LGO", addr: "0x71bd…9e4a" } },
+                                                  peers: 40, conn: 46, cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
         { key: "Aged — eligible",         val: { status: 2, mode: "Online", tip: 150800, head: 150800, upSecs: 22 * 3600, peerId: win._peer,
                                                   funded: true, eligibleNoteCount: 3,  // aged into the snapshot; eligible to propose (not yet won a slot)
                                                   proposed: 0, epoch: 175, epochElapsed: 120,
-                                                  peers: 41, conn: 47, cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: "5T LGO", addr: "0x71bd…9e4a" } },
+                                                  peers: 41, conn: 47, cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
         { key: "Validating",              val: { status: 2, mode: "Online", tip: 151548, head: 151548, upSecs: 345 * 3600 + 43 * 60 + 23, peerId: win._peer, funded: true,
                                                   blend: "core", epoch: 174, epochElapsed: 372, proposed: 234, validation: "active", eligibleNoteCount: 5, peers: 83, conn: 87,
                                                   empowering: true, empoweringMined: 2500, empoweringTarget: 5000, cpu: 12, cpuCap: 30, ram: 1.4, ramCapSet: false,
-                                                  stake: "5T LGO", addr: "0x71bd…9e4a", earned: 1530, fee: 56 } },
+                                                  stake: 5000000000000, addr: "0x71bd…9e4a", earned: 1530000000000, fee: 56 } },
         { key: "Error",                   val: { status: 5, err: "Node error: connection refused (rpc :3000)" } }
     ]
 
@@ -312,7 +313,7 @@ Window {
                 funded: st.funded
                 cpu: st.cpu; cpuCap: st.cpuCap
                 ram: st.ram; ramCap: st.ramCap
-                stakeStr: st.stake; foundingAddr: st.addr
+                stakeStr: st.stakeLepta >= 0 ? Amounts.short(st.stakeLepta) : "—"; foundingAddr: st.addr
                 earnedStr: st.earned; feePct: st.fee
                 uptime: st.uptime
                 }
