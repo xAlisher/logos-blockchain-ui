@@ -70,7 +70,7 @@ Window {
         readonly property string cpuCap: cpuN >= 0 ? (cpuCapN >= 0 ? ("Cap: " + cpuCapN + "%") : qsTr("Cap not set")) : ""
         readonly property string ram: ramN >= 0 ? (ramN.toFixed(1) + "GB") : "—"
         readonly property string ramCap: ramN >= 0 ? (ramCapSet ? qsTr("Cap set") : qsTr("Cap not set")) : ""
-        readonly property string earned: earnedN >= 0 ? Amounts.short(earnedN) : "—"   // earnedN = raw lepta
+        readonly property string earned: earnedN >= 0 ? Amounts.precise(earnedN) : "—"   // earnedN = raw lepta; precise → tiny rewards visible
         readonly property string fee: feeN >= 0 ? (feeN + "%") : ""
         readonly property string uptime: upSecs >= 0 ? win.fmtHMS(upSecs) : ""
 
@@ -134,7 +134,7 @@ Window {
         { key: "Validating",              val: { status: 2, mode: "Online", tip: 151548, head: 151548, upSecs: 345 * 3600 + 43 * 60 + 23, peerId: win._peer, funded: true,
                                                   blend: "core", epoch: 174, epochElapsed: 372, proposed: 234, validation: "active", eligibleNoteCount: 5, peers: 83, conn: 87,
                                                   empowering: true, empoweringMined: 2500, empoweringTarget: 5000, cpu: 12, cpuCap: 30, ram: 1.4, ramCapSet: false,
-                                                  stake: 5000000000000, addr: "0x71bd…9e4a", earned: 1530000000000, fee: 56 } },
+                                                  stake: 5000000000000, addr: "0x71bd…9e4a", earned: 1530000234000, fee: 56 } },
         { key: "Error",                   val: { status: 5, err: "Node error: connection refused (rpc :3000)" } }
     ]
 

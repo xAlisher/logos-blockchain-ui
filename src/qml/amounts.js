@@ -30,6 +30,21 @@ function plain(rawLepta) { return _valid(rawLepta) ? _grouped(_lgo(rawLepta)) : 
 // Exact LGO with ticker — tooltips / wide fields.
 function exact(rawLepta) { return _valid(rawLepta) ? _grouped(_lgo(rawLepta)) + " " + TICKER : "—"; }
 
+// Exact LGO with FULL lepta precision (up to 9 decimals, trailing zeros trimmed),
+// so a tiny reward stays visible: 5000000234000 lepta → "5,000.000234 LGO".
+// String math on the raw u64 → no float precision loss on large balances.
+function precise(rawLepta) {
+    if (!_valid(rawLepta)) return "—";
+    var raw = String(rawLepta).trim();
+    var neg = raw.charAt(0) === '-';
+    var digits = (raw.replace(/[^0-9]/g, "").replace(/^0+/, "")) || "0";
+    while (digits.length < 10) digits = "0" + digits;         // >= 1 integer digit + 9 fractional
+    var intPart = digits.slice(0, digits.length - 9);
+    var frac = digits.slice(digits.length - 9).replace(/0+$/, "");   // trim trailing zeros
+    var intGrouped = Number(intPart).toLocaleString(Qt.locale(), 'f', 0);
+    return (neg ? "-" : "") + intGrouped + (frac.length ? "." + frac : "") + " " + TICKER;
+}
+
 // Abbreviated LGO with ticker, for narrow tiles. Below 1e6 LGO shown in full so
 // rewards/fees stay readable; only a large stake needs K/M/B/T shortening.
 function short(rawLepta) {
