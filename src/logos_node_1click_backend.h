@@ -103,6 +103,8 @@ protected:
     void onContextReady() override;
 
 private:
+    // Last-resort force stop: SIGKILL the module host on the node's HTTP port.
+    bool forceStopNode();
     // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).
     QVariantMap scanProposals(qint64 tailBytes);
     // Bounded retries for refreshAccounts(): the wallet can lag the API after a start.

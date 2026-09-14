@@ -492,9 +492,17 @@ Rectangle {
         onTriggered: root._fundDots = (root._fundDots + 1) % 4
     }
     function _fundDotStr() { return ["", ".", "..", "..."][root._fundDots] }
+    // Dashboard fund: primaryAddress (the backend also tops up the leader key).
     function _requestFunds() {
+        root._requestFundsFor(root.backend ? (root.backend.primaryAddress || "") : "")
+    }
+    // Fund a specific key. Onboarding passes the LEADER funding key so only that
+    // one key is funded (requestFaucetFunds skips its duplicate leader top-up when
+    // pk === leader) — the leader key is the one that actually stakes/proposes
+    // (verified on sneg + optiplex: only the leader key funded, both propose).
+    function _requestFundsFor(key) {
         if (!root.backend) return
-        var pk = (root.backend.primaryAddress || "").trim()
+        var pk = (key || "").trim()
         if (!pk.length) {
             root._fundStage = "error"
             root._fundResult = qsTr("No node key available yet — wait until the node is online.")
@@ -1183,6 +1191,25 @@ Rectangle {
         }
         return n
     }
+    // Net earned per epoch (lepta), from the claims ledger — for the dashboard's
+    // "Earned by epoch" chart. Sums (reward − fee) of settled/in_block claims,
+    // grouped by epoch (slot / 36000), ascending.
+    readonly property var _earnedByEpoch: {
+        var cs = leaderRewardsView.claims, L = 36000, m = ({})
+        for (var i = 0; i < cs.length; ++i) {
+            var c = cs[i]
+            if (!c || (c.status !== "settled" && c.status !== "in_block")) continue
+            var sl = Number(c.slot); if (isNaN(sl)) continue
+            var e = Math.floor(sl / L)
+            var net = Number(c.reward || 0) - Number(c.fee || 0)
+            if (isNaN(net)) net = 0
+            m[e] = (m[e] || 0) + net
+        }
+        var out = []
+        for (var k in m) out.push({ epoch: Number(k), lepta: m[k] })
+        out.sort(function(a, b) { return a.epoch - b.epoch })
+        return out
+    }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
@@ -1661,6 +1688,9 @@ Rectangle {
                         diskCap: nodeSettings.capsEnabled && nodeSettings.diskCap.length ? qsTr("Cap %1 GB").arg(nodeSettings.diskCap) : ""
                         uptime: ""
 
+                        // net earned per epoch, for the "Earned by epoch" chart
+                        earnedByEpoch: opPage.nodeRunning ? root._earnedByEpoch : []
+
                         // version footer defaults to Module v<moduleVersion> (0.2.21)
 
                         onCopyText: (text) => root.copyText(text)
@@ -2105,8 +2135,10 @@ Rectangle {
         OnboardingView {
             id: onboardingView
             defaultPeers: root.defaultBootstrapPeers.join("\n")
-            primaryAddress: root.backend ? (root.backend.primaryAddress || "") : ""
+            // The leader funding key is the one that stakes/proposes — fund + show it.
+            fundingKey: root.backend ? (root.backend.leaderKey || "") : ""
             nodeRunning: root.backend && root.backend.status === BlockchainBackend.Running
+            synced: root._nodeSynced
             fundStage: root._fundStage
             fundDetail: root._fundResult
 
@@ -2166,7 +2198,7 @@ Rectangle {
                 )
             }
 
-            onRequestFundsRequested: root._requestFunds()
+            onRequestFundsRequested: root._requestFundsFor(root.backend ? root.backend.leaderKey : "")
 
             // Start the node in the background (entering the Fund step) — no navigation.
             onStartNodeRequested: {

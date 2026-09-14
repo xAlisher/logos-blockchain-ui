@@ -91,13 +91,7 @@ var data = {
     },
     mining: {
         title: "Mining",
-        what: "The node's funding helper — acquiring the stake (notes) it needs before it can lead, i.e. getting to 'Funded'. Shown as progress toward a target, not a token total. It's a permissionless on-ramp to staking, not consensus proof-of-work — Cryptarchia is proof-of-stake.",
-        calc: "Percentage = min(100, round(mined / target × 100)), with 'mined / target LGO' beneath. No backend feeds this yet — shows —. Reaching the target marks the lifecycle stage 'Funded'.",
-        states: [
-            { label: "N%", meaning: "Progress toward the target while mining is running." },
-            { label: "—", meaning: "Not started." }
-        ],
-        docs: "https://docs.logos.co/blockchain/concepts/about-cryptarchia#leadership-election"
+        what: "Available in 0.3.0."
     },
     cpu: {
         title: "CPU",

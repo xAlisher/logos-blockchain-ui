@@ -2402,9 +2402,57 @@ void LogosNode1clickBackend::stopBlockchain()
         // written "stopped" at the top of this function — but that is incidental, and a
         // reconcile this important should not depend on a guard somewhere else noticing.
         setStatus(Stopped);
+    } else if (forceStopNode()) {
+        // Graceful stop didn't take. This is the wedged-node case: a node stuck in
+        // ProlongedBootstrap (peers can't serve its target block) leaves the module's
+        // "stop" RPC erroring/timing out while the node keeps running, so the button
+        // "does nothing". Last resort: SIGKILL the module host bound to the node's HTTP
+        // port. After this the module needs a Basecamp restart to run again, but the
+        // node IS stopped — which is what the user asked for.
+        qWarning() << "stopBlockchain: graceful stop failed (" << r.error.toString()
+                   << ") — force-killed the module host";
+        setStatus(Stopped);
     } else {
         setError(r.error.toString());
     }
+}
+
+// Last-resort force stop for a wedged node: find the process listening on the node's
+// HTTP port (the in-process blockchain_module host) and SIGKILL it. Returns true only
+// if it actually killed the module host (verified by cmdline), so a normal failure
+// still surfaces as an error rather than silently claiming success.
+bool LogosNode1clickBackend::forceStopNode()
+{
+    // Node HTTP port from the config's api.backend.listen_address; default 8080.
+    int port = 8080;
+    const QString cfg = userConfig();
+    if (!cfg.isEmpty()) {
+        QFile f(cfg);
+        if (f.open(QIODevice::ReadOnly)) {
+            const QString c = QString::fromUtf8(f.readAll());
+            f.close();
+            static const QRegularExpression re(QStringLiteral("listen_address:\\s*[0-9.]+:(\\d+)"));
+            const QRegularExpressionMatch m = re.match(c);
+            if (m.hasMatch()) port = m.captured(1).toInt();
+        }
+    }
+    // PID listening on that TCP port.
+    QProcess ss;
+    ss.start(QStringLiteral("bash"), {QStringLiteral("-lc"),
+        QStringLiteral("ss -H -ltnp 'sport = :%1' 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2").arg(port)});
+    if (!ss.waitForFinished(3000)) { ss.kill(); ss.waitForFinished(500); return false; }
+    bool ok = false;
+    const int pid = QString::fromUtf8(ss.readAllStandardOutput()).trimmed().toInt(&ok);
+    if (!ok || pid <= 1) return false;
+    // Safety gate: only kill if this really is the blockchain module host — never some
+    // unrelated process that happens to hold the port.
+    QFile cl(QStringLiteral("/proc/%1/cmdline").arg(pid));
+    if (!cl.open(QIODevice::ReadOnly)) return false;
+    const QString cmdline = QString::fromUtf8(cl.readAll()).replace(QChar('\0'), QChar(' '));
+    cl.close();
+    if (!cmdline.contains(QStringLiteral("blockchain_module"))) return false;
+    QProcess::execute(QStringLiteral("kill"), {QStringLiteral("-9"), QString::number(pid)});
+    return true;
 }
 
 void LogosNode1clickBackend::refreshAccounts()

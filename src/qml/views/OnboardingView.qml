@@ -37,8 +37,9 @@ Item {
     property bool   configReady: false          // host flips true once generate/set-existing succeeds
     property string configError: ""             // host sets on a generate failure
     property bool   configPending: false        // host sets while generateConfig is in flight
-    property string primaryAddress: ""          // backend.primaryAddress (funding key), when known
+    property string fundingKey: ""              // leader funding key (the one that stakes/proposes)
     property bool   nodeRunning: false
+    property bool   synced: false               // node caught up (Online) — fund only makes sense then
     // Faucet feedback, mirrored from the dashboard fund flow (BlockchainView._fundStage):
     // "" (idle) | "requesting" | "success" | "error".
     property string fundStage: ""
@@ -339,16 +340,16 @@ Item {
                                 text: qsTr("A node needs stake before it can propose blocks. On testnet you request test funds for your funding key; they auto-stake once the node processes them.")
                             }
                             LogosFrame {
-                                Layout.fillWidth: true; visible: root.primaryAddress.length > 0
+                                Layout.fillWidth: true; visible: root.fundingKey.length > 0
                                 backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
                                 contentItem: RowLayout {
                                     spacing: Theme.spacing.medium
                                     ColumnLayout {
                                         Layout.fillWidth: true; spacing: 0
-                                        LogosText { text: qsTr("Funding address"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                                        LogosText { text: root.primaryAddress; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                                        LogosText { text: qsTr("Funding key (leader)"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                                        LogosText { text: root.fundingKey; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
                                     }
-                                    BcCopyButton { onCopyText: root.copyToClipboard(root.primaryAddress) }
+                                    BcCopyButton { onCopyText: root.copyToClipboard(root.fundingKey) }
                                 }
                             }
                             RowLayout {
@@ -358,8 +359,10 @@ Item {
                                           : root.fundStage === "success" ? qsTr("Funds requested")
                                           : root.fundStage === "error" ? qsTr("Try again")
                                           : qsTr("Request test funds")
-                                    enabled: root.fundStage !== "requesting" && root.fundStage !== "success"
-                                             && root.primaryAddress.length > 0
+                                    // Only fundable once the node is synced (Online) — a request
+                                    // sent while bootstrapping just queues and looks like nothing.
+                                    enabled: root.synced && root.fundStage !== "requesting"
+                                             && root.fundStage !== "success" && root.fundingKey.length > 0
                                     onClicked: root.requestFundsRequested()
                                 }
                                 Item { Layout.fillWidth: true }
@@ -371,7 +374,8 @@ Item {
                                     if (root.fundStage === "requesting") return qsTr("Requesting testnet funds…")
                                     if (root.fundStage === "success") return qsTr("Funds requested successfully — they auto-stake shortly. You can continue.")
                                     if (root.fundStage === "error") return root.fundDetail
-                                    if (root.primaryAddress.length === 0) return qsTr("Waiting for the node to load its wallet…")
+                                    if (!root.synced) return qsTr("Waiting for the node to finish syncing before it can be funded…")
+                                    if (root.fundingKey.length === 0) return qsTr("Preparing your keys…")
                                     return ""
                                 }
                                 color: root.fundStage === "success" ? Theme.palette.success
