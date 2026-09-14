@@ -257,6 +257,10 @@ Item {
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
+    // Blend state is only meaningful once the node is Online (following the chain).
+    // While stopped / starting / replaying / bootstrapping, show "—" and no sub
+    // rather than a misleading "Not active · Proposals not mixed".
+    readonly property bool _blendKnown: status === BlockchainBackend.Running && sync.synced
     // While the node is Aging (funded, not yet eligible to propose — lane stage 2),
     // the Proposed card reflects that dedicated state instead of a bare "—".
     // Eligible once the node has aged/led a block; the per-epoch count (value) can be
@@ -561,7 +565,7 @@ Item {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Last claim fee: %1% of reward").arg(root.feePct) : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendKnown ? root._blend.label : "—"; sub: root._blendKnown ? root._blendSub : ""; accent: root._blendKnown ? root._blend.c : Theme.palette.text; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     // Vouchers — the two honest numbers the Rewards tab shows:

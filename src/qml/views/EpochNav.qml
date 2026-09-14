@@ -19,6 +19,7 @@ Item {
     // "All epochs" row. Leave `total` at -1 to hide counts entirely.
     property var counts: ({})
     property int total: -1
+    property bool bootstrapping: false   // hold the per-epoch list during IBD (it would churn 1,2,3…)
     function _countFor(e) {
         if (root.total < 0 || !root.counts) return -1
         var v = root.counts[e]
@@ -74,7 +75,10 @@ Item {
             ColumnLayout {
                 width: parent.width; spacing: 2
                 Repeater {
-                    model: root.epochs
+                    // While bootstrapping the model fills with IBD-replay blocks from
+                    // genesis, so the per-epoch list would churn 1,2,3…; hold it back
+                    // until the node is synced and the epochs are meaningful.
+                    model: root.bootstrapping ? [] : root.epochs
                     delegate: Row {
                         required property int index
                         required property var modelData
@@ -86,9 +90,9 @@ Item {
                     }
                 }
                 LogosText {
-                    visible: root.epochs.length === 0
+                    visible: root.bootstrapping || root.epochs.length === 0
                     Layout.fillWidth: true; Layout.margins: Theme.spacing.small
-                    text: qsTr("No epochs yet"); color: Theme.palette.textTertiary
+                    text: root.bootstrapping ? qsTr("Syncing…") : qsTr("No epochs yet"); color: Theme.palette.textTertiary
                     font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap
                 }
                 Item { Layout.fillHeight: true }
