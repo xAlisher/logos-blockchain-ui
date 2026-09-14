@@ -35,26 +35,25 @@ Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without*
 and renders **✓ Signed by xAlisher**:
 
 - **[`logos_node_1click v0.2.21`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.21)** —
-  **the verified feed.** Leader Rewards stops inferring and starts verifying: the explorer delivers
-  the only verdicts (**Paid** with recovered reward/fee, or **Failed** — gray, because a priced-out
-  claim is expected behavior; red is reserved for the rescan alarm), pool inference only ever says
-  *Confirming…*, and a claim seen at the chain tip shows **"In a block — finalizing (~N min)"** with
-  its reward before finality. The panel is buttonless: an epoch scheduler auto-claims in the tick
-  window (13/13 tick-window settles measured, vs mid-epoch claims priced out), with a watchdog and
-  a catch-up for apps closed at tick time. ≥2 verified-absent claims raise the stale-wallet-state
-  alarm with the operator remedy (`docs/RESCAN.md`); any recent landing vetoes it. Clear-log
-  archives instead of deleting. Module pin: **blockchain_module 0.2.3**, wall-clock via `/time/info`.
-  Previous: **v0.2.15** adopted phone claims + atomic ledger writes; **v0.2.14** made claim fees
-  resolve; **v0.2.13** rebuilt Leader Rewards (honest voucher states, permanent claims ledger).
+  **onboarding + honest dashboard.** In-app Welcome + Quick start / Advanced onboarding (wires the real
+  backend, funds the leader key, gates on synced). New **Earned by epoch** chart (shown after the first
+  earning). Rewards made honest: full-width Vouchers, *Ready to claim* / *Submitted*, info modals — and the
+  benign *"No claimable voucher found"* is no longer shown as an error. **Keystore backup** in Settings.
+  Explorer folded into **Blocks**; Operations → **Wallet**. Honest node states: real replay/bootstrap
+  progress, Stop works during bootstrap (force-kill fallback for wedged nodes), Blend shows "—" until
+  Online. CPU% normalized to the whole machine; faucet feedback parsed; unified buttons/cards + brighter
+  CTA orange; Mining info = "Available in 0.3.0." Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.20** verified feed (explorer verdicts, buttonless auto-claim); **v0.2.15** phone claims.
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
   https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos_node_1click-0.2.21-linux-amd64.lgx
 
-# macOS Apple Silicon / arm64 Linux — CI builds of the same commit (unsigned)
+# macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos-blockchain-ui-aarch64-darwin.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos_node_1click-0.2.21-darwin-arm64.lgx
+# (arm64 Linux is not built for v0.2.21 — arm-Linux users stay on v0.2.20 until an arm builder is added)
 
 lgpm install --file logos_node_1click.lgx
 ```
