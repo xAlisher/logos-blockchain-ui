@@ -12,6 +12,7 @@ import Logos.Controls
 import Logos.BlockchainBackend 1.0
 
 import "views"
+import "controls"
 import "amounts.js" as Amounts
 
 Rectangle {
@@ -1107,11 +1108,14 @@ Rectangle {
     // Blocks this node proposed, parsed from the node's own log (getProposals) — the
     // authoritative "my proposals" (leadership is private on-chain). Refreshed with vouchers.
     property string proposalsJson: ""
-    function refreshProposals() {
+    // `full` = thorough whole-file scan (scan-on-start / periodic), so a proposal
+    // early in a large on-disk log is captured before it rotates off (#88). The
+    // frequent per-block refresh uses the cheap 1 MiB-tail getProposals().
+    function refreshProposals(full) {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
         logos.watch(
-            root.backend.getProposals(),
+            full ? root.backend.getProposalsFull() : root.backend.getProposals(),
             function(result) { if (result.success) root.proposalsJson = result.value },
             function(error) { /* keep last known list on transient errors */ }
         )
@@ -1170,7 +1174,10 @@ Rectangle {
         interval: 20000; repeat: true; triggeredOnStart: true
         running: root.ready && root.backend
                  && root.backend.status === BlockchainBackend.Running
-        onTriggered: root.refreshLeaderClaims()
+        // Also re-scan proposals every 20s so an open-but-idle node (blocks not
+        // inserting) still captures new proposals well within the ~10h log
+        // retention, not only on a new-block insertion (#88).
+        onTriggered: { root.refreshLeaderClaims(); root.refreshProposals() }
     }
 
     // Epoch-scheduled auto-claim (#47). Claims fire in the first ~3 min after an
@@ -1270,7 +1277,7 @@ Rectangle {
         function onStatusChanged() {
             if (root.backend.status === BlockchainBackend.Running) {
                 root.refreshClaimableVouchers()
-                root.refreshProposals()
+                root.refreshProposals(true)   // thorough scan-on-start: capture on-disk history in full
             }
         }
     }
@@ -1499,13 +1506,13 @@ Rectangle {
                 }
                 Item { Layout.fillWidth: true }   // push node control + gear to the right
 
-                // Header controls mirror the prototype: Fund (secondary) then the
-                // node Start/Stop (primary), plain LogosButtons with no glyphs. Fork
-                // labels kept (Start / Stop / Fund + transitional Starting…/Stopping…).
+                // Header controls mirror the prototype, in SMALL sizes: Fund
+                // (small gray secondary) then Start/Stop (small orange primary).
+                // Fork labels kept (Start / Stop / Fund + Starting…/Stopping…).
 
                 // Fund the node (auto-stake). Enabled only once the node is Online and
                 // has an address (issue #22).
-                LogosButton {
+                GhostButton {
                     id: fundBtn
                     Layout.alignment: Qt.AlignVCenter
                     readonly property bool online: root.backend
@@ -1515,16 +1522,17 @@ Rectangle {
                     text: qsTr("Fund")
                     enabled: ready
                     onClicked: if (ready) fundDialog.open()
-                    ToolTip.visible: hovered && !fundBtn.ready
+                    ToolTip.visible: fundHover.hovered && !fundBtn.ready
                     ToolTip.text: qsTr("Fund the node once it's online")
+                    HoverHandler { id: fundHover }
                 }
 
-                // Node run/stop — primary CTA. Disabled mid-transition so a second
-                // start can't fire (#18). Stopping cleanly avoids the DB-recovery pain.
-                LogosButton {
+                // Node run/stop — small primary CTA. Disabled mid-transition so a
+                // second start can't fire (#18). Stopping cleanly avoids DB-recovery pain.
+                CtaButton {
                     id: nodeCtlBtn
+                    compact: true
                     Layout.alignment: Qt.AlignVCenter
-                    variant: LogosButton.Variant.Primary
                     readonly property int st: root.backend ? root.backend.status : -1
                     readonly property bool running: st === BlockchainBackend.Running
                     readonly property bool busy: st === BlockchainBackend.Starting
