@@ -18,6 +18,7 @@ Control {
     property string myKey: ""       // node's own leader key → highlight our blocks (#3)
     property int currentEpoch: -1   // chain's current epoch (sidebar marks it)
     property bool nodeRunning: false
+    property bool bootstrapping: false   // node running but not yet synced (IBD replay)
 
     signal clearRequested()
     signal copyToClipboard(string text)
@@ -73,6 +74,7 @@ Control {
                 Layout.fillHeight: true
                 epochs: epochCollector.epochs
                 currentEpoch: root.currentEpoch
+                bootstrapping: root.bootstrapping
             }
 
             Rectangle {
@@ -87,7 +89,8 @@ Control {
                     clip: true; spacing: Theme.spacing.small
                     model: root.blockModel
 
-                    section.property: epochNav.selected === -1 ? "epoch" : ""
+                    // No epoch grouping during IBD (headers would churn 0,1,2… as it replays).
+                    section.property: (root.bootstrapping || epochNav.selected !== -1) ? "" : "epoch"
                     section.delegate: Rectangle {
                         // Taller header: label + divider sit up top, leaving a gap
                         // below the divider before the first block card.

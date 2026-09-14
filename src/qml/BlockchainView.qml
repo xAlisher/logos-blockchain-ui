@@ -1157,6 +1157,17 @@ Rectangle {
     // Proposals tab (proposalsJson), with the identical epoch-from-time derivation
     // ProposalsView uses, so the dashboard tile and the Proposals list always
     // agree. (Previously counted claims-in-epoch, a different number.)
+    // Node is caught up when it reports mode/state "Online" (same signal the
+    // dashboard hero uses). Until then it is bootstrapping / replaying (IBD).
+    readonly property bool _nodeSynced: {
+        if (!opPage.nodeRunning) return false
+        var o
+        try { o = root.cryptarchiaInfoJson && root.cryptarchiaInfoJson.length ? JSON.parse(root.cryptarchiaInfoJson) : null }
+        catch (e) { return false }
+        if (!o) return false
+        var m = o.mode || o.state || (o.cryptarchia_info && o.cryptarchia_info.state) || ""
+        return String(m) === "Online"
+    }
     readonly property int _proposedEpoch: {
         if (!opPage.nodeRunning) return -1        // no current epoch while stopped → "—"
         var e = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
@@ -1539,24 +1550,27 @@ Rectangle {
                     HoverHandler { id: fundHover }
                 }
 
-                // Node run/stop — small primary CTA. Disabled mid-transition so a
-                // second start can't fire (#18). Stopping cleanly avoids DB-recovery pain.
+                // Node run/stop — small primary CTA. A bootstrapping node sits in
+                // Starting for a long time (the start RPC outlives IBD/recovery), so
+                // Stop must work then too — otherwise you can't abort a sync. Only the
+                // brief Stopping transition disables the button.
                 CtaButton {
                     id: nodeCtlBtn
                     compact: true
                     Layout.alignment: Qt.AlignVCenter
                     readonly property int st: root.backend ? root.backend.status : -1
                     readonly property bool running: st === BlockchainBackend.Running
-                    readonly property bool busy: st === BlockchainBackend.Starting
-                                                 || st === BlockchainBackend.Stopping
-                    enabled: root.backend && !busy
-                    text: st === BlockchainBackend.Starting ? qsTr("Starting…")
-                          : st === BlockchainBackend.Stopping ? qsTr("Stopping…")
-                          : running ? qsTr("Stop")
+                    readonly property bool starting: st === BlockchainBackend.Starting
+                    readonly property bool stopping: st === BlockchainBackend.Stopping
+                    // Live (running OR still starting/bootstrapping) → offer Stop.
+                    readonly property bool live: running || starting
+                    enabled: root.backend && !stopping
+                    text: stopping ? qsTr("Stopping…")
+                          : live ? qsTr("Stop")
                           : qsTr("Start")
                     onClicked: {
-                        if (!root.backend || nodeCtlBtn.busy) return
-                        if (nodeCtlBtn.running) root.backend.stopBlockchain()
+                        if (!root.backend || nodeCtlBtn.stopping) return
+                        if (nodeCtlBtn.live) root.backend.stopBlockchain()
                         else root.backend.startBlockchain()
                     }
                 }
@@ -1584,6 +1598,10 @@ Rectangle {
                         autoPauseReason: root._autoPauseReason
                         nodeRunning: opPage.nodeRunning
                         nodeRecovering: root.recoveryActive
+                        // Honest replay progress: the node logs only the TOTAL to replay
+                        // ("found N stored blocks"), no live count — so show the total.
+                        replayProgress: (root.recoveryActive && root.recoveryBlocks > 0)
+                            ? qsTr("Replaying %1 stored blocks…").arg(root.recoveryBlocks) : ""
                         lastErrorMessage: (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
                             ? root.cryptarchiaInfoError
                             : ((root.backend && root.backend.status === BlockchainBackend.Error)
@@ -1723,6 +1741,7 @@ Rectangle {
                     myKey: root.backend ? (root.backend.primaryAddress || "") : ""
                     currentEpoch: parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
                     nodeRunning: opPage.nodeRunning
+                    bootstrapping: opPage.nodeRunning && !root._nodeSynced
                     onClearRequested: if (root.backend) root.backend.clearBlocks()
                     onCopyToClipboard: (text) => root.copyText(text)
 
