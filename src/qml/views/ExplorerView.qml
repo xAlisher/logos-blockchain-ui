@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 import Logos.Theme
@@ -34,6 +35,11 @@ ColumnLayout {
     // the tx came from the node's mempool lookup).
     property string txSlot: ""
     property string txBlockId: ""
+
+    // True when a lookup produced something to show (result or a not-found/error).
+    // The host page (Blocks) shows the block list instead when this is false.
+    readonly property bool hasResult: kind === "block" || kind === "transaction"
+                                      || kind === "notfound" || kind === "error"
 
     // Parsed block fields (populated when kind === "block").
     property var block: null
@@ -143,14 +149,18 @@ ColumnLayout {
     spacing: Theme.spacing.large
 
     // ---- Search bar ----
-    LogosFrame {
+    Rectangle {
         Layout.fillWidth: true
-        padding: Theme.spacing.large
-        backgroundColor: Theme.palette.backgroundTertiary
+        Layout.preferredHeight: searchCol.implicitHeight + 2 * Theme.spacing.large
+        color: Theme.palette.backgroundTertiary
         radius: Theme.spacing.radiusLarge
 
-        contentItem: ColumnLayout {
+        ColumnLayout {
             id: searchCol
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.margins: Theme.spacing.large
             spacing: Theme.spacing.small
 
             RowLayout {
@@ -174,7 +184,7 @@ ColumnLayout {
                 LogosTextField {
                     id: idField
                     Layout.fillWidth: true
-                    Layout.preferredHeight: searchButton.implicitHeight
+                    Layout.preferredHeight: 30
                     placeholderText: qsTr("Block id or transaction hash (hex)")
                     enabled: root.nodeRunning && !root.busy
 
@@ -184,10 +194,25 @@ ColumnLayout {
                         target: idField.textInput
                         function onAccepted() { root.doSearch() }
                     }
+
+                    // ✕ clear — clears the field AND the result, returning to the block list.
+                    LogosText {
+                        visible: idField.text.length > 0 || root.hasResult
+                        anchors.right: parent.right; anchors.rightMargin: Theme.spacing.small
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "✕"; font.pixelSize: 13
+                        color: clearMa.containsMouse ? Theme.palette.text : Theme.palette.textSecondary
+                        MouseArea {
+                            id: clearMa; anchors.fill: parent; anchors.margins: -6
+                            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: { idField.text = ""; root._reset() }
+                        }
+                    }
                 }
 
-                LogosButton {
-                    id: searchButton
+                CtaButton {
+                    compact: true
+                    Layout.alignment: Qt.AlignVCenter
                     text: root.busy ? qsTr("…") : qsTr("Search")
                     enabled: root.nodeRunning && !root.busy && idField.text.trim().length > 0
                     onClicked: root.doSearch()
@@ -218,25 +243,31 @@ ColumnLayout {
     }
 
     // ---- Result area ----
-    LogosScrollView {
+    ScrollView {
         id: resultScroll
         Layout.fillWidth: true
         Layout.fillHeight: true
         visible: root.kind === "block" || root.kind === "transaction"
+        clip: true
 
         ColumnLayout {
             width: resultScroll.availableWidth
             spacing: Theme.spacing.large
 
             // ---- Block result ----
-            LogosFrame {
+            Rectangle {
                 Layout.fillWidth: true
                 visible: root.kind === "block"
-                padding: Theme.spacing.large
-                backgroundColor: Theme.palette.backgroundTertiary
+                Layout.preferredHeight: blockCol.implicitHeight + 2 * Theme.spacing.large
+                color: Theme.palette.backgroundTertiary
                 radius: Theme.spacing.radiusLarge
-                contentItem: ColumnLayout {
+
+                ColumnLayout {
                     id: blockCol
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: Theme.spacing.large
                     spacing: Theme.spacing.small
 
                     RowLayout {
@@ -254,26 +285,27 @@ ColumnLayout {
                             font.pixelSize: Theme.typography.secondaryText
                             color: Theme.palette.textSecondary
                         }
-                        LogosBadge {
+                        Rectangle {
                             visible: root.block && root.block.version.length > 0
-                            text: root.block ? root.block.version : ""
-                            backgroundColor: Theme.palette.backgroundSecondary
-                            borderColor: Theme.palette.border
-                            labelItem.color: Theme.palette.textSecondary
-                            labelItem.font.pixelSize: Theme.typography.secondaryText
+                            radius: Theme.spacing.radiusSmall
+                            color: Theme.palette.backgroundSecondary
+                            border.color: Theme.palette.border
+                            border.width: 1
+                            implicitWidth: verText.implicitWidth + 2 * Theme.spacing.small
+                            implicitHeight: verText.implicitHeight + Theme.spacing.tiny
+                            LogosText {
+                                id: verText
+                                anchors.centerIn: parent
+                                text: root.block ? root.block.version : ""
+                                font.pixelSize: Theme.typography.secondaryText
+                                color: Theme.palette.textSecondary
+                            }
                         }
                         Item { Layout.fillWidth: true }
-                        LogosCopyButton {
-                            id: copyBlockJson
-                            value: root.pretty(root.rawJson)
-                            // Not the attached QQC2 ToolTip: that renders Qt's
-                            // default styling and collides with this button's
-                            // own "Copied" LogosToolTip.
-                            LogosToolTip {
-                                text: qsTr("Copy raw block JSON")
-                                placement: LogosToolTip.Placement.Top
-                                visible: copyBlockJson.hovered && !copyBlockJson.recentlyCopied
-                            }
+                        BcCopyButton {
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Copy raw block JSON")
+                            onCopyText: root.copyToClipboard(root.pretty(root.rawJson))
                         }
                     }
 
@@ -355,15 +387,19 @@ ColumnLayout {
             }
 
             // ---- Transaction result ----
-            LogosFrame {
+            Rectangle {
                 Layout.fillWidth: true
                 visible: root.kind === "transaction"
-                padding: Theme.spacing.large
-                backgroundColor: Theme.palette.backgroundTertiary
+                Layout.preferredHeight: txCol.implicitHeight + 2 * Theme.spacing.large
+                color: Theme.palette.backgroundTertiary
                 radius: Theme.spacing.radiusLarge
 
-                contentItem: ColumnLayout {
+                ColumnLayout {
                     id: txCol
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: Theme.spacing.large
                     spacing: Theme.spacing.small
 
                     RowLayout {
@@ -381,14 +417,10 @@ ColumnLayout {
                             color: Theme.palette.textSecondary
                         }
                         Item { Layout.fillWidth: true }
-                        LogosCopyButton {
-                            id: copyTxJson
-                            value: root.pretty(root.rawJson)
-                            LogosToolTip {
-                                text: qsTr("Copy raw transaction JSON")
-                                placement: LogosToolTip.Placement.Top
-                                visible: copyTxJson.hovered && !copyTxJson.recentlyCopied
-                            }
+                        BcCopyButton {
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Copy raw transaction JSON")
+                            onCopyText: root.copyToClipboard(root.pretty(root.rawJson))
                         }
                     }
 
@@ -420,8 +452,13 @@ ColumnLayout {
         }
     }
 
+    // Absorb the slack in the not-found / error case (the result ScrollView is
+    // hidden then, so nothing else has fillHeight) — this keeps the search bar
+    // pinned to the top instead of the layout centring it. For a block/tx result
+    // the ScrollView above is the fillHeight child, so this stays collapsed.
     Item {
+        Layout.fillWidth: true
         Layout.fillHeight: true
-        visible: root.kind === "" || root.kind === "notfound" || root.kind === "error"
+        visible: root.kind === "notfound" || root.kind === "error"
     }
 }

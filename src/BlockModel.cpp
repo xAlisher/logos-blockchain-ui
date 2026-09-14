@@ -47,6 +47,10 @@ QVariant BlockModel::data(const QModelIndex& index, int role) const
     case TransactionsRole: return e.transactions;
     case RawJsonRole:      return e.rawJson;
     case ParsedRole:       return e.parsed;
+    case EpochRole: {      // floor(slot / epoch_length) for grouping; -1 if unknown
+        bool ok = false; const qlonglong s = e.slot.toLongLong(&ok);
+        return ok ? int(s / 36000) : -1;   // PREVIEW: epoch_length is the testnet const (#61)
+    }
     default:               return QVariant();
     }
 }
@@ -68,6 +72,7 @@ QHash<int, QByteArray> BlockModel::roleNames() const
     names[TransactionsRole] = "transactions";
     names[RawJsonRole]      = "rawJson";
     names[ParsedRole]       = "parsed";
+    names[EpochRole]        = "epoch";
     return names;
 }
 

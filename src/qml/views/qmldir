@@ -1,4 +1,11 @@
+module views
+NodeDashboardView 1.0 NodeDashboardView.qml
+FirstRunView 1.0 FirstRunView.qml
+StatusConfigView 1.0 StatusConfigView.qml
 BlocksView 1.0 BlocksView.qml
+ProposalsView 1.0 ProposalsView.qml
+CryptarchiaInfoView 1.0 CryptarchiaInfoView.qml
+NodeInfoView 1.0 NodeInfoView.qml
 AccountsView 1.0 AccountsView.qml
 TransferView 1.0 TransferView.qml
 LeaderRewardsView 1.0 LeaderRewardsView.qml
@@ -7,12 +14,12 @@ GenerateConfigView 1.0 GenerateConfigView.qml
 ConfigChoiceView 1.0 ConfigChoiceView.qml
 SetConfigPathView 1.0 SetConfigPathView.qml
 ChannelDepositView 1.0 ChannelDepositView.qml
+InfoModal 1.0 InfoModal.qml
+SettingsView 1.0 SettingsView.qml
+LegalDisclaimerModal 1.0 LegalDisclaimerModal.qml
 ChainStatsView 1.0 ChainStatsView.qml
+EmpoweringModal 1.0 EmpoweringModal.qml
+EpochNav 1.0 EpochNav.qml
 NodeOverviewView 1.0 NodeOverviewView.qml
 NodeStatusCard 1.0 NodeStatusCard.qml
 ValidatorStatusCard 1.0 ValidatorStatusCard.qml
-NodeDashboardView 1.0 NodeDashboardView.qml
-EmpoweringModal 1.0 EmpoweringModal.qml
-LegalDisclaimerModal 1.0 LegalDisclaimerModal.qml
-InfoModal 1.0 InfoModal.qml
-SettingsView 1.0 SettingsView.qml

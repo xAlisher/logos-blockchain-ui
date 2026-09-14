@@ -3,198 +3,146 @@ import QtQuick.Layouts
 
 import Logos.Theme
 import Logos.Controls
-import Logos.Icons
 
-// One row of the blocks table (BlockModel row), expandable in place.
-//   Collapsed: timestamp · slot · consensus version · tx count
+// Collapsible card for a single block (BlockModel row).
+//   Collapsed: timestamp · slot · version · tx count
 //   Expanded:  header hashes, proof-of-leadership group, transactions list
 // Unparsed payloads fall back to showing their raw text.
-//
-// Column widths are supplied by BlocksView so cells line up with its header.
 Rectangle {
     id: del
 
     signal copyToClipboard(string text)
 
-    // Column geometry, set by BlocksView so the row lines up with its header.
-    property int timestampWidth: 180
-    property int consensusWidth: 200
-    property int txsWidth: 180
-    property int chevronWidth: 42
-    property int rowPadding: 12
+    property bool expanded: false
+    property bool proofExpanded: false
 
-    QtObject {
-        id: d
+    // The transactions role is a QStringList; surface it for the Repeater.
+    readonly property var transactionsList: model.transactions || []
 
-        // Expansion state.
-        property bool expanded: false
-        property bool proofExpanded: false
+    // Roles read as `undefined` during the brief QtRO replica sync at node
+    // startup. Treat the fallback as active ONLY when the model says so
+    // explicitly (parsed === false); undefined means "still loading", not
+    // "unparsed" — otherwise freshly-arrived blocks flash as Unparsed.
+    readonly property bool isUnparsed: model.parsed === false
 
-        // Design: Table Row Cell [1.0] is 64px tall.
-        readonly property int summaryHeight: 64
+    // Node's own leader key → this block was proposed by *your* node (#3).
+    property string myKey: ""
+    readonly property bool isMine: myKey.length > 0 && (model.leaderKey || "") === myKey
 
-        // The transactions role is a QStringList; surface it for the Repeater.
-        readonly property var transactionsList: model.transactions || []
-
-        // Roles read as `undefined` during the brief QtRO replica sync at node
-        // startup. Treat the fallback as active ONLY when the model says so
-        // explicitly (parsed === false); undefined means "still loading", not
-        // "unparsed" — otherwise freshly-arrived blocks flash as Unparsed.
-        readonly property bool isUnparsed: model.parsed === false
-    }
+    // Collapse to zero height (used by the filtered Proposals view, #14).
+    property bool collapsed: false
 
     width: ListView.view ? ListView.view.width : implicitWidth
-    implicitHeight: col.implicitHeight
+    implicitHeight: col.implicitHeight + 2 * Theme.spacing.medium
+    visible: !collapsed
+    height: collapsed ? 0 : implicitHeight
+    clip: collapsed
 
-    // backgroundMuted is a 7% light overlay, so it lifts whatever surface the
-    // card provides. (Not surfaceInteractiveHover: that token only exists in
-    // logos-design-system's checkout, not in the revision this repo pins.)
-    color: rowHover.hovered ? Theme.palette.backgroundMuted : "transparent"
-
-    HoverHandler { id: rowHover }
-
-    // Row separator
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 1
-        color: Theme.palette.borderTertiaryMuted
-    }
+    color: del.isMine ? Qt.rgba(Theme.palette.success.r, Theme.palette.success.g,
+                                Theme.palette.success.b, 0.08)
+                      : Theme.palette.backgroundTertiary
+    radius: Theme.spacing.radiusMedium    // unified row-card radius (Blocks/Proposals/Rewards)
+    border.width: 0                       // no stroke around block cards (isMine kept via fill)
 
     ColumnLayout {
         id: col
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        spacing: 0
+        anchors.margins: Theme.spacing.medium
+        spacing: Theme.spacing.small
 
         // ---- Summary row (always visible, toggles expansion) ----
-        Item {
+        RowLayout {
             Layout.fillWidth: true
-            Layout.preferredHeight: d.summaryHeight
+            spacing: Theme.spacing.small
 
-            TapHandler { onTapped: d.expanded = !d.expanded }
+            LogosText {
+                text: del.expanded ? "▾" : "▸"
+                color: Theme.palette.textSecondary
+                font.pixelSize: Theme.typography.secondaryText
+            }
 
-            // Cells sit flush (design has no inter-column gap); each insets its
-            // own content by `rowPadding`, matching the header.
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
+            LogosText {
+                text: model.timestamp || ""
+                font.pixelSize: Theme.typography.secondaryText
+                font.bold: true
+            }
 
-                // Timestamp — design: Paragraph/Small, Inter 400 14px/20, #FFFFFF.
-                Item {
-                    Layout.preferredWidth: del.timestampWidth
-                    Layout.fillHeight: true
+            LogosText {
+                visible: !del.isUnparsed
+                text: qsTr("slot %1").arg(model.slot || qsTr("?"))
+                font.pixelSize: Theme.typography.secondaryText
+                color: Theme.palette.textSecondary
+            }
 
+            // "proposed by your node" badge — the payoff of funding/staking (#3).
+            Rectangle {
+                visible: del.isMine
+                Layout.alignment: Qt.AlignVCenter
+                implicitHeight: 18
+                implicitWidth: mineRow.implicitWidth + 12
+                radius: 9
+                color: Qt.rgba(Theme.palette.success.r, Theme.palette.success.g,
+                               Theme.palette.success.b, 0.18)
+                Row {
+                    id: mineRow
+                    anchors.centerIn: parent
+                    spacing: 3
                     LogosText {
-                        anchors.left: parent.left
-                        anchors.leftMargin: del.rowPadding
-                        anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: model.timestamp || ""
-                        color: Theme.palette.text
-                        font.pixelSize: Theme.typography.primaryText
-                        font.weight: Theme.typography.weightRegular
-                        elide: Text.ElideRight
+                        text: "◆"; color: Theme.palette.success; font.pixelSize: 9
                     }
-                }
-
-                // Block — design: Label/Medium, Inter 700 16px/24, #FFFFFF.
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-
                     LogosText {
-                        anchors.left: parent.left
-                        anchors.leftMargin: del.rowPadding
-                        anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: d.isUnparsed
-                              ? qsTr("Unparsed block")
-                              : qsTr("Slot %1").arg(model.slot || qsTr("?"))
-                        color: d.isUnparsed ? Theme.palette.warning : Theme.palette.text
-                        font.pixelSize: Theme.typography.subtitleText
-                        font.weight: Theme.typography.weightBold
-                        elide: Text.ElideRight
-                    }
-                }
-
-                // Consensus — the block header's `version` field (e.g. Bedrock).
-                Item {
-                    Layout.preferredWidth: del.consensusWidth
-                    Layout.fillHeight: true
-
-                    LogosBadge {
-                        anchors.left: parent.left
-                        anchors.leftMargin: del.rowPadding
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: !d.isUnparsed && (model.version || "").length > 0
-                        text: model.version || ""
-                        radius: Theme.spacing.radiusMedium
-                        backgroundColor: Theme.palette.backgroundButton
-                        borderColor: Theme.palette.borderHairline
-                        labelItem.color: Theme.palette.text
-                        labelItem.font.pixelSize: Theme.typography.primaryText
-                    }
-                }
-
-                // TXs — design: Label/Medium, Inter 700 16px/24. Blanked rather
-                // than hidden: RowLayout collapses invisible items, which would
-                // pull this row's chevron out of line with the rest.
-                Item {
-                    Layout.preferredWidth: del.txsWidth
-                    Layout.fillHeight: true
-
-                    LogosText {
-                        anchors.left: parent.left
-                        anchors.leftMargin: del.rowPadding
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: d.isUnparsed
-                              ? ""
-                              : (model.txCount !== undefined ? String(model.txCount) : "0")
-                        color: Theme.palette.text
-                        font.pixelSize: Theme.typography.subtitleText
-                        font.weight: Theme.typography.weightBold
-                    }
-                }
-
-                // Expand arrow — design's arrow-down-s-fill sits in a 32x32 box but
-                // its visible glyph measures 14x7, the same solid 2:1 triangle the
-                // design system already ships.
-                Item {
-                    Layout.preferredWidth: del.chevronWidth
-                    Layout.fillHeight: true
-
-                    Image {
-                        anchors.centerIn: parent
-                        // triangle_down.svg's glyph fills only ~41.7% of its
-                        // viewBox, so the image box must be ~2.4x the intended
-                        // glyph to land on the design's visible 14x7.
-                        width: 34
-                        height: 17
-                        source: LogosIcons.triangleDown
-                        sourceSize.width: 68
-                        sourceSize.height: 34
-                        fillMode: Image.PreserveAspectFit
-                        opacity: 0.55
-                        rotation: d.expanded ? 180 : 0
-
-                        Behavior on rotation {
-                            NumberAnimation { duration: 120 }
-                        }
+                        text: qsTr("your node"); color: Theme.palette.success
+                        font.pixelSize: Theme.typography.secondaryText
+                        font.weight: Theme.typography.weightMedium
                     }
                 }
             }
+
+            // Version badge
+            Rectangle {
+                visible: !del.isUnparsed && (model.version || "").length > 0
+                radius: Theme.spacing.radiusSmall
+                color: Theme.palette.backgroundSecondary
+                border.color: Theme.palette.border
+                border.width: 1
+                implicitWidth: versionText.implicitWidth + 2 * Theme.spacing.small
+                implicitHeight: versionText.implicitHeight + Theme.spacing.tiny
+                LogosText {
+                    id: versionText
+                    anchors.centerIn: parent
+                    text: model.version || ""
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
+                }
+            }
+
+            LogosText {
+                visible: del.isUnparsed
+                text: qsTr("Unparsed block")
+                font.pixelSize: Theme.typography.secondaryText
+                color: Theme.palette.warning
+            }
+
+            Item { Layout.fillWidth: true }
+
+            LogosText {
+                visible: !del.isUnparsed
+                text: qsTr("%1 tx").arg(model.txCount || 0)
+                font.pixelSize: Theme.typography.secondaryText
+                color: Theme.palette.textSecondary
+            }
+
+            TapHandler { onTapped: del.expanded = !del.expanded }
         }
 
         // ---- Expanded details ----
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.leftMargin: del.rowPadding
-            Layout.rightMargin: del.rowPadding
-            Layout.bottomMargin: d.expanded ? Theme.spacing.large : 0
-            visible: d.expanded
+            visible: del.expanded
             spacing: Theme.spacing.small
 
             Rectangle {
@@ -205,35 +153,35 @@ Rectangle {
 
             // Parsed: structured header
             HashRow {
-                label: qsTr("Parent block"); value: model.parentBlock || ""; visible: !d.isUnparsed
+                label: qsTr("Parent block"); value: model.parentBlock || ""; visible: !del.isUnparsed
                 onCopyRequested: (t) => del.copyToClipboard(t)
             }
             HashRow {
-                label: qsTr("Block root"); value: model.blockRoot || ""; visible: !d.isUnparsed
+                label: qsTr("Block root"); value: model.blockRoot || ""; visible: !del.isUnparsed
                 onCopyRequested: (t) => del.copyToClipboard(t)
             }
             HashRow {
-                label: qsTr("Signature"); value: model.signature || ""; visible: !d.isUnparsed
+                label: qsTr("Signature"); value: model.signature || ""; visible: !del.isUnparsed
                 onCopyRequested: (t) => del.copyToClipboard(t)
             }
 
             // Proof of leadership (collapsible sub-group)
             RowLayout {
                 Layout.fillWidth: true
-                visible: !d.isUnparsed
+                visible: !del.isUnparsed
                 spacing: Theme.spacing.small
                 LogosText {
-                    text: (d.proofExpanded ? "▾ " : "▸ ") + qsTr("Proof of leadership")
+                    text: (del.proofExpanded ? "▾ " : "▸ ") + qsTr("Proof of leadership")
                     font.pixelSize: Theme.typography.secondaryText
                     font.bold: true
                 }
                 Item { Layout.fillWidth: true }
-                TapHandler { onTapped: d.proofExpanded = !d.proofExpanded }
+                TapHandler { onTapped: del.proofExpanded = !del.proofExpanded }
             }
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.spacing.medium
-                visible: !d.isUnparsed && d.proofExpanded
+                visible: !del.isUnparsed && del.proofExpanded
                 spacing: Theme.spacing.small
                 HashRow { label: qsTr("Leader key"); value: model.leaderKey || ""; onCopyRequested: (t) => del.copyToClipboard(t) }
                 HashRow { label: qsTr("Entropy");    value: model.entropy || "";   onCopyRequested: (t) => del.copyToClipboard(t) }
@@ -243,18 +191,18 @@ Rectangle {
 
             // Transactions
             LogosText {
-                visible: !d.isUnparsed
+                visible: !del.isUnparsed
                 text: qsTr("Transactions (%1)").arg(model.txCount || 0)
                 font.pixelSize: Theme.typography.secondaryText
                 font.bold: true
             }
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: !d.isUnparsed
+                visible: !del.isUnparsed
                 spacing: Theme.spacing.small
 
                 Repeater {
-                    model: d.expanded ? d.transactionsList : []
+                    model: del.expanded ? del.transactionsList : []
                     delegate: TransactionDelegate {
                         required property int index
                         required property string modelData
@@ -276,7 +224,7 @@ Rectangle {
             // Unparsed: raw fallback
             RowLayout {
                 Layout.fillWidth: true
-                visible: d.isUnparsed
+                visible: del.isUnparsed
                 spacing: Theme.spacing.small
                 LogosText {
                     text: qsTr("Raw payload")
@@ -284,11 +232,11 @@ Rectangle {
                     font.bold: true
                 }
                 Item { Layout.fillWidth: true }
-                LogosCopyButton { value: model.rawJson || "" }
+                BcCopyButton { onCopyText: del.copyToClipboard(model.rawJson || "") }
             }
             JsonBlock {
                 Layout.fillWidth: true
-                visible: d.isUnparsed
+                visible: del.isUnparsed
                 json: model.rawJson || qsTr("(no payload)")
             }
         }

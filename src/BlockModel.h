@@ -31,6 +31,7 @@ public:
         TransactionsRole, // QStringList: prettified JSON per transaction
         RawJsonRole,      // prettified full block (or the raw payload on parse failure)
         ParsedRole,       // bool: false when the payload could not be parsed
+        EpochRole,        // int: floor(slot / epoch_length); -1 if slot unknown (for grouping)
     };
 
     explicit BlockModel(QObject* parent = nullptr) : QAbstractListModel(parent) {}

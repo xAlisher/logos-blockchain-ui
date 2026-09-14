@@ -102,20 +102,30 @@ var data = {
     cpu: {
         title: "CPU",
         what: "How much processor the node process is using on this machine.",
-        calc: "Requires OS-level process sampling; not wired in the 0.3 module yet — shows —. The sub shows the configured cap.",
+        calc: "Community preview: the app finds the blockchain_module process and samples /proc (utime+stime) every 2s. Real, until the node reports it directly.",
         states: [
-            { label: "NN%", meaning: "Current usage, with 'Cap: NN%' or 'Cap not set'." },
-            { label: "—", meaning: "Not sampled yet." }
+            { label: "NN%", meaning: "Current usage. A cap can be set in Settings → Hardware." },
+            { label: "—", meaning: "Node not running — nothing to sample." }
         ],
         docs: ""
     },
     ram: {
         title: "RAM",
         what: "How much memory the node process is using on this machine.",
-        calc: "Requires OS-level process sampling; not wired in the 0.3 module yet — shows —.",
+        calc: "Community preview: sampled from the node process's /proc VmRSS every 2s. Real, until the node reports it directly.",
         states: [
-            { label: "N.N GB", meaning: "Current usage, with the cap beneath." },
-            { label: "—", meaning: "Not sampled yet." }
+            { label: "N.N GB", meaning: "Current resident memory." },
+            { label: "—", meaning: "Node not running — nothing to sample." }
+        ],
+        docs: ""
+    },
+    disk: {
+        title: "Disk",
+        what: "How much disk the node's data directory (chain db, state, logs, config) occupies.",
+        calc: "Community preview: the app sums the node data-dir size every ~20s. Real, until the node reports it directly.",
+        states: [
+            { label: "N.N GB", meaning: "Current on-disk footprint. A cap can be set in Settings → Hardware." },
+            { label: "—", meaning: "Node not running / config not located." }
         ],
         docs: ""
     },
@@ -158,5 +168,72 @@ var data = {
             { label: "—", meaning: "Node hasn't reported yet." }
         ],
         docs: "https://docs.logos.co/blockchain/concepts/about-cryptarchia#fork-choice-rule"
+    }
+}
+
+// Rewards-tab (i) content — same shape as `data` above so the Rewards tab opens
+// the SAME structured InfoModal (what / calc / states / docs) as the dashboard.
+var rewards = {
+    readyToClaim: {
+        title: "Ready to claim",
+        what: "Leadership vouchers the wallet can prove and claim right now. Each block your node leads mints a voucher; claiming turns it into spendable balance (auto-claim does this at each epoch start).",
+        calc: "Counted from wallet_get_claimable_vouchers, which returns only the READY (available) set. The node's own reserved / in-flight vouchers are never sent to the UI, and a voucher the wallet cannot prove at the current tip is hidden until it can — so this can be lower than the number of blocks led.",
+        states: [
+            { label: "Number", meaning: "Vouchers claimable now — click the tile to inspect each one." },
+            { label: "0", meaning: "Nothing ready this moment (or all already claimed)." }
+        ],
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
+    submitted: {
+        title: "Submitted",
+        what: "Claims you have submitted that have not yet finalized on chain.",
+        calc: "Counted from this ledger (claims in flight). The node never sends the UI its own reserved-voucher list, so this is derived from what the app has submitted, not from node state.",
+        states: [
+            { label: "In a block", meaning: "Included at the tip, finalizing behind the last-immutable block." },
+            { label: "0", meaning: "Nothing in flight." }
+        ],
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
+    claimed: {
+        title: "Claimed",
+        what: "Total leader rewards you have claimed and that have settled to the wallet.",
+        calc: "Summed from the settled rows of the claims ledger below (net of the claim fee). Only blocks at or below the last-immutable block count as settled.",
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
+    unclaimed: {
+        title: "Unclaimed (estimate)",
+        what: "Value still on the table — vouchers ready to claim, valued at the most recent settled reward.",
+        calc: "vouchers ready × last settled reward. An ESTIMATE: the reward is read from ledger state when a claim executes and does move between claims (9,517 then 9,535 observed on this chain).",
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
+    costToClaim: {
+        title: "Cost to claim",
+        what: "What a single claim costs. A claim is itself a transaction, so it pays a fee — which is why an empty wallet cannot claim.",
+        calc: "The fee is the spent note minus its change. The block records only the note's id, so a claim whose note was spent before this ledger existed cannot be priced (shows 'not known yet').",
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
+    blocksLed: {
+        title: "Blocks led",
+        what: "Blocks this node proposed. Leadership is private on chain, so this is read from the node's own log.",
+        calc: "This is NOT the number of claimable vouchers: the wallet hides any voucher it cannot prove at the current tip, and the node exposes no way to list those — so blocks-led can exceed claimed + claimable and the difference cannot be explained from here.",
+        docs: "https://docs.logos.co/blockchain/concepts/about-cryptarchia#leadership-election"
+    },
+    lastClaim: {
+        title: "Last claim",
+        what: "When your most recent claim landed, and the reward it carried.",
+        calc: "Stamped by the chain scan on settle; an explorer-verdicted settle has no timestamp, so it falls back to the submission time.",
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
+    claims: {
+        title: "Claims",
+        what: "Every claim you have made, kept permanently. The rows say what happened; the summary above says how it is going.",
+        calc: "A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last-immutable block count as settled, so a chain reorg moves a claim back rather than un-settling it. A claim that is never included shows as Not included — nothing is consumed, the node releases its reservation and the voucher becomes claimable again.",
+        states: [
+            { label: "Submitted", meaning: "Sent, waiting to be included in a block." },
+            { label: "In a block", meaning: "Included at the tip, finalizing." },
+            { label: "Paid", meaning: "Settled below the last-immutable block." },
+            { label: "Not included", meaning: "Never landed — nothing consumed, voucher released." }
+        ],
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
     }
 }

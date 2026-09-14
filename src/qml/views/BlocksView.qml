@@ -7,152 +7,112 @@ import Logos.Controls
 
 import "../controls"
 
-// Structured view of recent blocks (BlockModel). Newest block is at the top;
-// only the latest 100 are retained by the model.
+// Blocks page. A block/transaction explorer sits on top (spanning both columns);
+// searching shows the result there, and clearing it (the ✕ in the field) returns
+// to the block list below: an epoch sidebar + the recent blocks, grouped by epoch
+// under "All epochs" and filtered to one epoch otherwise.
 Control {
     id: root
 
-    // --- Public API ---
     required property var blockModel
-    property string emptyText: qsTr("No blocks yet...")
+    property string myKey: ""       // node's own leader key → highlight our blocks (#3)
+    property int currentEpoch: -1   // chain's current epoch (sidebar marks it)
+    property bool nodeRunning: false
 
     signal clearRequested()
     signal copyToClipboard(string text)
+    signal searchRequested(string id)   // host orchestrates the block/tx lookup
 
-    property QtObject d: QtObject {
-        id: d
+    // Host feeds explorer results back through these (delegated to the embedded view).
+    function setBlockResult(id, v) { explorer.setBlockResult(id, v) }
+    function setTransactionResult(id, v, s, b) { explorer.setTransactionResult(id, v, s, b) }
+    function setNotFound(id) { explorer.setNotFound(id) }
+    function setError(id, m) { explorer.setError(id, m) }
 
-        readonly property int timestampWidth: 180
-        readonly property int consensusWidth: 200
-        readonly property int txsWidth: 180
-        readonly property int chevronWidth: 42
+    background: Rectangle { color: Theme.palette.background }
 
-        readonly property int cellPadding: 12
-        readonly property int headerHeight: 36
+    // Epochs present in the (remoted) model — delegates read the `epoch` role.
+    Instantiator {
+        id: epochCollector
+        model: root.blockModel
+        delegate: QtObject { property int e: (model.epoch !== undefined ? model.epoch : -1) }
+        property var epochs: []
+        function rebuild() {
+            var seen = ({}), list = []
+            for (var i = 0; i < count; i++) { var o = objectAt(i); var e = o ? o.e : -1; if (e >= 0 && !seen[e]) { seen[e] = 1; list.push(e) } }
+            list.sort(function(a, b) { return b - a }); epochs = list
+        }
+        onCountChanged: rebuild()
+        onObjectAdded: rebuild()
+        onObjectRemoved: rebuild()
     }
 
-    background: Rectangle {
-        color: Theme.palette.background
-    }
-
-    LogosFrame {
+    ColumnLayout {
         anchors.fill: parent
-        padding: Theme.spacing.large
-        backgroundColor: Theme.palette.surfaceRaised
-        borderColor: "transparent"
-        radius: Theme.spacing.radiusXlarge
+        anchors.topMargin: Theme.spacing.small
+        spacing: Theme.spacing.large
 
-        contentItem: ColumnLayout {
+        // Explorer on top (both columns). Fills only when it has a result to show.
+        ExplorerView {
+            id: explorer
+            Layout.fillWidth: true
+            Layout.fillHeight: explorer.hasResult
+            nodeRunning: root.nodeRunning
+            onSearchRequested: (id) => root.searchRequested(id)
+            onCopyToClipboard: (t) => root.copyToClipboard(t)
+        }
+
+        // Block list (epoch sidebar + list) — shown when there's no explorer result.
+        RowLayout {
+            visible: !explorer.hasResult
+            Layout.fillWidth: true; Layout.fillHeight: true
             spacing: Theme.spacing.large
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: false
-                Layout.preferredHeight: 40
-                spacing: Theme.spacing.large
-
-                Item {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: tabs.bottom
-                        height: tabs.indicatorHeight
-                        color: Theme.palette.borderTertiaryMuted
-                    }
-
-                    LogosTabBar {
-                        id: tabs
-                        anchors.left: parent.left
-                        anchors.leftMargin: 4
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: implicitWidth
-                        trackColor: "transparent"
-                        LogosTabButton {
-                            text: qsTr("Blocks")
-                            iconSource: Qt.resolvedUrl("../icons/blocks.svg")
-                        }
-                    }
-                }
-
-                LogosButton {
-                    text: qsTr("Clear")
-                    onClicked: root.clearRequested()
-                }
+            EpochNav {
+                id: epochNav
+                Layout.fillHeight: true
+                epochs: epochCollector.epochs
+                currentEpoch: root.currentEpoch
             }
 
-            // ---- Table ----
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                spacing: 0
+            Rectangle {
+                Layout.fillWidth: true; Layout.fillHeight: true
+                // Unified: transparent list surface — the row cards carry the visual
+                // weight, so no extra container fill or stroke behind them.
+                color: "transparent"; border.width: 0
 
-                // Header band — the only tinted surface inside the card.
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: d.headerHeight
-                    color: Theme.colors.getColor(Theme.palette.backgroundInset, 0.6)
-                    radius: Theme.spacing.radiusLarge
-
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: 0
-                        TableHeaderCell {
-                            Layout.preferredWidth: d.timestampWidth
-                            Layout.fillWidth: false
-                            leftInset: d.cellPadding
-                            text: qsTr("Timestamp")
-                        }
-                        TableHeaderCell {
-                            Layout.fillWidth: true
-                            leftInset: d.cellPadding
-                            text: qsTr("Block")
-                        }
-                        TableHeaderCell {
-                            Layout.preferredWidth: d.consensusWidth
-                            Layout.fillWidth: false
-                            leftInset: d.cellPadding
-                            text: qsTr("Consensus")
-                        }
-                        TableHeaderCell {
-                            Layout.preferredWidth: d.txsWidth
-                            Layout.fillWidth: false
-                            leftInset: d.cellPadding
-                            text: qsTr("TXs")
-                            sortable: false
-                        }
-                        Item { Layout.preferredWidth: d.chevronWidth }
-                    }
-                }
-
-                LogosListView {
+                ListView {
                     id: blocksListView
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    anchors.fill: parent
+                    clip: true; spacing: Theme.spacing.small
                     model: root.blockModel
-                    spacing: 0
-                    clip: true
+
+                    section.property: epochNav.selected === -1 ? "epoch" : ""
+                    section.delegate: Rectangle {
+                        // Taller header: label + divider sit up top, leaving a gap
+                        // below the divider before the first block card.
+                        width: blocksListView.width; height: 44; color: "transparent"
+                        LogosText {
+                            id: secLabel
+                            anchors.left: parent.left; anchors.leftMargin: Theme.spacing.small
+                            anchors.top: parent.top; anchors.topMargin: Theme.spacing.tiny
+                            text: qsTr("Epoch %1").arg(section)
+                            color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold
+                        }
+                        Rectangle { anchors.top: secLabel.bottom; anchors.topMargin: Theme.spacing.small; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
+                    }
 
                     delegate: BlockDelegate {
-                        timestampWidth: d.timestampWidth
-                        consensusWidth: d.consensusWidth
-                        txsWidth: d.txsWidth
-                        chevronWidth: d.chevronWidth
-                        rowPadding: d.cellPadding
+                        myKey: root.myKey
+                        collapsed: epochNav.selected !== -1 && (model.epoch === undefined || model.epoch !== epochNav.selected)
                         onCopyToClipboard: (text) => root.copyToClipboard(text)
                     }
 
                     LogosText {
-                        // ListView's `count` has a NOTIFY signal, unlike the remoted
-                        // model's own count property — use it for the empty state.
                         visible: blocksListView.count === 0
                         anchors.centerIn: parent
-                        text: root.emptyText
-                        font.pixelSize: Theme.typography.secondaryText
-                        color: Theme.palette.textSecondary
+                        text: qsTr("No blocks yet...")
+                        font.pixelSize: Theme.typography.secondaryText; color: Theme.palette.textSecondary
                     }
                 }
             }

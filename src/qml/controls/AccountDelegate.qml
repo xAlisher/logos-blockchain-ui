@@ -1,22 +1,23 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 import Logos.Theme
 import Logos.Controls
-import Logos.Icons
 
-LogosItemDelegate {
+ItemDelegate {
     id: root
 
     property string balanceError: ""
-    property bool refreshing: false
 
     signal getBalanceRequested(string addressHex)
     signal copyRequested(string text)
 
     width: ListView.view ? ListView.view.width : implicitWidth
-    hoverColor: Theme.palette.backgroundSecondary
-    implicitHeight: Math.max(36, implicitContentHeight + topPadding + bottomPadding)
+
+    background: Rectangle {
+        color: root.hovered ? Theme.palette.backgroundSecondary : "transparent"
+    }
 
     contentItem: ColumnLayout {
         spacing: Theme.spacing.small
@@ -42,40 +43,25 @@ LogosItemDelegate {
                 elide: Text.ElideRight
             }
 
-            Item {
+            Button {
                 Layout.alignment: Qt.AlignRight
                 Layout.leftMargin: parent.spacing
                 Layout.preferredHeight: 40
                 Layout.preferredWidth: 40
-
-                LogosSpinner {
-                    anchors.centerIn: parent
-                    width: 20
-                    height: 20
-                    visible: root.refreshing
-                    running: root.refreshing
-                    ringColor: Theme.palette.textTertiary
-                }
-
-                LogosIconButton {
-                    id: refreshButton
-                    anchors.fill: parent
-                    visible: !root.refreshing
-                    flat: true
-                    size: 40
-                    iconSize: 20
-                    iconSource: LogosIcons.refresh
-                    iconColor: refreshButton.isActive ? Theme.palette.text
-                                                      : Theme.palette.textTertiary
-                    onClicked: root.getBalanceRequested(model.address || "")
-                }
+                display: AbstractButton.IconOnly
+                flat: true
+                icon.source: Qt.resolvedUrl("../icons/refresh.svg")
+                icon.color: Theme.palette.textSecondary
+                font.pixelSize: Theme.typography.secondaryText
+                padding: 4
+                onClicked: root.getBalanceRequested(model.address || "")
             }
 
-            LogosCopyButton {
+            BcCopyButton {
                 Layout.alignment: Qt.AlignRight
                 Layout.preferredHeight: 40
                 Layout.preferredWidth: 40
-                value: model.address || ""
+                onCopyText: root.copyRequested(model.address || "")
             }
         }
 

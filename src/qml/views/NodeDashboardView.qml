@@ -14,11 +14,19 @@ Item {
     id: root
     implicitWidth: 1040
     implicitHeight: 760
-    readonly property int _minCard: 210     // min card width; cards wrap to next line below this
+    // Min card width drives the grid's column count. The longest primary value
+    // (Earned, in full lepta precision) DEFINES the floor: once a value no longer
+    // fits a 210px card, _minCard grows to fit it so the grid drops to fewer
+    // columns (cards rearrange) instead of clipping the number. Stake abbreviates
+    // itself, so only the non-abbreviated Earned value needs to widen the card.
+    readonly property int _minCard: Math.max(210, Math.ceil(_earnedTM.advanceWidth) + 2 * Theme.spacing.large + 16)
+    TextMetrics { id: _earnedTM; font.pixelSize: 24; font.weight: Theme.typography.weightBold; text: root.earnedStr }
     readonly property int _heroMin: 340
 
     // ── WIRED (real backend, fed by BlockchainView) ──
     property int status: -1                                  // backend.status (-1 = not connected)
+    property bool autoPaused: false                          // node stopped by a resource-cap breach
+    property string autoPauseReason: ""                      // e.g. "CPU cap of 95%"
     property bool nodeRecovering: false
     property string lastErrorMessage: ""
     property string infoJson: ""                             // get_cryptarchia_info
@@ -30,11 +38,17 @@ Item {
     signal clearBlocksRequested()
     signal copyText(string t)
 
-    // footer version line (wireable; placeholder defaults until sourced from metadata)
-    property string coreVersion: "0.3.2"
-    property string uiVersion: "0.3.1"
-    property string testnetVersion: "0.3.2"
-    readonly property string _versionLine: qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
+    // Version footer. This fork ships ONE module version — the /release in-UI guard
+    // (CMakeLists) greps this literal and requires it to equal metadata.json. The
+    // core/UI/testnet split is kept as API for the official build; empty core/testnet
+    // ⇒ the footer honestly shows just "Module v<x>".
+    property string moduleVersion: "0.2.20"
+    property string coreVersion: ""
+    property string uiVersion: moduleVersion
+    property string testnetVersion: ""
+    readonly property string _versionLine: (coreVersion.length && testnetVersion.length)
+        ? qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
+        : qsTr("Module v%1").arg(moduleVersion)
     readonly property var _infoData: InfoContent.data          // (i) tooltip content per tile
 
     // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
@@ -43,10 +57,33 @@ Item {
     function _fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }   // thousands with thin spaces
     // Numeric value of a formatted amount ("0 LGO" → 0, "12.5 LGO" → 12.5, "—" → 0).
     function _amt(s) { var m = String(s).match(/-?[0-9][0-9.,]*/); return m ? parseFloat(m[0].replace(/,/g, "")) : 0 }
+    // Width-responsive amount: keep the full number if it fits maxChars, else step up
+    // magnitude (K→M→B→T) to the most precise form that fits. Suffix (e.g. " LGO") kept.
+    function _tierNum(v) { return v >= 100 ? String(Math.round(v)) : (v >= 10 ? v.toFixed(0) : v.toFixed(1)) }
+    function _abbrevFit(s, maxChars) {
+        if (!s || s.length <= maxChars) return s
+        var m = String(s).match(/^\s*(-?\d[\d,]*(?:\.\d+)?)(.*)$/)
+        if (!m) return s                                   // non-numeric → leave (elide handles it)
+        var n = parseFloat(m[1].replace(/,/g, "")); var suf = m[2] || ""
+        if (!isFinite(n)) return s
+        var tiers = [[1, ""], [1e3, "K"], [1e6, "M"], [1e9, "B"], [1e12, "T"]]
+        var cands = []
+        for (var i = 0; i < tiers.length; i++) { var v = n / tiers[i][0]; if (i === 0 || v >= 1) cands.push(_tierNum(v) + tiers[i][1] + suf) }
+        for (var j = 0; j < cands.length; j++) if (cands[j].length <= maxChars) return cands[j]
+        return cands[cands.length - 1]                     // even T doesn't fit → shortest we have
+    }
     readonly property var _info: _parse(infoJson)
     readonly property var _time: _parse(timeInfoJson)
     function _field(k) { if (!_info) return undefined; if (_info.cryptarchia_info && _info.cryptarchia_info[k] !== undefined) return _info.cryptarchia_info[k]; return _info[k] }
-    readonly property string mode: (_info && _info.mode) ? String(_info.mode) : ""
+    // The node's sync state. Accept whichever key this build exposes: `mode` (IPC
+    // get_cryptarchia_info), or `state` / nested cryptarchia_info.state (HTTP-shaped).
+    readonly property string mode: {
+        if (!_info) return ""
+        if (_info.mode) return String(_info.mode)
+        if (_info.state) return String(_info.state)
+        if (_info.cryptarchia_info && _info.cryptarchia_info.state) return String(_info.cryptarchia_info.state)
+        return ""
+    }
     readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
                                    : (_field("slot") !== undefined ? String(_field("slot")) : "—")
     readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
@@ -55,6 +92,20 @@ Item {
     readonly property string _libFull: _field("lib") ? String(_field("lib")) : ""
     readonly property string _tipFull: _field("tip") ? String(_field("tip")) : ""
     readonly property string peerIdShort: (peerId && peerId.length) ? _short(peerId) : "—"
+    // Epoch progress (prototype calc): epoch = floor(slot / epochLen); slot-in-epoch × slot
+    // duration gives elapsed. PREVIEW: epochLen is a testnet-measured const (~36000 slots ≈ 10h)
+    // until the node exposes it — verified consistent (596k/36000 ≈ epoch 16).
+    readonly property int _epochLenSlots: 36000
+    readonly property string _epochSub: {
+        if (!_time || _time.current_slot === undefined || _time.slot_duration_ms === undefined) return ""
+        var dur = Number(_time.slot_duration_ms) / 1000            // seconds per slot
+        if (!(dur > 0)) return ""
+        var inEpoch = Number(_time.current_slot) % _epochLenSlots
+        var elapsedM = Math.floor(inEpoch * dur / 60)
+        var lenH = Math.round(_epochLenSlots * dur / 3600)
+        var h = Math.floor(elapsedM / 60), m = elapsedM % 60
+        return (h > 0 ? h + "h " : "") + m + "m of " + lenH + "h"
+    }
 
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
@@ -65,9 +116,11 @@ Item {
     property int epochsToActivate: 0
     // Real eligibility signal: the node's /leader/aged-notes `count` (#61). A note can
     // lead exactly 2 epochs after it is minted (stake snapshot = start of the previous
-    // epoch). -1 = node version doesn't report it (pre-0.3), 0 = funded but not yet aged,
-    // >0 = eligible to propose now.
+    // epoch). -1 = the node version doesn't report it (pre-0.3, e.g. this 0.2.4 line →
+    // 404), 0 = funded but not yet aged, >0 = eligible to propose now.
     property int eligibleNoteCount: -1
+    property int vouchersSubmitted: -1                       // claims in flight (submitted, awaiting settle); -1 = n/a
+    property int vouchersReady: -1                           // claimable vouchers ready; -1 = n/a
     property string peers: "—"                               // #62 (curl)
     property string connections: ""
     property bool empoweringActive: false                    // #64 (#85) — mining currently on (drives the tile)
@@ -78,6 +131,8 @@ Item {
     property string cpuCap: ""
     property string ram: "—"                                 // #66 (#89)
     property string ramCap: ""
+    property string disk: "—"                                // node data-dir footprint (#89)
+    property string diskCap: ""
     property string stakeStr: "—"                            // #59
     property string foundingAddr: ""
     property string earnedStr: "—"                           // #60
@@ -87,6 +142,22 @@ Item {
     property string bootCountdown: ""
     property bool bootOverran: false
 
+    // Stall / crash detection. Catches a DEAD node (crashed / IBD wedged) that the
+    // backend still reports as Running — those stay frozen for hours. Threshold is
+    // deliberately generous (10 min): a live bootstrap legitimately advances Height only
+    // every few minutes during peer churn, so a tight window false-fires on slow sync.
+    property bool nodeStalled: false
+    readonly property int _stallMs: 600000        // 10 min of ZERO height progress ⇒ actually stuck
+    property double _heightAdvancedAt: 0
+    property string _heightSeen: ""
+    onHeightStrChanged: {
+        if (heightStr !== "—" && heightStr !== _heightSeen) {
+            _heightSeen = heightStr
+            _heightAdvancedAt = Date.now()
+            nodeStalled = false
+        }
+    }
+
     // sync-rate + ETA engine (ported from NodeStatusCard, #57) → real bootstrapping countdown
     onInfoJsonChanged: sync.sampleRate(sync.tipSlot)
     QtObject {
@@ -95,8 +166,12 @@ Item {
         readonly property var currentSlot: (root._time && root._time.current_slot !== undefined) ? Number(root._time.current_slot) : undefined
         readonly property var slotDurationMs: (root._time && root._time.slot_duration_ms !== undefined) ? Number(root._time.slot_duration_ms) : undefined
         readonly property var remaining: (tipSlot === undefined || currentSlot === undefined) ? undefined : Math.max(0, currentSlot - tipSlot)
-        readonly property int syncedSlack: 3
-        readonly property bool synced: root.mode === "Online" && remaining !== undefined && remaining <= syncedSlack
+        readonly property int syncedSlack: 3   // (retained for the ETA engine below; NOT used to gate `synced`)
+        // Trust the node's own sync state. It only reports "Online" once it's caught up
+        // and following the chain; a slot-gap check here false-fired on this sparse chain,
+        // where the tip legitimately trails wall-clock by tens of slots between blocks —
+        // which made the hero flap Online↔Bootstrapping every time a block landed.
+        readonly property bool synced: root.mode === "Online"
         property real emaRate: NaN
         property real lastTip: NaN
         property real lastAt: 0
@@ -145,8 +220,14 @@ Item {
     function _fmtSecs(s) { var m = Math.floor(s / 60); var ss = s % 60; return (m < 10 ? "0" : "") + m + ":" + (ss < 10 ? "0" : "") + ss }
     Timer {
         interval: 1000; repeat: true; running: root._bootstrapping
-        onTriggered: if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
-        onRunningChanged: if (!running) root._bootSecs = 0
+        onTriggered: {
+            if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
+            // Height hasn't advanced for _stallMs while bootstrapping ⇒ the node is
+            // wedged or has crashed (the backend still says Running). Surface it.
+            root.nodeStalled = root._heightAdvancedAt > 0
+                && (Date.now() - root._heightAdvancedAt > root._stallMs)
+        }
+        onRunningChanged: if (!running) { root._bootSecs = 0; root.nodeStalled = false }
     }
 
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
@@ -154,10 +235,14 @@ Item {
     // ── Status hero → {label, sub, color} ──
     // label = base text (no ellipsis); d = animate a reserved-width "…" (transitional states)
     readonly property var _st:
-        (!nodeConnected)
+        autoPaused
+            ? ({ label: qsTr("Node auto-paused"), sub: qsTr("Node hit %1").arg(autoPauseReason.length ? autoPauseReason : qsTr("a resource cap")), c: Theme.palette.warning, copy: false, d: false })
+      : (!nodeConnected)
             ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
+      : nodeStalled
+            ? ({ label: qsTr("Sync stalled"), sub: qsTr("No block progress — the node may have stopped or lost peers. Try stopping and starting it again."), c: Theme.palette.error, copy: false, d: false })
       : nodeRecovering
             ? ({ label: qsTr("Replaying blocks"), sub: replayProgress, c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Starting
@@ -165,15 +250,17 @@ Item {
       : (status === BlockchainBackend.Running && !sync.synced)
             ? ({ label: qsTr("Bootstrapping"), sub: (_bootTotal - _bootSecs > 0) ? ("~" + _fmtSecs(_bootTotal - _bootSecs)) : qsTr("Takes a bit longer."), c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Running
-            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Validating")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
+            ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Following the chain")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
-    // Eligible once aged/led a block; the per-epoch count (value) can be 0 at epoch
-    // start without meaning "not eligible" — the sub carries that state.
+    // While the node is Aging (funded, not yet eligible to propose — lane stage 2),
+    // the Proposed card reflects that dedicated state instead of a bare "—".
+    // Eligible once the node has aged/led a block; the per-epoch count (value) can be
+    // 0 at epoch start without meaning "not eligible" — the sub carries that state.
     readonly property string _proposedSub: _lifeReached >= 3 ? (_amt(proposed) > 0 ? qsTr("Proposing") : qsTr("Eligible"))
                                 : _lifeReached === 2 ? (eligibleNoteCount === 0 ? qsTr("Aging") : qsTr("Aging, eligibility not reported."))
                                 : validation === "inactive" ? (epochsToActivate > 0 ? qsTr("Activates in %1 %2").arg(epochsToActivate).arg(epochsToActivate === 1 ? qsTr("epoch") : qsTr("epochs")) : qsTr("Validation inactive"))
@@ -194,10 +281,10 @@ Item {
         if (status === BlockchainBackend.Running && !sync.synced) return 0
         if (status !== BlockchainBackend.Running) return -1
         var r = 1                                                               // Online (Running + synced)
-        if (funded) r = Math.max(r, 2)                                          // Funded — has stake (mining is one way to get there)
+        if (funded || _amt(stakeStr) > 0) r = Math.max(r, 2)                    // Funded — wallet actually holds stake
         if (eligibleNoteCount > 0) r = Math.max(r, 3)                           // Aged — a note is in the aged UTXO snapshot (#61)
         if (validation === "active") r = Math.max(r, 4)                         // Proposing implies Aged (#61)
-        if (earnedStr !== "—" && earnedStr !== "" && earnedStr !== "0") r = Math.max(r, 5)  // Earning (#60)
+        if (_amt(earnedStr) > 0) r = Math.max(r, 5)                             // Earning — a POSITIVE reward, not "0 LGO" (#60)
         return r
     }
     // Actively moving from the frontier toward the next stage. Two detectable
@@ -219,6 +306,7 @@ Item {
         property var steps: []
         property int reached: -1
         property bool transitioning: false
+        property bool stalled: false                   // live stage wedged (no progress) → red, not pulsing
         property real flow: 0
         implicitHeight: 30
         readonly property int n: steps.length
@@ -236,6 +324,7 @@ Item {
         }
         onReachedChanged: cv.requestPaint()
         onTransitioningChanged: cv.requestPaint()
+        onStalledChanged: cv.requestPaint()
         onWidthChanged: cv.requestPaint()
         onFlowChanged: cv.requestPaint()
         Component.onCompleted: cv.requestPaint()
@@ -251,7 +340,7 @@ Item {
             onAvailableChanged: if (available) requestPaint()
             onPaint: {
                 var ctx = getContext("2d"); ctx.reset()
-                var green = Theme.palette.success, yellow = Theme.palette.warning
+                var green = Theme.palette.success, yellow = Theme.palette.warning, red = Theme.palette.error
                 var h = height, r = 3, dpth = lane.dpth
                 // trace a polygon with rounded corners (arcTo from each edge midpoint)
                 function roundPoly(pts) {
@@ -274,7 +363,8 @@ Item {
                     var isLive = (i === liveIdx && liveIdx >= 0 && liveIdx < n)
                     var isDone = (reached >= 0 && i <= reached && i !== liveIdx)
                     var fill
-                    if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
+                    if (isLive && lane.stalled) fill = Qt.rgba(red.r, red.g, red.b, 0.22)
+                    else if (isLive && transitioning) fill = Qt.rgba(yellow.r, yellow.g, yellow.b, 0.14 + 0.14 * flow)
                     else if (isLive) fill = Qt.rgba(green.r, green.g, green.b, 0.20)
                     else if (isDone) fill = Theme.palette.surface
                     else fill = Theme.palette.surfaceRecessed
@@ -303,11 +393,12 @@ Item {
                 LogosText { visible: parent._done; text: "✓"; color: Theme.palette.success; font.pixelSize: 12; font.weight: Theme.typography.weightBold; anchors.verticalCenter: parent.verticalCenter }
                 LogosText {
                     // a transitioning-live stage shows the in-progress verb (Online→Syncing…, Aged→Aging)
-                    text: (parent._live && lane.transitioning && index === 1) ? qsTr("Syncing…")
+                    text: (parent._live && lane.stalled && index === 1) ? qsTr("Stalled")
+                        : (parent._live && lane.transitioning && index === 1) ? qsTr("Syncing…")
                         : (parent._live && lane.transitioning && index === 3) ? qsTr("Aging")
                         : parent.modelData
                     font.pixelSize: 12
-                    color: parent._live ? (lane.transitioning ? Theme.palette.warning : Theme.palette.success)
+                    color: parent._live ? (lane.stalled ? Theme.palette.error : (lane.transitioning ? Theme.palette.warning : Theme.palette.success))
                           : parent._done ? Theme.palette.textSecondary : Theme.palette.textTertiary
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -345,9 +436,9 @@ Item {
         property string label: ""
         property string value: "—"
         property string sub: ""
-        property color subColor: Theme.palette.textTertiary   // sub-line color (e.g. yellow while Aging, green when Eligible)
         property color accent: Theme.palette.text
         property color tint: Theme.palette.surfaceRaised
+        property color subColor: Theme.palette.textTertiary   // sub-line color (overridable, e.g. yellow while Aging)
         property bool copyable: false
         property string copyValue: ""            // if set, the sub row is just a copy button (copies this full value)
         signal copyRequested(string t)
@@ -360,7 +451,20 @@ Item {
         property var laneSteps: []
         property int laneReached: -1
         property bool laneTransitioning: false
+        property bool abbreviate: false           // width-responsive number abbreviation (e.g. Stake)
         readonly property int _vsize: hero ? 32 : 24
+        // Measure the ACTUAL rendered width of the full value (letters + space included, not
+        // a digit estimate) so we abbreviate the moment it no longer fits the card, with a
+        // small breathing-room margin. _chPx (a digit width) only sizes the shorter tiers.
+        TextMetrics { id: _valTM; font.pixelSize: blk._vsize; font.weight: Theme.typography.weightBold; text: blk.value }
+        TextMetrics { id: _chTM; font.pixelSize: blk._vsize; font.weight: Theme.typography.weightBold; text: "0000000000" }
+        readonly property real _chPx: _chTM.advanceWidth > 0 ? _chTM.advanceWidth / 10 : 12
+        readonly property real _valAvail: blk.width - 2 * Theme.spacing.large - (dots ? 34 : 0) - 12
+        readonly property string _fitValue: {
+            if (!abbreviate) return value
+            if (_valTM.advanceWidth > 0 && _valTM.advanceWidth <= _valAvail) return value
+            return root._abbrevFit(value, Math.max(5, Math.floor(_valAvail / _chPx)))
+        }
         backgroundColor: Theme.palette.surfaceRaised     // no state tint — the colored value carries the state; flat surfaces avoid a color wash
         borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: showLane ? 118 : (hero ? 124 : 108)
@@ -375,7 +479,7 @@ Item {
                 Layout.fillWidth: true; spacing: 0
                 LogosText {
                     id: fv
-                    Layout.fillWidth: false; text: value
+                    Layout.fillWidth: false; text: blk._fitValue
                     property color restColor: accent
                     color: restColor                       // binding; flashAnim overrides on change
                     font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight
@@ -406,7 +510,7 @@ Item {
                 // merged hero: uptime/countdown pinned to the card's upper-right corner
                 LogosText {
                     visible: showLane && sub.length > 0
-                    text: sub; color: blk.subColor; font.pixelSize: Theme.typography.secondaryText
+                    text: sub; color: subColor; font.pixelSize: Theme.typography.secondaryText
                     Layout.alignment: Qt.AlignTop
                 }
                 Info { visible: showLane && blk.info != null; Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small; onClicked: blk.infoRequested() }
@@ -414,7 +518,10 @@ Item {
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
                 // normal sub text (hidden when the row is a copy-only button)
-                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: blk.subColor
+                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: subColor
+                            font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
+                // short display text alongside a full-value copy (e.g. Stake address)
+                LogosText { visible: copyValue.length > 0 && sub.length > 0; text: sub; color: subColor
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 // copy button — copies copyValue (full) or the sub; flashes "Copied" to its right
                 CopyGlyph {
@@ -432,6 +539,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacing.large    // equal gap to the value line, matching the card padding
                 steps: laneSteps; reached: laneReached; transitioning: laneTransitioning
+                stalled: root.nodeStalled
             }
         }
     }
@@ -451,11 +559,14 @@ Item {
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; sub: root.foundingAddr; copyable: root.foundingAddr.length > 0; info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Last claim fee: %1% of reward").arg(root.feePct) : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blend.label; sub: root._blendSub; accent: root._blend.c; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
+                    // Vouchers — the two honest numbers the Rewards tab shows:
+                    // "Ready to claim" (claimable now) headlines; "Submitted" = claims in flight.
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Ready to claim"); value: root.vouchersReady >= 0 ? String(root.vouchersReady) : "—"; sub: root.vouchersSubmitted >= 0 ? qsTr("Submitted: %1").arg(root.vouchersSubmitted) : "" }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
@@ -464,6 +575,7 @@ Item {
                             sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : ""; info: root._infoData.mining; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap; info: root._infoData.cpu; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap; info: root._infoData.ram; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Disk"); value: root.disk; sub: root.diskCap; info: root._infoData.disk; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; info: root._infoData.height; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }

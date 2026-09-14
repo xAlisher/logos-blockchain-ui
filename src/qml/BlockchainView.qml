@@ -1,4 +1,5 @@
 import QtQuick
+import QtCore
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
@@ -10,13 +11,13 @@ import Logos.Controls
 // factory plugin.
 import Logos.BlockchainBackend 1.0
 
-import "controls"
 import "views"
+import "amounts.js" as Amounts
 
 Rectangle {
     id: root
 
-    readonly property var backend: logos.module("blockchain_ui")
+    readonly property var backend: logos.module("logos_node_1click")
     // `ready` can't be a binding on logos.isViewModuleReady(): that's a
     // Q_INVOKABLE method, not a Q_PROPERTY, so the binding wouldn't refresh
     // when the replica transitions to Valid. Drive it from the bridge's
@@ -26,7 +27,7 @@ Rectangle {
     Connections {
         target: logos
         function onViewModuleReadyChanged(moduleName, isReady) {
-            if (moduleName === "blockchain_ui") {
+            if (moduleName === "logos_node_1click") {
                 root.ready = isReady && root.backend !== null
                 if (root.ready) {
                     root.refreshPeerId()
@@ -39,7 +40,7 @@ Rectangle {
     Component.onCompleted: {
         // Cover the case where the replica is already Valid by the time
         // we attach the Connections handler.
-        root.ready = root.backend !== null && logos.isViewModuleReady("blockchain_ui")
+        root.ready = root.backend !== null && logos.isViewModuleReady("logos_node_1click")
         if (root.ready) {
             root.refreshPeerId()
             root._applyInitialRoute()
@@ -83,8 +84,8 @@ Rectangle {
 
     // Models live on the C++ backend and are auto-remoted by ui-host as
     // "<module>/<propertyName>". QML acquires them via logos.model(...).
-    readonly property var accountsModel: logos.model("blockchain_ui", "accounts")
-    readonly property var blockModel: logos.model("blockchain_ui", "blocks")
+    readonly property var accountsModel: logos.model("logos_node_1click", "accounts")
+    readonly property var blockModel: logos.model("logos_node_1click", "blocks")
 
     // Clipboard must be handled here in the UI-host (GUI) process. The backend
     // .rep source runs in a separate, non-GUI ViewModuleHost subprocess where
@@ -103,6 +104,734 @@ Rectangle {
         visible: false
     }
 
+    // Confirm before wiping chain state (recovery for logos-blockchain#3171).
+    // Destructive-but-recoverable: the chain re-downloads from genesis; wallet
+    // keys and config are preserved by the backend. Uses the themed LogosDialog
+    // so it matches the rest of the app.
+    LogosDialog {
+        id: resetConfirmDialog
+        anchors.centerIn: parent
+        width: 420
+        title: qsTr("Reset chain state?")
+
+        LogosText {
+            width: resetConfirmDialog.availableWidth
+            wrapMode: Text.WordWrap
+            color: Theme.palette.textSecondary
+            font.pixelSize: Theme.typography.secondaryText
+            text: qsTr("This deletes the local chain database and consensus state, "
+                       + "then the node re-downloads the chain from scratch on the "
+                       + "next Start. Your wallet keys and config are kept. Use this "
+                       + "if the node is stuck on \"Starting…\" or \"call failed\".")
+        }
+
+        function _doReset() {
+            resetConfirmDialog.close()
+            if (!root.backend) return
+            logos.watch(
+                root.backend.resetChainState(),
+                function(result) {
+                    if (result.success) root.backend.clearBlocks()
+                    else console.log("[BlockchainView] resetChainState failed:", result.error)
+                },
+                function(error) { console.log("[BlockchainView] resetChainState error:", error) }
+            )
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Cancel")
+                implicitWidth: 110
+                implicitHeight: 40
+                onClicked: resetConfirmDialog.close()
+            },
+            LogosButton {
+                text: qsTr("Reset")
+                implicitWidth: 110
+                implicitHeight: 40
+                onClicked: resetConfirmDialog._doReset()
+            }
+        ]
+    }
+
+    // Honest-error recovery modal (one-click UX #16). Blocks the UI when the
+    // node hits an error, shows the honest cause, explains that a wipe keeps the
+    // config, and offers one "wipe + start over" that cleans the store and
+    // bootstraps back to green.
+    function _honestError() {
+        var e = ""
+        if (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
+            e = root.cryptarchiaInfoError
+        else if (root.backend && root.backend.lastErrorMessage && root.backend.lastErrorMessage.length)
+            e = root.backend.lastErrorMessage
+        if (e.indexOf("Error: ") === 0) e = e.substring(7)
+        // Never blank: the log may be gone (a wipe removed logs/) or the reason
+        // opaque — still tell the user something actionable.
+        if (!e.length)
+            return qsTr("The node stopped during startup. If this keeps happening, wipe the "
+                        + "database and start over, or check your config and peers.")
+        if (e.toLowerCase().indexOf("call failed") >= 0)
+            return qsTr("The node stopped responding — its process ended, usually because the "
+                        + "local chain database is in a bad state.")
+        return e
+    }
+
+    // Start only when actually idle — avoids the "already running" error from a
+    // double start (auto-start racing a manual/one-click start).
+    function _startNode() {
+        if (root.backend && root.backend.status !== BlockchainBackend.Running
+            && root.backend.status !== BlockchainBackend.Starting)
+            root.backend.startBlockchain()
+    }
+
+    // Recovery sequence (one-click UX #16): stop the node and CONFIRM it is
+    // stopped (wiping while the process holds the DB leaves a torn store, ui#7),
+    // wipe the chain store + leftovers, then start over with the same config but
+    // a clean state. `_wipeStage` drives the live progress under the button.
+    // The `status` property is optimistic — stopBlockchain()/startBlockchain() set
+    // it to Stopped/Running around the module RPC, so it reads "Stopped" while the
+    // node subprocess is still finishing a chain recovery. Gating the wipe on it
+    // let us wipe/restart a still-running node → "already running" + an un-wiped DB.
+    // The node's HTTP API is the ground truth: it answers while up, refuses once
+    // genuinely down. So every step gates on a real liveness probe against :8080.
+    property string _wipeStage: ""   // "", "stopping", "wiping", "starting"
+    property string _wipeError: ""   // honest failure text; re-enables the buttons
+    property int    _wipeTries: 0
+    property int    _wipeAttempts: 0
+    function _wipeAndStart() {
+        if (!root.backend) return
+        root._wipeError = ""
+        root._wipeTries = 0
+        root._wipeStage = "stopping"
+        root.backend.stopBlockchain()
+        wipeDownProbe.restart()
+    }
+    // Probe until the node is genuinely DOWN (connection refused), then — after a
+    // grace so RocksDB fully closes its handles — wipe. Generous cap: a chain
+    // recovery can take ~40s to unwind before the node actually stops.
+    Timer {
+        id: wipeDownProbe
+        interval: 600; repeat: true
+        onTriggered: {
+            if (!root.backend) { wipeDownProbe.stop(); wipeGraceTimer.restart(); return }
+            root._wipeTries += 1
+            var tries = root._wipeTries
+            // Liveness via the backend (QRO → module get_cryptarchia_info), NOT a
+            // direct QML XHR: v0.2.3's ui_qml sandbox blocks network from QML. A
+            // failed call (or transport error) == the node's API is down → wipe.
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (!result.success) {              // node down
+                        wipeDownProbe.stop()
+                        wipeGraceTimer.restart()
+                    } else if (tries > 100) {           // ~60s failsafe
+                        wipeDownProbe.stop()
+                        root._wipeStage = ""
+                        root._wipeError = qsTr("Couldn't stop the node — please try again.")
+                    }
+                },
+                function(error) {                       // transport error → treat as down
+                    wipeDownProbe.stop()
+                    wipeGraceTimer.restart()
+                }
+            )
+        }
+    }
+    Timer { id: wipeGraceTimer; interval: 1200; onTriggered: root._doWipe() }
+
+    // Wipe the store; confirm resetChainState actually succeeded, retry a few times,
+    // and NEVER start on an unverified wipe (that was the un-wiped-DB bug).
+    function _doWipe() {
+        if (!root.backend) { root._wipeStage = ""; return }
+        root._wipeAttempts = 0
+        root._wipeStage = "wiping"
+        root._resetChainState()
+    }
+    function _resetChainState() {
+        logos.watch(
+            root.backend.resetChainState(),
+            function(result) {
+                if (result.success) root._afterWipe()
+                else if (root._wipeAttempts < 3) { root._wipeAttempts += 1; wipeRetryTimer.restart() }
+                else { root._wipeStage = ""; root._wipeError = qsTr("Couldn't wipe the database — please try again.") }
+            },
+            function(error) {
+                if (root._wipeAttempts < 3) { root._wipeAttempts += 1; wipeRetryTimer.restart() }
+                else { root._wipeStage = ""; root._wipeError = qsTr("Couldn't wipe the database — please try again.") }
+            }
+        )
+    }
+    Timer { id: wipeRetryTimer; interval: 600; onTriggered: root._resetChainState() }
+
+    function _afterWipe() {
+        if (!root.backend) { root._wipeStage = ""; return }
+        root.backend.clearBlocks()
+        root._wipeStage = "starting"
+        root._wipeTries = 0
+        root._startNode()                 // node is confirmed down → no "already running"
+        wipeUpProbe.restart()
+    }
+    // Probe until the node is back UP, then close the modal.
+    Timer {
+        id: wipeUpProbe
+        interval: 600; repeat: true
+        onTriggered: {
+            if (!root.backend) return
+            root._wipeTries += 1
+            var tries = root._wipeTries
+            // Backend liveness (QRO), not QML XHR — see wipeDownProbe.
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success || tries > 50) {  // node up, or ~30s failsafe
+                        wipeUpProbe.stop()
+                        root._wipeStage = ""
+                        errorRecoveryDialog.close()
+                    }
+                },
+                function(error) {                        // still down; only bail on failsafe
+                    if (tries > 50) {
+                        wipeUpProbe.stop()
+                        root._wipeStage = ""
+                        errorRecoveryDialog.close()
+                    }
+                }
+            )
+        }
+    }
+
+    function _wipeStageBase() {
+        switch (root._wipeStage) {
+        case "stopping": return qsTr("Stopping the node")
+        case "wiping":   return qsTr("Wiping the database")
+        case "starting": return qsTr("Starting with a clean state")
+        default: return ""
+        }
+    }
+    // Animated ellipsis so the disabled button clearly reads as working.
+    property int _dotPhase: 0
+    Timer {
+        id: wipeDotTimer
+        interval: 400; repeat: true
+        running: root._wipeStage.length > 0
+        onTriggered: root._dotPhase = (root._dotPhase + 1) % 4
+    }
+    function _wipeStageText() {
+        var base = root._wipeStageBase()
+        if (!base.length) return ""
+        return base + ["", ".", "..", "..."][root._dotPhase]
+    }
+
+    Connections {
+        target: root.backend
+        enabled: root.backend !== null
+        ignoreUnknownSignals: true
+        function onStatusChanged() {
+            if (!root.backend) return
+            // A fresh Starting resets the liveness-confirm budget (issue #19).
+            if (root.backend.status === BlockchainBackend.Starting) { root._startTries = 0; return }
+            if (root.backend.status !== BlockchainBackend.Error) return
+            // "already running" is benign (the node IS running) — don't nag.
+            if ((root.backend.lastErrorMessage || "").toLowerCase().indexOf("already running") >= 0)
+                return
+            root._wipeError = ""
+            errorRecoveryDialog.open()
+        }
+    }
+
+    // ── Start liveness-confirm (issue #19) ──
+    // The node's `start` RPC can return before its API is actually up (a slow
+    // chain recovery outlives the RPC deadline), so a no-reply is NOT an error.
+    // PHONE-INITIATED START. The mirror of the intent demote, and it was missing.
+    //
+    // This UI only enters Starting from its own startBlockchain(), so when the node is
+    // started from the phone it never leaves Stopped — and BOTH existing probes are gated
+    // behind the very state they would produce:
+    //   startConfirmProbe  runs only while Starting  (it is what calls confirmRunning)
+    //   cryptarchiaTimer   runs only while Running
+    // From Stopped, neither runs, so nothing can ever notice the node came up. Observed:
+    // blocks arriving and the node Online while the dashboard still read Stopped.
+    //
+    // Rule (see node-remote#5): the node ANSWERING is a fact and outranks intent — whoever
+    // started it, it is up. Intent only arbitrates the DOWN case (stopped vs failed).
+    Timer {
+        id: externalStartProbe
+        interval: 3000; repeat: true
+        running: root.ready && root.backend
+                 && (root.backend.status === BlockchainBackend.Stopped
+                     || root.backend.status === BlockchainBackend.NotStarted
+                     || root.backend.status === BlockchainBackend.Error)
+        onTriggered: {
+            if (!root.backend) return
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    // confirmRunning() is a no-op when already Running, so this is safe to
+                    // fire repeatedly.
+                    if (result.success && root.backend) root.backend.confirmRunning()
+                },
+                function(error) { /* still down — leave the state alone */ }
+            )
+        }
+    }
+
+    // While Starting, poll :8080 until it answers → confirmRunning(); if the log
+    // shows a real fatal error, or it never comes up (~60s) → confirmStartFailed().
+    property int _startTries: 0
+    Timer {
+        id: startConfirmProbe
+        interval: 1500; repeat: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Starting
+        onTriggered: {
+            if (!root.backend) return
+            root._startTries += 1
+            var tries = root._startTries
+            // Backend liveness (QRO), not QML XHR — see wipeDownProbe. The node's
+            // API answering (get_cryptarchia_info succeeds) == it's really up.
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success) {
+                        if (root.backend) root.backend.confirmRunning()
+                    } else if (tries > 40) {   // ~60s and still no API → confirmed failure
+                        if (root.backend) root.backend.confirmStartFailed()
+                    }
+                },
+                function(error) {              // no reply yet; only fail on the ~60s cap
+                    if (tries > 40) {
+                        if (root.backend) root.backend.confirmStartFailed()
+                    }
+                }
+            )
+        }
+    }
+
+    LogosDialog {
+        id: errorRecoveryDialog
+        anchors.centerIn: parent
+        width: 480
+        title: qsTr("The node hit an error")
+        closePolicy: Popup.CloseOnEscape
+        // Darker scrim behind the modal (~3× the default dim).
+        Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
+
+        // Content via contentItem (a default child lands in contentData and is not
+        // rendered — that was the blank-body bug).
+        contentItem: Column {
+            width: errorRecoveryDialog.availableWidth
+            spacing: Theme.spacing.medium
+            LogosText {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                color: Theme.palette.error
+                font.pixelSize: Theme.typography.primaryText
+                font.weight: Theme.typography.weightMedium
+                text: root._honestError()
+            }
+            LogosText {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                color: Theme.palette.textSecondary
+                font.pixelSize: Theme.typography.secondaryText
+                text: qsTr("“Wipe the database and start over” deletes the local chain "
+                           + "database and restarts the node with the same config. Your wallet "
+                           + "keys and config are kept; the node re-downloads the chain and "
+                           + "bootstraps back to green.")
+            }
+            LogosText {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                visible: root._wipeError.length > 0
+                color: Theme.palette.error
+                font.pixelSize: Theme.typography.secondaryText
+                font.weight: Theme.typography.weightMedium
+                text: root._wipeError
+            }
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Dismiss")
+                implicitWidth: 100; implicitHeight: 40
+                enabled: root._wipeStage.length === 0
+                onClicked: errorRecoveryDialog.close()
+            },
+            LogosButton {
+                id: wipeActionBtn
+                text: root._wipeStage.length > 0 ? root._wipeStageText()
+                                                 : qsTr("Wipe the database and start over")
+                implicitWidth: 260; implicitHeight: 40
+                enabled: root._wipeStage.length === 0
+                onClicked: root._wipeAndStart()
+                // Gentle pulse while a stage runs, so it reads as working.
+                SequentialAnimation on opacity {
+                    running: root._wipeStage.length > 0
+                    loops: Animation.Infinite
+                    alwaysRunToEnd: true
+                    NumberAnimation { to: 0.55; duration: 550; easing.type: Easing.InOutQuad }
+                    NumberAnimation { to: 1.0;  duration: 550; easing.type: Easing.InOutQuad }
+                    onRunningChanged: if (!running) wipeActionBtn.opacity = 1
+                }
+            }
+        ]
+    }
+
+    // ── Fund the node (auto-stake) via the cryptarchia web faucet (issue #22) ──
+    // POST the node's public key to the faucet; it credits testnet funds that
+    // auto-stake. The backend runs the POST via system curl — QML network is
+    // blocked by v0.2.3's ui_qml sandbox (and Qt/QML HTTPS fails on this AppImage).
+    property string _fundStage: ""    // "", "requesting", "success", "error"
+    property string _fundResult: ""   // tx / response text, or the error text
+    property int _fundDots: 0
+    Timer {
+        interval: 400; repeat: true; running: root._fundStage === "requesting"
+        onTriggered: root._fundDots = (root._fundDots + 1) % 4
+    }
+    function _fundDotStr() { return ["", ".", "..", "..."][root._fundDots] }
+    function _requestFunds() {
+        if (!root.backend) return
+        var pk = (root.backend.primaryAddress || "").trim()
+        if (!pk.length) {
+            root._fundStage = "error"
+            root._fundResult = qsTr("No node key available yet — wait until the node is online.")
+            return
+        }
+        // Qt/QML HTTPS fails on this AppImage — the backend runs it via system curl.
+        root._fundStage = "requesting"; root._fundResult = ""
+        root.backend.requestFaucetFunds(pk)
+    }
+    Connections {
+        target: root.backend
+        enabled: root.backend !== null
+        ignoreUnknownSignals: true
+        function onFaucetResult(ok, message) {
+            if (ok) {
+                var tx = message
+                try { var j = JSON.parse(message); if (j && j.hash) tx = j.hash } catch (e) {}
+                root._fundStage = "success"; root._fundResult = tx
+            } else {
+                root._fundStage = "error"; root._fundResult = message
+            }
+        }
+    }
+
+    LogosDialog {
+        id: fundDialog
+        anchors.centerIn: parent
+        width: 480
+        title: qsTr("Fund the node")
+        closePolicy: Popup.CloseOnEscape
+        // Darker scrim behind the modal (~3× the default dim).
+        Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
+        onOpened: { root._fundStage = ""; root._fundResult = "" }
+
+        // Content MUST be set via contentItem — a default child lands in contentData
+        // and LogosDialog does not render it (that was the blank-body bug).
+        contentItem: Column {
+            width: fundDialog.availableWidth
+            spacing: Theme.spacing.medium
+
+            LogosText {
+                visible: root._fundStage === "" || root._fundStage === "requesting"
+                width: parent.width; wrapMode: Text.WordWrap
+                color: Theme.palette.textSecondary
+                font.pixelSize: Theme.typography.secondaryText
+                text: qsTr("These are testnet funds — no real value. They auto-stake: your balance "
+                           + "counts as stake, so your node starts winning leader slots proportional "
+                           + "to it and proposes blocks on its own. It can take a little while to arrive.")
+            }
+            Column {
+                visible: root._fundStage === "" || root._fundStage === "requesting"
+                width: parent.width; spacing: 4
+                LogosText {
+                    text: qsTr("Destination — your node's public key")
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
+                }
+                Row {
+                    width: parent.width; spacing: Theme.spacing.small
+                    LogosText {
+                        width: parent.width - 26
+                        text: root.backend ? (root.backend.primaryAddress || "—") : "—"
+                        font.pixelSize: Theme.typography.primaryText
+                        font.family: Theme.typography.publicSans
+                        color: Theme.palette.text
+                        elide: Text.ElideMiddle
+                    }
+                    LogosText {
+                        width: 18; text: "⧉"; font.pixelSize: 14
+                        color: keyCopyM.containsMouse ? Theme.palette.text : Theme.palette.textSecondary
+                        MouseArea {
+                            id: keyCopyM; anchors.fill: parent; anchors.margins: -4
+                            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: if (root.backend) root.backend.copyToClipboard(root.backend.primaryAddress)
+                        }
+                    }
+                }
+            }
+            LogosText {
+                visible: root._fundStage === "success"
+                width: parent.width; wrapMode: Text.WordWrap
+                color: Theme.palette.success
+                font.pixelSize: Theme.typography.primaryText
+                font.weight: Theme.typography.weightMedium
+                text: qsTr("Funds requested successfully — feel free to close this window.")
+            }
+            Row {
+                visible: root._fundStage === "success" && root._fundResult.length > 0
+                width: parent.width; spacing: Theme.spacing.small
+                LogosText {
+                    width: parent.width - 26
+                    text: root._fundResult
+                    font.pixelSize: Theme.typography.secondaryText
+                    font.family: Theme.typography.publicSans
+                    color: Theme.palette.textSecondary
+                    elide: Text.ElideMiddle
+                }
+                LogosText {
+                    width: 18; text: "⧉"; font.pixelSize: 14
+                    color: txCopyM.containsMouse ? Theme.palette.text : Theme.palette.textSecondary
+                    MouseArea {
+                        id: txCopyM; anchors.fill: parent; anchors.margins: -4
+                        hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: if (root.backend) root.backend.copyToClipboard(root._fundResult)
+                    }
+                }
+            }
+            LogosText {
+                visible: root._fundStage === "error"
+                width: parent.width; wrapMode: Text.WordWrap
+                color: Theme.palette.error
+                font.pixelSize: Theme.typography.secondaryText
+                font.weight: Theme.typography.weightMedium
+                text: root._fundResult
+            }
+        }
+
+        rightActions: [
+            LogosButton {
+                text: root._fundStage === "success" ? qsTr("Close") : qsTr("Cancel")
+                implicitWidth: 100; implicitHeight: 40
+                enabled: root._fundStage !== "requesting"
+                onClicked: fundDialog.close()
+            },
+            // Orange primary CTA (LogosButton has no colour variant → custom pill).
+            Rectangle {
+                id: reqFundsBtn
+                visible: root._fundStage !== "success"
+                implicitWidth: 180; implicitHeight: 40
+                radius: Theme.spacing.radiusXlarge   // match Cancel (LogosButton)
+                readonly property bool on: root._fundStage !== "requesting"
+                readonly property color base: Theme.palette.primaryHover
+                color: !on ? Qt.rgba(base.r, base.g, base.b, 0.5)
+                       : (reqFundsM.pressed ? Qt.darker(base, 1.16)
+                          : (reqFundsM.containsMouse ? Qt.darker(base, 1.08) : base))
+                LogosText {
+                    anchors.centerIn: parent
+                    text: root._fundStage === "requesting" ? (qsTr("Requesting") + root._fundDotStr())
+                          : (root._fundStage === "error" ? qsTr("Try again") : qsTr("Request funds"))
+                    color: Theme.palette.text
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                }
+                MouseArea {
+                    id: reqFundsM
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: reqFundsBtn.on ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: if (reqFundsBtn.on) root._requestFunds()
+                }
+            }
+        ]
+    }
+
+    // ── Node settings modal (#12) ──
+    // Replaces the old gear target: a full-page config chooser with NO way back
+    // (a dead-end). Styled like fundDialog; each action has a one-line description
+    // and is self-contained (no navigation away), and the modal is always closable.
+    LogosDialog {
+        id: settingsDialog
+        anchors.centerIn: parent
+        width: 480
+        title: qsTr("Node settings")
+        // Match errorRecoveryDialog: escape-to-close only. CloseOnPressOutside made a press on
+        // a content control register as "outside" and dismiss the modal instead of clicking.
+        closePolicy: Popup.CloseOnEscape
+        Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
+
+        // Descriptions live in the body; the ACTIONS live in rightActions (the footer) — exactly
+        // like errorRecoveryDialog's Dismiss/Wipe buttons, which is the wiring whose onClicked
+        // reliably fires. Buttons placed inline in contentItem did not respond to clicks.
+        contentItem: Column {
+            width: settingsDialog.availableWidth
+            spacing: Theme.spacing.large
+
+            Column {
+                width: parent.width
+                spacing: 2
+                LogosText {
+                    width: parent.width
+                    text: qsTr("Reset chain state")
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                    color: Theme.palette.text
+                }
+                LogosText {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Re-download the chain from genesis if the node is stuck or out "
+                               + "of sync. Your wallet keys and config are kept. (Reset)")
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
+                }
+            }
+
+            Rectangle { width: parent.width; height: 1; color: Theme.palette.border; opacity: 0.5 }
+
+            Column {
+                width: parent.width
+                spacing: 2
+                LogosText {
+                    width: parent.width
+                    text: qsTr("Regenerate config & restart")
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                    color: Theme.palette.text
+                }
+                LogosText {
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Recreate the default testnet config (known-good bootstrap peers) "
+                               + "and restart the node. Use if it won't start or sync. (Regenerate)")
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
+                }
+            }
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Close")
+                implicitWidth: 100; implicitHeight: 40
+                onClicked: settingsDialog.close()
+            },
+            // DESTRUCTIVE ACTIONS, COLOURED AS SUCH. Reset re-downloads the chain from
+            // genesis and Regenerate overwrites user_config.yaml; both sat in the same
+            // neutral pill as "Close", so the only thing separating "dismiss this dialog"
+            // from "throw away the chain" was reading the label.
+            //
+            // LogosButton has no colour variant, so this follows the custom-pill pattern
+            // already used for the orange Request-funds CTA above — same radius and height
+            // as the LogosButton beside it, so the row still lines up.
+            Rectangle {
+                id: resetBtn
+                implicitWidth: 120; implicitHeight: 40
+                radius: Theme.spacing.radiusXlarge   // match Close (LogosButton)
+                readonly property color base: Theme.palette.error
+                color: resetM.pressed ? Qt.darker(base, 1.16)
+                       : (resetM.containsMouse ? Qt.darker(base, 1.08) : base)
+                LogosText {
+                    anchors.centerIn: parent
+                    text: qsTr("Reset")
+                    // White, not Theme.palette.text: the text token follows the theme and
+                    // goes dark in light mode, which is unreadable on a saturated red.
+                    color: "#FFFFFF"
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                }
+                MouseArea {
+                    id: resetM
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    // Close first, then open the confirm modal on the NEXT tick — two modals
+                    // transitioning in the same frame swallowed the open().
+                    onClicked: { settingsDialog.close(); Qt.callLater(function() { resetConfirmDialog.open() }) }
+                }
+            },
+            Rectangle {
+                id: regenBtn
+                implicitWidth: 130; implicitHeight: 40
+                radius: Theme.spacing.radiusXlarge
+                readonly property color base: Theme.palette.error
+                color: regenM.pressed ? Qt.darker(base, 1.16)
+                       : (regenM.containsMouse ? Qt.darker(base, 1.08) : base)
+                LogosText {
+                    anchors.centerIn: parent
+                    text: qsTr("Regenerate")
+                    color: "#FFFFFF"
+                    font.pixelSize: Theme.typography.primaryText
+                    font.weight: Theme.typography.weightMedium
+                }
+                MouseArea {
+                    id: regenM
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { settingsDialog.close(); Qt.callLater(function() { _d.runNodeOneClick() }) }
+                }
+            }
+        ]
+    }
+
+    // Node balance for the dashboard tile and the claim gate.
+    //
+    // This polls the LEADER FUNDING KEY, not primaryAddress. They are different
+    // keys (ui#35): primaryAddress is merely the first entry get_known_addresses
+    // returned, while leader.wallet.funding_pk is what proposes blocks, receives
+    // leader rewards and pays a claim's fee. Polling the wrong one made the tile
+    // report a healthy balance for a key that funds nothing, and let the Claim
+    // button gate on a wallet that isn't the one being charged.
+    // Falls back to primaryAddress only until the leader key is known.
+    property string nodeBalance: "—"
+    readonly property string balanceKey:
+        (root.backend && (root.backend.leaderKey || "").length > 0)
+            ? root.backend.leaderKey
+            : (root.backend ? (root.backend.primaryAddress || "") : "")
+    Timer {
+        id: balanceTimer
+        interval: 5000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+                 && root.balanceKey.length > 0
+        onTriggered: {
+            if (!root.backend || root.balanceKey.length === 0) return
+            logos.watch(
+                root.backend.getBalance(root.balanceKey),
+                function(result) {
+                    if (result.success && result.value !== undefined && result.value !== null)
+                        root.nodeBalance = String(result.value)
+                },
+                function(error) { /* keep last known */ }
+            )
+        }
+    }
+
+    // Peer / connection counts via the backend (curl) — the app's QML XHR is
+    // unreliable here, so the dashboard can't poll :8080 directly (issue #21).
+    property int nodePeers: -1
+    property int nodeConnections: -1
+    Timer {
+        interval: 4000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: {
+            if (!root.backend) return
+            // Recompute the Blend status/event (log tail + at most one curl) on the
+            // same cadence as the peer counts; it drives the Blend line on the dashboard.
+            root.backend.refreshBlendStatus()
+            logos.watch(
+                root.backend.getNetworkInfo(),
+                function(result) {
+                    if (result && result.peers !== undefined) {
+                        root.nodePeers = result.peers
+                        root.nodeConnections = result.connections
+                    }
+                },
+                function(error) { /* keep last known */ }
+            )
+        }
+    }
+
     // Self libp2p peer id, derived from the selected user config (no running
     // node required). Refreshed when ready and whenever the config changes.
     property string peerId: ""
@@ -118,19 +847,29 @@ Rectangle {
         if (_d.initialRouted || !root.ready || !root.backend)
             return
         _d.initialRouted = true
-        if (root.backend.userConfig && root.backend.userConfig.length > 0)
+        if (root.backend.userConfig && root.backend.userConfig.length > 0) {
+            // Config exists → straight to the node view and auto-start (#15).
             _d.currentPage = 1
+            if (root.backend.status !== BlockchainBackend.Running
+                && root.backend.status !== BlockchainBackend.Starting)
+                root.backend.startBlockchain()
+        } else {
+            // First ever open (no config) → the one-click first-run screen (#10).
+            _d.currentPage = 2
+        }
     }
 
+    // The node's peer id is immutable for a given config — once we have it, keep it
+    // ALWAYS visible: never blank it on a transient/failed read (e.g. while the node is
+    // still replaying blocks and the network API isn't up yet). Only overwrite on a real
+    // new value. A poll (in recoveryTimer below) keeps retrying until we first get it.
     function refreshPeerId() {
-        if (!root.backend || !root.backend.userConfig) {
-            root.peerId = ""
-            return
-        }
+        if (!root.backend || !root.backend.userConfig)
+            return   // keep the last known peer id
         logos.watch(
             root.backend.getPeerId(),
-            function(result) { root.peerId = result.success ? result.value : "" },
-            function(error) { root.peerId = "" }
+            function(result) { if (result.success && result.value && result.value.length) root.peerId = result.value },
+            function(error) { /* transient — keep the last known peer id */ }
         )
     }
 
@@ -141,182 +880,214 @@ Rectangle {
         function onUserConfigChanged() { root.refreshPeerId() }
     }
 
-    // Live Cryptarchia consensus state, polled while the node runs. This poll
-    // is our *status monitor*, not a liveness verdict: a failed call means "the
-    // status RPC didn't answer", not "the node is dead" (the node also pushes
-    // blocks over a separate event channel, so it can be perfectly alive while a
-    // request/reply call times out). So a failure never stops the node — we
-    // retry with backoff, and if that is exhausted we simply *pause monitoring*
-    // and let the user (or the next incoming block) resume it.
+    // Live Cryptarchia consensus state, polled while the node runs.
     property string cryptarchiaInfoJson: ""
     property string cryptarchiaInfoError: ""
-    // Consensus clock, polled alongside the chain info. Its current_slot is what
-    // the At Headslot tile measures the chain tip against.
-    property string timeInfoJson: ""
 
-    // UI status overrides driven by the poll loop, taking precedence over the
-    // backend's own status in the status tag:
-    //  - `statusUnresponsive`: set while we're backing off after failed status
-    //    calls (the node is still Running but the status RPC isn't answering);
-    //  - `monitoringPaused`: set once the backoff is exhausted — monitoring is
-    //    paused (the node is left untouched). Cleared by an incoming block or
-    //    the user's Resume action.
-    property bool statusUnresponsive: false
-    property bool monitoringPaused: false
+    // Canonical known-good testnet bootstrap peers — the single source used both to
+    // generate the node config (runNodeOneClick) and to show the real peers in Settings.
+    readonly property var defaultBootstrapPeers: [
+        "/ip4/65.109.51.37/udp/3000/quic-v1/p2p/12D3KooWFrouXfmrR4nsLMtE7wu15DoMJ6VtoUtHinREZCvbWHar",
+        "/ip4/65.109.51.37/udp/3001/quic-v1/p2p/12D3KooWJRGau8M1rjT7R5e4YYsgdFhsMX35nRDtMwCDjxQkXAHz",
+        "/ip4/65.109.51.37/udp/3002/quic-v1/p2p/12D3KooWQXJavMDTRscjauFSgVAB1VLB6Rzpy2uY5SU9Tk7927tb",
+        "/ip4/65.109.51.37/udp/50001/quic-v1/p2p/12D3KooWSQc7CcGtvWDPF1yCbBthFnQjprfCVHmfmNDUrSmqQsU1"
+    ]
 
-    // Whether the node is Running per the backend state machine. Kept separate
-    // from `statusPollActive` so leaving Running can clear a paused-monitoring
-    // state (a fresh start re-monitors from scratch).
-    readonly property bool nodeRunning:
-        root.ready && root.backend
-        && root.backend.status === BlockchainBackend.Running
-
-    onNodeRunningChanged: {
-        if (!nodeRunning) {
-            root.monitoringPaused = false
-            root.cryptarchiaInfoJson = ""
-            root.timeInfoJson = ""
+    // PREVIEW (#81): Settings hardware caps — app-side enforcement. While enabled and
+    // the node is Running, the CPU cap is enforced by stopping the node if sampled CPU%
+    // stays over the cap. RAM/disk caps are saved; their auto-stop lands next.
+    // Persisted across restarts (QtCore.Settings → QSettings). Caps + rewards auto-claim
+    // used to be in-session only and reset on every restart.
+    Settings {
+        id: nodeSettings
+        category: "logos_node_1click"
+        property bool capsEnabled: false
+        property string cpuCap: "90"
+        property string ramCap: "90"
+        property string diskCap: "50"
+        property bool rewardsAutoClaim: true
+    }
+    property int   _cpuOverCount: 0
+    property int   _ramOverCount: 0
+    property bool   _autoPaused: false          // node was stopped by a cap breach (not the user)
+    property string _autoPauseReason: ""        // e.g. "CPU cap of 95%"
+    function _numOf(s) { var m = String(s).match(/[0-9.]+/); return m ? parseFloat(m[0]) : NaN }
+    function _ramPct(s) { var m = String(s).match(/([0-9.]+)\s*%/); return m ? parseFloat(m[1]) : NaN }  // the "/ N%" part
+    function _autoPause(res, cap) {
+        root._cpuOverCount = 0; root._ramOverCount = 0
+        root._autoPauseReason = res + qsTr(" cap of %1%").arg(Math.round(cap))
+        root._autoPaused = true
+        if (root.backend) root.backend.stopBlockchain()
+    }
+    Timer {
+        // Enforce CPU and RAM caps: two consecutive breaches (~6s, so a transient spike
+        // doesn't trip it) → auto-pause the node with a reason the hero surfaces.
+        interval: 3000; repeat: true
+        running: nodeSettings.capsEnabled && root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: {
+            var cpu = root._numOf(root.backend.cpuUsage), cpuCap = root._numOf(nodeSettings.cpuCap)
+            if (!isNaN(cpu) && cpuCap > 0 && cpu > cpuCap) {
+                if (++root._cpuOverCount >= 2) { root._autoPause("CPU", cpuCap); return }
+            } else root._cpuOverCount = 0
+            var ram = root._ramPct(root.backend.ramUsage), ramCap = root._numOf(nodeSettings.ramCap)
+            if (!isNaN(ram) && ramCap > 0 && ram > ramCap) {
+                if (++root._ramOverCount >= 2) { root._autoPause("RAM", ramCap); return }
+            } else root._ramOverCount = 0
         }
     }
 
-    // Poll cadence / backoff. Healthy cadence is `statusPollBaseMs`; after a
-    // failed call we retry at `statusRetryMs`, doubling it on each further
-    // failure up to `statusPollMaxMs` (2^6 seconds). Once at the cap we retry
-    // there up to `statusMaxRetries` times before giving up. `statusRetryMs === 0`
-    // means "healthy — use the base cadence".
-    readonly property int statusPollBaseMs: 2000
-    readonly property int statusPollMaxMs: 64 * 1000     // 2^6 seconds
-    readonly property int statusMaxRetries: 3            // retries at the cap before giving up
-    property int statusRetryMs: 0
-    property int statusCapRetryCount: 0
-
-    // Drives the poll loop on/off: the node is Running and monitoring hasn't
-    // been paused. Kept as a property so its change handler can (re)start
-    // polling from a clean state — including when Resume clears the pause.
-    readonly property bool statusPollActive: root.nodeRunning && !root.monitoringPaused
-
-    onStatusPollActiveChanged: {
-        if (statusPollActive) {
-            root.statusRetryMs = 0
-            root.statusCapRetryCount = 0
-            root.statusUnresponsive = false
-            root.pollNodeStatus()          // immediate first poll
+    // PREVIEW (#81): apply edited bootstrap peers = regenerate the config with them and
+    // restart the node (the node reads bootstrap.ibd.peers from initial_peers at start).
+    property var _pendingPeerApply: null
+    function applyBootstrapPeers(peersText) {
+        if (!root.backend) return
+        var peers = String(peersText).split("\n").map(function(s){ return s.trim() })
+                    .filter(function(s){ return s.length > 0 })
+        if (peers.length === 0) return
+        var genAndStart = function() {
+            logos.watch(
+                root.backend.generateConfig("", peers, 0, 0, "", "", false, 0, "", ""),
+                function(r) {
+                    if (!r.success) return
+                    root.backend.userConfig = (r.value !== undefined && r.value !== "")
+                        ? r.value : root.backend.generatedUserConfigPath
+                    root.backend.startBlockchain()
+                },
+                function(e) {}
+            )
+        }
+        if (root.backend.status === BlockchainBackend.Running
+            || root.backend.status === BlockchainBackend.Starting) {
+            root._pendingPeerApply = genAndStart
+            root.backend.stopBlockchain()
         } else {
-            root.statusUnresponsive = false
-            cryptarchiaTimer.stop()
+            genAndStart()
+        }
+    }
+    Connections {
+        target: root.backend
+        function onStatusChanged() {
+            if (root._pendingPeerApply && root.backend
+                && root.backend.status === BlockchainBackend.Stopped) {
+                var fn = root._pendingPeerApply
+                root._pendingPeerApply = null
+                fn()
+            }
         }
     }
 
-    // Single-shot: each poll schedules the next one itself once its reply
-    // arrives, so a slow/stuck call can't overlap the following request and the
-    // backoff interval is honoured exactly. `interval` follows the backoff.
+    // --- Redesigned NodeDashboardView adapters (v0.2.20 backend → redesigned props) ---
+    // The merged get_cryptarchia_info carries a nested time_info object; the redesigned
+    // view wants it as its own JSON string (current_slot / slot_duration_ms / current_epoch).
+    function _dashTimeInfo(j) {
+        try { var p = JSON.parse(j); return (p && p.time_info) ? JSON.stringify(p.time_info) : "" }
+        catch (e) { return "" }
+    }
+    function _dashEpoch(j) {
+        try {
+            var p = JSON.parse(j)
+            return (p && p.time_info && p.time_info.current_epoch !== undefined)
+                ? String(p.time_info.current_epoch) : "—"
+        } catch (e) { return "—" }
+    }
+    // BlendStatus enum → the view's none|edge|core. Edge=2, Core=3, Broadcast=4.
+    function _dashBlend(bs) {
+        if (bs === BlockchainBackend.Edge) return "edge"
+        if (bs === BlockchainBackend.Core || bs === BlockchainBackend.Broadcast) return "core"
+        return "none"
+    }
+
     Timer {
         id: cryptarchiaTimer
-        repeat: false
-        interval: root.statusRetryMs > 0 ? root.statusRetryMs : root.statusPollBaseMs
-        onTriggered: root.pollNodeStatus()
-    }
-
-    function pollNodeStatus() {
-        if (!root.statusPollActive || !root.backend)
-            return
-        logos.watch(
-            root.backend.getCryptarchiaInfo(),
-            function(result) {
-                if (result.success)
-                    root._onStatusPollSuccess(result.value)
-                else
-                    root._onStatusPollFailure(_d.errorText(result.error))
-            },
-            function(error) { root._onStatusPollFailure(_d.errorText(error)) }
-        )
-    }
-
-    function _scheduleNextPoll() {
-        // Guard against rescheduling after the node has left Running (e.g. the
-        // user stopped it, or we gave up below).
-        if (root.statusPollActive)
-            cryptarchiaTimer.restart()
-    }
-
-    function _pollTimeInfo() {
-        if (!root.backend)
-            return
-        logos.watch(
-            root.backend.getTimeInfo(),
-            function(result) { root.timeInfoJson = result.success ? result.value : "" },
-            function(error) { root.timeInfoJson = "" }
-        )
-    }
-
-    function _onStatusPollSuccess(value) {
-        root.cryptarchiaInfoJson = value
-        root._pollTimeInfo()
-        root.cryptarchiaInfoError = ""
-        root.statusRetryMs = 0             // recovered: back to the base cadence
-        root.statusCapRetryCount = 0
-        root.statusUnresponsive = false
-        root.statusNextPollSeconds = 0
-        root._scheduleNextPoll()
-    }
-
-    function _onStatusPollFailure(message) {
-        root.cryptarchiaInfoError = message
-
-        if (root.statusRetryMs >= root.statusPollMaxMs) {
-            // Already at the cap: retry there a bounded number of times before
-            // giving up.
-            root.statusCapRetryCount += 1
-            if (root.statusCapRetryCount >= root.statusMaxRetries) {
-                // Out of retries: the status RPC won't answer. Do NOT touch the
-                // node (it may well be alive — see the comment above). Just
-                // pause monitoring; an incoming block or the Resume button will
-                // bring it back.
-                root.statusRetryMs = 0
-                root.statusCapRetryCount = 0
-                root.statusUnresponsive = false
-                root.statusNextPollSeconds = 0
-                root.monitoringPaused = true   // flips statusPollActive → stops the loop
-                return
-            }
-            root.statusUnresponsive = true
-            root.statusNextPollSeconds = Math.ceil(root.statusRetryMs / 1000)
-            root._scheduleNextPoll()
-            return
-        }
-
-        // Exponential backoff: 2s, 4s, 8s, … capped at 2^6 s.
-        root.statusRetryMs = root.statusRetryMs === 0
-            ? root.statusPollBaseMs
-            : Math.min(root.statusRetryMs * 2, root.statusPollMaxMs)
-        root.statusUnresponsive = true
-        root.statusNextPollSeconds = Math.ceil(root.statusRetryMs / 1000)
-        root._scheduleNextPoll()
-    }
-
-    // Live countdown to the next retry while backing off, purely for display.
-    // Reset to the full backoff on each scheduled retry and ticked down once a
-    // second; the actual poll is driven by `cryptarchiaTimer`, not this.
-    property int statusNextPollSeconds: 0
-
-    Timer {
-        id: statusCountdownTimer
-        interval: 1000
+        interval: 2000
         repeat: true
-        running: root.statusUnresponsive
+        triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
         onTriggered: {
-            if (root.statusNextPollSeconds > 0)
-                root.statusNextPollSeconds -= 1
+            if (!root.backend) return
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success) {
+                        root.cryptarchiaInfoJson = result.value
+                        root.cryptarchiaInfoError = ""
+                        // A serving chain API is PROOF that recovery is over — the node does
+                        // not answer this call while replaying. recoveryActive comes from a
+                        // LOG SCRAPE and _statusDisplay() checks it FIRST, so a frozen true
+                        // outranks everything: the dashboard read "Recovering chain" for a
+                        // node reporting state=Online, phase=Following, while the log's
+                        // newest marker was already "120 blocks replayed. Chain recovery
+                        // finished". Fact outranks scrape — same rule as the promote probe.
+                        root.recoveryActive = false
+                    } else {
+                        // An EMPTY reason is not an error. The backend deliberately returns
+                        // no message for a node the user stopped; formatting that produced
+                        // the literal "Error: " with nothing after it — a non-empty string,
+                        // so the panel stayed red and _statusDisplay() rendered it ahead of
+                        // the real "Stopped" status.
+                        var reason = result.error ? String(result.error) : ""
+                        root.cryptarchiaInfoError = reason.length ? _d.errorText(result.error) : ""
+                    }
+                },
+                function(error) {
+                    var e = error ? String(error) : ""
+                    root.cryptarchiaInfoError = e.length ? _d.errorText(error) : ""
+                }
+            )
         }
     }
 
-    // Resume the status monitor after it was paused (backoff exhausted). Clears
-    // the pause, which flips `statusPollActive` back on and — via its change
-    // handler — resets the backoff and fires an immediate poll. No-op if the
-    // node isn't Running.
-    function resumeMonitoring() {
-        if (root.monitoringPaused && root.nodeRunning)
-            root.monitoringPaused = false
+    // The cryptarchia poll above only runs while status === Running, so the last value it
+    // wrote is FROZEN once the node leaves that state — a stale error then outlives the
+    // state it described, and _statusDisplay() renders errorText ahead of the status. This
+    // is the same "a log line outlives the state" defect the shared intent latch was built
+    // to remove, in the UI layer instead of the log scrape.
+    Connections {
+        target: root.backend
+        function onStatusChanged() {
+            if (root.backend
+                && root.backend.status !== BlockchainBackend.Running
+                && root.backend.status !== BlockchainBackend.Error) {
+                root.cryptarchiaInfoError = ""
+                // Same freeze, same fix: the recovery probe only runs while Starting or
+                // Running, so whatever it last wrote survives indefinitely once the node
+                // leaves those states — and it is the FIRST thing _statusDisplay() checks.
+                root.recoveryActive = false
+                root.recoveryBlocks = 0
+            }
+        }
+    }
+
+    // ── Chain-recovery + peer-id probe ──
+    // Runs while the node is Starting OR Running — the ~2-min block-replay after an
+    // unclean restart happens while status is still Starting (the API isn't up yet, so
+    // the confirm-probe hasn't flipped it to Running). Surfaces "Recovering chain —
+    // replaying N blocks…" during that window, and keeps fetching the peer id until we
+    // have it (so it's always shown, not blank while the chain API is still down).
+    property bool recoveryActive: false
+    property int  recoveryBlocks: 0
+    Timer {
+        id: recoveryTimer
+        interval: 2000
+        repeat: true
+        triggeredOnStart: true
+        running: root.ready && root.backend
+                 && (root.backend.status === BlockchainBackend.Starting
+                     || root.backend.status === BlockchainBackend.Running)
+        onTriggered: {
+            if (!root.backend) return
+            if (!root.peerId || !root.peerId.length) root.refreshPeerId()
+            logos.watch(
+                root.backend.getRecoveryStatus(),
+                function(result) {
+                    root.recoveryActive = !!(result && result.active)
+                    root.recoveryBlocks = (result && result.blocks) ? result.blocks : 0
+                },
+                function(error) { /* keep last */ }
+            )
+        }
     }
 
     // Wallet's claimable ("pending") vouchers. Auto-refreshed on every incoming
@@ -333,17 +1104,162 @@ Rectangle {
         )
     }
 
-    // Incoming blocks arrive as row insertions on the remoted block model. A
-    // new block is proof the node is alive, so it also auto-resumes a paused
-    // status monitor.
+    // Blocks this node proposed, parsed from the node's own log (getProposals) — the
+    // authoritative "my proposals" (leadership is private on-chain). Refreshed with vouchers.
+    property string proposalsJson: ""
+    function refreshProposals() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running)
+            return
+        logos.watch(
+            root.backend.getProposals(),
+            function(result) { if (result.success) root.proposalsJson = result.value },
+            function(error) { /* keep last known list on transient errors */ }
+        )
+    }
+
+    // Permanent leader-claim ledger: local write-ahead rows reconciled against the
+    // chain (docs/VOUCHER-STATE-MAP.md). NOT refreshed per block like the vouchers —
+    // each call advances a bounded chain scan, so it runs on its own slower timer.
+    property string claimsJson: ""
+    // Real 0.2.4 lifecycle signals from our leader claims (no /leader/aged-notes API):
+    // led a block → Proposing; a reward credited → Earning; per-epoch proposed count.
+    readonly property bool _hasLed: leaderRewardsView.claims.length > 0
+                                  || leaderRewardsView.vouchers.length > 0
+                                  || leaderRewardsView.blocksLed > 0
+    readonly property real _earnedLepta: {
+        var cs = leaderRewardsView.claims, t = 0
+        for (var i = 0; i < cs.length; ++i) {
+            var c = cs[i]
+            if (c && Number(c.reward) > 0 && (c.status === "settled" || c.status === "in_block"))
+                t += Number(c.reward) - Number(c.fee || 0)   // NET earned — what actually lands in the balance (matches the stake increment); fee % shown in the sub
+        }
+        return t
+    }
+    // PREVIEW: per-epoch proposed count from our claims' slots. epoch_length is the
+    // testnet constant (36000 slots); the node doesn't expose it on the 0.2.4 line (#61).
+    // Blocks proposed in the current epoch — read from the SAME source as the
+    // Proposals tab (proposalsJson), with the identical epoch-from-time derivation
+    // ProposalsView uses, so the dashboard tile and the Proposals list always
+    // agree. (Previously counted claims-in-epoch, a different number.)
+    readonly property int _proposedEpoch: {
+        if (!opPage.nodeRunning) return -1        // no current epoch while stopped → "—"
+        var e = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+        if (isNaN(e)) return -1
+        var arr
+        try { arr = root.proposalsJson && root.proposalsJson.length ? JSON.parse(root.proposalsJson) : [] }
+        catch (err) { return -1 }
+        var L = 36000, GEN = 1788525000000, n = 0   // epoch_length slots · genesis ms (testnet)
+        for (var i = 0; i < arr.length; ++i) {
+            var ms = Date.parse(String(arr[i].time).replace(" ", "T"))
+            if (isNaN(ms)) continue
+            if (Math.floor((ms - GEN) / 1000 / L) === e) n++
+        }
+        return n
+    }
+    function refreshLeaderClaims() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running)
+            return
+        logos.watch(
+            root.backend.getLeaderClaims(),
+            function(result) { if (result.success) root.claimsJson = result.value },
+            function(error) { /* keep the last known ledger on transient errors */ }
+        )
+    }
+
+    Timer {
+        interval: 20000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: root.refreshLeaderClaims()
+    }
+
+    // Epoch-scheduled auto-claim (#47). Claims fire in the first ~3 min after an
+    // epoch tick — the first moment a voucher's proof can land (the ledger
+    // snapshots vouchers once per epoch start) and the moment that costs no
+    // leadership (fee notes are already in this epoch's eligibility snapshot;
+    // the A/B run 08-24/25: 8/8 settled 85 s after the tick). One claim per
+    // 30 s poll — the pacing that measured 47/47 landed vs ~50% in bursts.
+    // Watchdog + catch-up state (2026-08-26: the 05:00 tick was silently missed
+    // while vouchers sat claimable — a stuck claimInFlight has no other escape,
+    // and an app closed at tick time never claimed at all until the next tick).
+    property double _claimStartedAt: 0
+    property int _voucherIdlePolls: 0
+    Timer {
+        interval: 30000; repeat: true; triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: {
+            // Watchdog: a claim round-trip is seconds; a flag held >3 min means
+            // the reply was lost — reset it or the scheduler is dead forever.
+            if (leaderRewardsView.claimInFlight && root._claimStartedAt > 0
+                && Date.now() - root._claimStartedAt > 180000) {
+                leaderRewardsView.claimInFlight = false
+                root._claimStartedAt = 0
+            }
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (!result.success) return
+                    var info = null
+                    try { info = JSON.parse(result.value) } catch (e) { return }
+                    // Prefer the clock slot from /time/info (#51) — the
+                    // cryptarchia slot is the TIP's slot and trails by a block.
+                    var slot = (info && info.time_info && info.time_info.current_slot > 0)
+                               ? info.time_info.current_slot
+                               : (info && info.cryptarchia_info ? info.cryptarchia_info.slot : -1)
+                    if (!(slot > 0)) return
+                    leaderRewardsView.slotNow = slot
+                    if (!leaderRewardsView.autoClaim) return
+                    if (leaderRewardsView.claimInFlight) return
+                    // 600s window, not 180: vouchers SURFACE 2-5 min after the
+                    // tick (the wallet needs the new snapshot before the pool
+                    // shows them) — measured 08-24 23:04 and again at the 08-25
+                    // 19:00 tick, where a 180s window closed before the pool
+                    // filled and two vouchers sat unclaimed for 10 h.
+                    var inWindow = (slot % 36000) < 600
+                    if (root.voucherCount <= 0) {
+                        root._voucherIdlePolls = 0
+                        return
+                    }
+                    // Catch-up: vouchers persistently claimable OUTSIDE the
+                    // window (app was closed at tick time, or the window was
+                    // missed) still get claimed after ~10 min of stability —
+                    // claims are valid all epoch; only the tick is optimal.
+                    if (!inWindow) {
+                        root._voucherIdlePolls += 1
+                        if (root._voucherIdlePolls < 20) return
+                    } else {
+                        root._voucherIdlePolls = 0
+                    }
+                    root.refreshClaimableVouchers()            // pool moves fast in the window
+                    leaderRewardsView.claimInFlight = true
+                    root._claimStartedAt = Date.now()
+                    root._voucherIdlePolls = 0
+                    leaderRewardsView.claimLeaderRewardsRequested()
+                },
+                function(error) { /* keep last */ }
+            )
+        }
+    }
+
+    // Count of claimable leadership vouchers (blocks led, rewards pending).
+    readonly property int voucherCount: {
+        try {
+            var v = root.claimableVouchersJson && root.claimableVouchersJson.length > 0
+                    ? JSON.parse(root.claimableVouchersJson) : null
+            if (!v) return 0
+            if (Array.isArray(v)) return v.length
+            if (v.vouchers && Array.isArray(v.vouchers)) return v.vouchers.length
+            return 0
+        } catch (e) { return 0 }
+    }
+
+    // Incoming blocks arrive as row insertions on the remoted block model.
     Connections {
         target: root.blockModel
         enabled: root.blockModel !== null
         ignoreUnknownSignals: true
-        function onRowsInserted() {
-            root.resumeMonitoring()
-            root.refreshClaimableVouchers()
-        }
+        function onRowsInserted() { root.refreshClaimableVouchers(); root.refreshProposals() }
     }
 
     // Initial load when the node reaches Running (before the next block).
@@ -352,8 +1268,10 @@ Rectangle {
         enabled: root.backend !== null
         ignoreUnknownSignals: true
         function onStatusChanged() {
-            if (root.backend.status === BlockchainBackend.Running)
+            if (root.backend.status === BlockchainBackend.Running) {
                 root.refreshClaimableVouchers()
+                root.refreshProposals()
+            }
         }
     }
 
@@ -363,6 +1281,53 @@ Rectangle {
             return qsTr("Error: %1").arg(message)
         }
 
+        function getStatusString(s) {
+            switch(s) {
+            case BlockchainBackend.NotStarted: return qsTr("Not Started")
+            case BlockchainBackend.Starting: return qsTr("Starting...")
+            case BlockchainBackend.Running: return qsTr("Running")
+            case BlockchainBackend.Stopping: return qsTr("Stopping...")
+            case BlockchainBackend.Stopped: return qsTr("Stopped")
+            case BlockchainBackend.Error: return _d.errorText(root.backend.lastErrorMessage)
+            default: return qsTr("Unknown")
+            }
+        }
+        function getStatusColor(s) {
+            switch(s) {
+            case BlockchainBackend.Running: return Theme.palette.success
+            case BlockchainBackend.Starting:
+            case BlockchainBackend.Stopping: return Theme.palette.warning
+            // Stopped and NotStarted are NEUTRAL, not failures. They used to fall through
+            // to `default: error`, so a node the user had just stopped was painted red —
+            // and no amount of fixing the backend could help, because the backend was
+            // already reporting Stopped correctly. This was the root cause under three
+            // rounds of symptom fixes on the C++ side.
+            case BlockchainBackend.Stopped:
+            case BlockchainBackend.NotStarted: return Theme.palette.textSecondary
+            // Error (and anything unforeseen) stays red — that is what red is for.
+            default: return Theme.palette.error
+            }
+        }
+        // Blend status line (below the staking line). Label carries the blend
+        // state only — the node state is already shown in the status block above.
+        function getBlendText(s) {
+            switch(s) {
+            case BlockchainBackend.Edge: return qsTr("Blend edge")
+            case BlockchainBackend.Core: return qsTr("Blend core")
+            case BlockchainBackend.Broadcast: return qsTr("Blend broadcast")
+            case BlockchainBackend.BlendError: return qsTr("Blend error")
+            case BlockchainBackend.Unknown: return qsTr("Blend unknown")
+            default: return qsTr("Blend inactive")
+            }
+        }
+        // Blue only while actively mixing (edge/core); gray otherwise.
+        function getBlendColor(s) {
+            switch(s) {
+            case BlockchainBackend.Edge:
+            case BlockchainBackend.Core: return Theme.palette.info
+            default: return Theme.palette.textSecondary
+            }
+        }
         property int currentPage: 0
 
         // Guards the one-time startup route (see root._applyInitialRoute):
@@ -370,6 +1335,27 @@ Rectangle {
         // fight the user's later navigation (e.g. the node view's "Change"
         // button, which deliberately returns to the chooser at page 0).
         property bool initialRouted: false
+
+        // One-click "Run the node" (#10/#15): generate a default testnet config
+        // with the known-good bootstrap peers, then start fresh. The backend's
+        // startBlockchain() fills bootstrap.ibd.peers from these before starting.
+        function runNodeOneClick() {
+            if (!root.backend) return
+            var peers = root.defaultBootstrapPeers
+            logos.watch(
+                root.backend.generateConfig("", peers, 0, 0, "", "", false, 0, "", ""),
+                function(result) {
+                    if (!result.success) return
+                    root.backend.userConfig =
+                        (result.value !== undefined && result.value !== "")
+                            ? result.value : root.backend.generatedUserConfigPath
+                    root.backend.useGeneratedConfig = true
+                    _d.currentPage = 1
+                    root.backend.startBlockchain()
+                },
+                function(error) {}
+            )
+        }
     }
 
     color: Theme.palette.background
@@ -378,14 +1364,14 @@ Rectangle {
     ColumnLayout {
         anchors.centerIn: parent
         visible: !root.ready
-        spacing: Theme.spacing.medium
-        LogosText {
+        spacing: 12
+        Text {
             Layout.alignment: Qt.AlignHCenter
             text: qsTr("Connecting to blockchain backend...")
             color: Theme.palette.textSecondary
             font.pixelSize: Theme.typography.secondaryText
         }
-        LogosSpinner { Layout.alignment: Qt.AlignHCenter; running: !root.ready }
+        BusyIndicator { Layout.alignment: Qt.AlignHCenter; running: !root.ready }
     }
 
     StackLayout {
@@ -395,11 +1381,11 @@ Rectangle {
         visible: root.ready
 
         // Page 1: Config choice
-        LogosScrollView {
+        ScrollView {
             id: configChoiceScrollView
+            clip: true
             ConfigChoiceView {
                 id: configChoiceView
-                objectName: "configChoiceView"
                 width: configChoiceScrollView.availableWidth
                 userConfigPath: root.backend ? root.backend.userConfig : ""
                 deploymentConfigPath: root.backend ? root.backend.deploymentConfig : ""
@@ -464,163 +1450,261 @@ Rectangle {
             }
         }
 
-        // Page 2: node dashboard, wallet operations and the explorer, behind a
-        // left nav. Same idiom as basecamp's Settings/AppManager sidebars —
-        // LogosListView + LogosItemDelegate; the design system has no packaged
-        // sidebar component.
+        // Page 2: Node information + Wallet operations (tabbed)
         ColumnLayout {
             id: opPage
             spacing: Theme.spacing.medium
 
-            property int sectionIndex: 0
-            readonly property bool nodeRunning: root.backend ? root.backend.status === BlockchainBackend.Running : false
-            readonly property bool canStart: root.backend && !!root.backend.userConfig && (root.backend.status === BlockchainBackend.NotStarted || root.backend.status === BlockchainBackend.Stopped)
-            readonly property bool canStop: root.backend && (root.backend.status === BlockchainBackend.Running || root.backend.status === BlockchainBackend.Error)
-            // On stop, leave only the tabs that need a running node (wallet ops,
-            // indices 2..6). Dashboard(0), Blocks(1) and Settings(7) stay put.
-            onNodeRunningChanged: { if (!nodeRunning && sectionIndex >= 2 && sectionIndex <= 6) sectionIndex = 0 }
+            // Selected operation inside the Operations tab's sidebar nav.
+            //   0 Accounts · 1 Transfer · 2 Leader Rewards · 3 Channel Deposit
+            property int operationIndex: 0
 
-            // app header (was inside NodeDashboardView; hoisted so it persists across tabs)
+            // When pinned, Accounts stays visible (stacked on top) even while a
+            // different operation is selected.
+            property bool accountsPinned: false
+
+            readonly property bool nodeRunning: root.backend
+                ? root.backend.status === BlockchainBackend.Running
+                : false
+
+            // Wallet operations require a running node. If the node stops while
+            // the Operations tab is open, fall back to the Node tab so the user
+            // isn't stranded on a disabled tab.
+            onNodeRunningChanged: {
+                // Only the node-gated tab (Operations=4) strands the user when the
+                // node stops; Node/Rewards/Blocks/Proposals/Settings stay valid.
+                if (!nodeRunning && operationTabBar.currentIndex === 4)
+                    operationTabBar.currentIndex = 0
+                // A manual (re)start clears any cap auto-pause.
+                if (nodeRunning) root._autoPaused = false
+            }
+
             RowLayout {
-                Layout.fillWidth: true; Layout.margins: Theme.spacing.large; spacing: Theme.spacing.medium
-                Image {
-                    source: Qt.resolvedUrl("icons/logos.svg")
-                    sourceSize.width: 30; sourceSize.height: 30
-                    Layout.preferredWidth: 30; Layout.preferredHeight: 30
-                    Layout.alignment: Qt.AlignVCenter
-                    fillMode: Image.PreserveAspectFit
+                Layout.fillWidth: true
+                spacing: Theme.spacing.medium
+                // Tabs size to content (compressed) so the stop-node control + gear fit.
+                LogosTabBar {
+                    id: operationTabBar
+                    spacing: Theme.spacing.large   // more room between the tabs
+                    LogosTabButton { text: qsTr("Node") }
+                    LogosTabButton { text: qsTr("Rewards") }
+                    LogosTabButton { text: qsTr("Blocks") }
+                    LogosTabButton { text: qsTr("Proposals") }
+                    LogosTabButton {
+                        text: qsTr("Wallet")
+                        enabled: opPage.nodeRunning
+                    }
+                    // Settings is reachable before the node runs (configure first).
+                    LogosTabButton { text: qsTr("Settings") }
                 }
-                LogosText { text: qsTr("Blockchain Node"); color: Theme.palette.text; font.pixelSize: 28; font.weight: Theme.typography.weightBold; Layout.alignment: Qt.AlignVCenter }
-                Item { Layout.fillWidth: true }
-                LogosButton { text: qsTr("Fund"); enabled: opPage.nodeRunning; Layout.alignment: Qt.AlignVCenter }
+                Item { Layout.fillWidth: true }   // push node control + gear to the right
+
+                // Header controls mirror the prototype: Fund (secondary) then the
+                // node Start/Stop (primary), plain LogosButtons with no glyphs. Fork
+                // labels kept (Start / Stop / Fund + transitional Starting…/Stopping…).
+
+                // Fund the node (auto-stake). Enabled only once the node is Online and
+                // has an address (issue #22).
                 LogosButton {
-                    text: opPage.nodeRunning ? qsTr("Stop Node") : qsTr("Start Node")
-                    variant: LogosButton.Variant.Primary
+                    id: fundBtn
                     Layout.alignment: Qt.AlignVCenter
-                    enabled: opPage.nodeRunning ? opPage.canStop : opPage.canStart
+                    readonly property bool online: root.backend
+                        && root.backend.status === BlockchainBackend.Running
+                    readonly property bool ready: online && root.backend
+                        && (root.backend.primaryAddress || "").length > 0
+                    text: qsTr("Fund")
+                    enabled: ready
+                    onClicked: if (ready) fundDialog.open()
+                    ToolTip.visible: hovered && !fundBtn.ready
+                    ToolTip.text: qsTr("Fund the node once it's online")
+                }
+
+                // Node run/stop — primary CTA. Disabled mid-transition so a second
+                // start can't fire (#18). Stopping cleanly avoids the DB-recovery pain.
+                LogosButton {
+                    id: nodeCtlBtn
+                    Layout.alignment: Qt.AlignVCenter
+                    variant: LogosButton.Variant.Primary
+                    readonly property int st: root.backend ? root.backend.status : -1
+                    readonly property bool running: st === BlockchainBackend.Running
+                    readonly property bool busy: st === BlockchainBackend.Starting
+                                                 || st === BlockchainBackend.Stopping
+                    enabled: root.backend && !busy
+                    text: st === BlockchainBackend.Starting ? qsTr("Starting…")
+                          : st === BlockchainBackend.Stopping ? qsTr("Stopping…")
+                          : running ? qsTr("Stop")
+                          : qsTr("Start")
                     onClicked: {
-                        if (!root.backend) return
-                        if (opPage.nodeRunning) root.backend.stopBlockchain()
+                        if (!root.backend || nodeCtlBtn.busy) return
+                        if (nodeCtlBtn.running) root.backend.stopBlockchain()
                         else root.backend.startBlockchain()
                     }
                 }
-            }
 
-            // top tab nav (replaces the left SectionNav; index-for-index with operationStack)
-            LogosTabBar {
-                id: sectionTabs
-                Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large
-                currentIndex: opPage.sectionIndex
-                onCurrentIndexChanged: opPage.sectionIndex = currentIndex
-                LogosTabButton { text: qsTr("Dashboard") }
-                LogosTabButton { text: qsTr("Blocks") }
-                LogosTabButton { text: qsTr("Accounts"); enabled: opPage.nodeRunning }
-                LogosTabButton { text: qsTr("Rewards"); enabled: opPage.nodeRunning }
-                LogosTabButton { text: qsTr("Explorer"); enabled: opPage.nodeRunning }
-                LogosTabButton { text: qsTr("Transfer"); enabled: opPage.nodeRunning }
-                LogosTabButton { text: qsTr("Channel Deposit"); enabled: opPage.nodeRunning }
-                LogosTabButton { text: qsTr("Settings") }
+                // (Settings gear removed — Settings is now its own top tab.)
             }
 
             StackLayout {
                 id: operationStack
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: opPage.sectionIndex
+                currentIndex: operationTabBar.currentIndex
 
-                // ---- Section 0: Dashboard (blocks folded in) ----
-                NodeDashboardView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    status: root.backend ? root.backend.status : -1
-                    nodeRecovering: !!root.backend && root.backend.nodeRecovering
-                    lastErrorMessage: root.cryptarchiaInfoError || (root.backend ? root.backend.lastErrorMessage : "")
-                    infoJson: root.cryptarchiaInfoJson
-                    timeInfoJson: root.timeInfoJson
-                    peerId: root.peerId
-                    nodeRunning: opPage.nodeRunning
-                    blockModel: root.blockModel
-                    blocksEmptyText: !opPage.nodeRunning
-                                     ? qsTr("Start the node to see blocks arrive.")
-                                     : root.cryptarchiaInfoJson.length === 0
-                                       ? qsTr("Waiting for the node to report its state...")
-                                       : qsTr("Waiting for the next block. Only blocks produced from now on are listed.")
-                    onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
-                    onCopyText: (t) => root.copyText(t)
+                // ---- Tab 0: Node dashboard (Blocks/Proposals promoted to their own tabs) ----
+                ColumnLayout {
+                    spacing: Theme.spacing.large
+
+                    // One-click UX #13 — status-first node dashboard.
+                    NodeDashboardView {
+                        Layout.fillWidth: true
+
+                        // --- consensus / status ---
+                        status: root.backend ? root.backend.status : -1
+                        autoPaused: root._autoPaused
+                        autoPauseReason: root._autoPauseReason
+                        nodeRunning: opPage.nodeRunning
+                        nodeRecovering: root.recoveryActive
+                        lastErrorMessage: (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
+                            ? root.cryptarchiaInfoError
+                            : ((root.backend && root.backend.status === BlockchainBackend.Error)
+                                ? root.backend.lastErrorMessage : "")
+                        // Live chain/network/identity values are only meaningful while the
+                        // node is running — when it's stopped these go "—" instead of stale.
+                        infoJson: opPage.nodeRunning ? root.cryptarchiaInfoJson : ""
+                        timeInfoJson: opPage.nodeRunning ? root._dashTimeInfo(root.cryptarchiaInfoJson) : ""
+                        peerId: opPage.nodeRunning ? root.peerId : ""
+                        blockModel: root.blockModel
+
+                        // --- epoch / blend (#58) ---
+                        epoch: opPage.nodeRunning ? root._dashEpoch(root.cryptarchiaInfoJson) : "—"
+                        epochProgress: ""                                  // no epoch_length from the node yet (#61)
+                        blendState: opPage.nodeRunning ? root._dashBlend(root.backend ? root.backend.blendStatus : 0) : "none"
+
+                        // --- peers / connections (#62, real via curl bridge) ---
+                        peers: opPage.nodeRunning && root.nodePeers >= 0 ? String(root.nodePeers) : "—"
+                        connections: opPage.nodeRunning && root.nodeConnections >= 0
+                            ? (root.nodeConnections + qsTr(" connections")) : ""
+
+                        // PREVIEW: keep "—" (#61). getProposals() returns this node's CUMULATIVE
+                        // log proposals with no per-entry epoch/slot to filter on, so any count here is
+                        // misleading — it showed 500 before sync even finished. Needs a real
+                        // current-epoch proposed count from the node. The full list is the Proposals tab.
+                        proposed: root._proposedEpoch >= 0 ? String(root._proposedEpoch) : "—"
+                        validation: root._hasLed ? "active" : ""
+                        epochsToActivate: 0
+
+                        // --- funding / stake (faucet line — no mining on 0.2.4) ---
+                        funded: root.nodeBalance !== "—" && root.nodeBalance !== "0" && root.nodeBalance !== ""
+                        // raw balance is lepta (amounts.js: decimals=9) — convert to LGO.
+                        stakeStr: (root.nodeBalance !== "—" && root.nodeBalance !== "") ? Amounts.precise(root.nodeBalance) : "—"
+                        foundingAddr: root.balanceKey
+                        empoweringActive: false
+                        empoweringMined: -1
+                        empoweringTarget: -1
+
+                        // --- rewards (real, from getLeaderClaims summary) ---
+                        // cumulative reward that has landed (credited to balance), full lepta
+                        // precision so a micro-LGO reward stays visible.
+                        earnedStr: root._earnedLepta > 0 ? Amounts.precise(root._earnedLepta) : "—"
+                        feePct: leaderRewardsView.feePct >= 0
+                            ? String(leaderRewardsView.feePct) : ""
+                        // voucher pipeline (live only): submitted = claims in flight, ready = claimable
+                        vouchersSubmitted: opPage.nodeRunning ? leaderRewardsView.claimingCount : -1
+                        vouchersReady: opPage.nodeRunning ? root.voucherCount : -1
+
+                        // PREVIEW (#65/#66): CPU%/RAM sampled from the blockchain_module process
+                        // in /proc by the backend (self-liquidates when the node exposes them).
+                        // Cap sub-lines show the configured caps when enforcement is on (Settings).
+                        cpu: (root.backend && root.backend.cpuUsage.length) ? root.backend.cpuUsage : "—"
+                        cpuCap: nodeSettings.capsEnabled && nodeSettings.cpuCap.length ? qsTr("Cap %1%").arg(nodeSettings.cpuCap) : ""
+                        ram: (root.backend && root.backend.ramUsage.length) ? root.backend.ramUsage : "—"
+                        ramCap: nodeSettings.capsEnabled && nodeSettings.ramCap.length ? qsTr("Cap %1%").arg(nodeSettings.ramCap) : ""
+                        disk: (root.backend && root.backend.diskUsage.length) ? root.backend.diskUsage : "—"
+                        diskCap: nodeSettings.capsEnabled && nodeSettings.diskCap.length ? qsTr("Cap %1 GB").arg(nodeSettings.diskCap) : ""
+                        uptime: ""
+
+                        // version footer defaults to Module v<moduleVersion> (0.2.20)
+
+                        onCopyText: (text) => root.copyText(text)
+                        onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
+                    }
+
                 }
 
-                // ---- Section 1: Blocks ----
-                BlocksView {
-                    Layout.fillWidth: true; Layout.fillHeight: true
-                    blockModel: root.blockModel
-                    emptyText: !opPage.nodeRunning
-                               ? qsTr("Start the node to see blocks arrive.")
-                               : root.cryptarchiaInfoJson.length === 0
-                                 ? qsTr("Waiting for the node to report its state...")
-                                 : qsTr("Waiting for the next block. Only blocks produced from now on are listed.")
-                    onClearRequested: if (root.backend) root.backend.clearBlocks()
-                    onCopyToClipboard: (t) => root.copyText(t)
-                }
-
-                // ---- wallet operations, one per nav entry ----
-                AccountsView {
-                    id: accountsView
-                    accountsModel: root.accountsModel
-
-                    onGetBalanceRequested: function(addressHex) {
-                        if (!root.backend) {
-                            accountsView.setBalanceResult(
-                                addressHex, false, qsTr("Not connected to the module."))
-                            return
-                        }
-                        logos.watch(
-                            root.backend.getBalance(addressHex),
-                            function(result) {
-                                accountsView.setBalanceResult(
-                                    addressHex, result.success,
-                                    result.success ? "" : _d.errorText(result.error))
-                            },
-                            function(error) {
-                                accountsView.setBalanceResult(
-                                    addressHex, false, _d.errorText(error))
+                // ---- Tab 1: Rewards (leader-reward claims — promoted to its own tab) ----
+                        LeaderRewardsView {
+                            id: leaderRewardsView
+                            currentEpoch: opPage.nodeRunning ? parseInt(root._dashEpoch(root.cryptarchiaInfoJson)) : -1
+                            autoClaim: nodeSettings.rewardsAutoClaim   // persisted (survives restarts)
+                            vouchersJson: root.claimableVouchersJson
+                            claimsJson: root.claimsJson
+                            proposalsJson: root.proposalsJson
+                            // Gate the Claim button: a claim is a transaction and
+                            // must be paid for, so an empty wallet cannot claim.
+                            balance: {
+                                var n = Number(root.nodeBalance)
+                                return isNaN(n) ? -1 : n
                             }
-                        )
-                    }
-                    onRefreshAccountsRequested: if (root.backend) root.backend.refreshAccounts()
-                    onCopyToClipboard: (text) => {
-                        root.copyText(text)
-                    }
-                }
 
-                LeaderRewardsView {
-                    id: leaderRewardsView
-                    vouchersJson: root.claimableVouchersJson
+                            onClearClaimsRequested: function() {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.clearLeaderClaims(),
+                                    function(result) { root.refreshLeaderClaims() },
+                                    function(error) { /* list stays; user can retry */ }
+                                )
+                            }
 
-                    onClaimLeaderRewardsRequested: function() {
-                        if (!root.backend) return
-                        logos.watch(
-                            root.backend.claimLeaderRewards(),
-                            function(result) {
-                                if (result.success) {
-                                    leaderRewardsView.setLeaderClaimResult(result.value)
-                                } else {
-                                    leaderRewardsView.setLeaderClaimResult(_d.errorText(result.error))
-                                }
-                                // Reflect the claim in the pending list.
-                                root.refreshClaimableVouchers()
-                            },
-                            function(error) { leaderRewardsView.setLeaderClaimResult(_d.errorText(error)) }
-                        )
-                    }
-                    onCopyToClipboard: (text) => {
-                        root.copyText(text)
-                    }
-                }
+                            onClaimLeaderRewardsRequested: function() {
+                                if (!root.backend) { leaderRewardsView.claimInFlight = false; return }
+                                logos.watch(
+                                    root.backend.claimLeaderRewards(),
+                                    function(result) {
+                                        leaderRewardsView.claimInFlight = false
+                                        if (result.success) {
+                                            leaderRewardsView.setLeaderClaimResult(result.value)
+                                        } else {
+                                            leaderRewardsView.setLeaderClaimResult(_d.errorText(result.error))
+                                        }
+                                        // The claimed voucher leaves the ready list, the
+                                        // new row enters the ledger, and the balance is
+                                        // the number that actually proves it worked —
+                                        // refresh all three, not just the first.
+                                        root.refreshClaimableVouchers()
+                                        root.refreshLeaderClaims()
+                                        // The leader key is the one a claim charges,
+                                        // so it is the balance that moves.
+                                        if (root.balanceKey.length > 0) {
+                                            logos.watch(
+                                                root.backend.getBalance(root.balanceKey),
+                                                function(r) {
+                                                    if (r.success && r.value !== undefined && r.value !== null)
+                                                        root.nodeBalance = String(r.value)
+                                                },
+                                                function(e) { /* keep last known */ }
+                                            )
+                                        }
+                                    },
+                                    function(error) {
+                                        leaderRewardsView.claimInFlight = false
+                                        leaderRewardsView.setLeaderClaimResult(_d.errorText(error))
+                                    }
+                                )
+                            }
+                            onCopyToClipboard: (text) => {
+                                root.copyText(text)
+                            }
+                        }
 
-                // ---- Section 5: Explorer (block / transaction lookup) ----
-                ExplorerView {
-                    id: explorerView
+                // ---- Tab 2: Blocks (block list + embedded explorer on top) ----
+                BlocksView {
+                    id: blocksView
+                    blockModel: root.blockModel
+                    myKey: root.backend ? (root.backend.primaryAddress || "") : ""
+                    currentEpoch: parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
                     nodeRunning: opPage.nodeRunning
+                    onClearRequested: if (root.backend) root.backend.clearBlocks()
+                    onCopyToClipboard: (text) => root.copyText(text)
 
                     // Auto-detect the id kind. The node can't fetch a mined
                     // transaction by hash (its tx store is mempool-only, pruned
@@ -641,7 +1725,7 @@ Rectangle {
                             root.backend.findTransactionInBlocks(id),
                             function(local) {
                                 if (local.success) {
-                                    explorerView.setTransactionResult(id, local.value, local.slot, local.blockId)
+                                    blocksView.setTransactionResult(id, local.value, local.slot, local.blockId)
                                     return
                                 }
                                 // Step 2: block by header id.
@@ -649,7 +1733,7 @@ Rectangle {
                                     root.backend.getBlock(id),
                                     function(blockResult) {
                                         if (blockResult.success) {
-                                            explorerView.setBlockResult(id, blockResult.value)
+                                            blocksView.setBlockResult(id, blockResult.value)
                                             return
                                         }
                                         // Step 3: pending transaction via the node.
@@ -657,220 +1741,323 @@ Rectangle {
                                             root.backend.getTransaction(id),
                                             function(txResult) {
                                                 if (txResult.success)
-                                                    explorerView.setTransactionResult(id, txResult.value)
+                                                    blocksView.setTransactionResult(id, txResult.value)
                                                 else
-                                                    explorerView.setNotFound(id)
+                                                    blocksView.setNotFound(id)
                                             },
-                                            function(error) { explorerView.setError(id, _d.errorText(error)) }
+                                            function(error) { blocksView.setError(id, _d.errorText(error)) }
                                         )
                                     },
-                                    function(error) { explorerView.setError(id, _d.errorText(error)) }
+                                    function(error) { blocksView.setError(id, _d.errorText(error)) }
                                 )
                             },
-                            function(error) { explorerView.setError(id, _d.errorText(error)) }
+                            function(error) { blocksView.setError(id, _d.errorText(error)) }
                         )
+                    }
+                }
+
+                // ---- Tab 3: Proposals ----
+                ProposalsView {
+                    proposalsJson: root.proposalsJson
+                    voucherCount: root.voucherCount
+                    currentEpoch: parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+                    onClearRequested: {
+                        if (!root.backend) return
+                        logos.watch(root.backend.clearProposals(),
+                                    function(result) { root.refreshProposals() },
+                                    function(error) { /* keep list; user can retry */ })
                     }
                     onCopyToClipboard: (text) => root.copyText(text)
-                }
-                TransferView {
-                    id: transferView
-                    accountsModel: root.accountsModel
-
-                    onTransferRequested: function(fromKeyHex, toKeyHex, amount) {
-                        if (!root.backend) return
-                        logos.watch(
-                            root.backend.transferFunds(fromKeyHex, toKeyHex, amount),
-                            function(result) {
-                                if (result.success) {
-                                    transferView.setTransferHash(result.value)
-                                } else {
-                                    transferView.setTransferError(_d.errorText(result.error))
-                                }
-                            },
-                            function(error) { transferView.setTransferError(_d.errorText(error)) }
-                        )
-                    }
-                    onCopyToClipboard: (text) => {
-                        root.copyText(text)
+                    // jump to the Rewards tab (now a top-level tab)
+                    onOpenLeaderRewardsRequested: {
+                        operationTabBar.currentIndex = 1   // Rewards is now its own top tab
                     }
                 }
 
-                ChannelDepositView {
-                    id: channelDepositView
-                    accountsModel: root.accountsModel
-                    nodeRunning: opPage.nodeRunning
-
-                    onGetNotesRequested: function(addressHex, optionalTipHex) {
-                        if (!root.backend) return
-                        logos.watch(
-                            root.backend.getNotes(addressHex, optionalTipHex),
-                            function(result) {
-                                if (result.success)
-                                    channelDepositView.setNotes(result.value)
-                                else
-                                    channelDepositView.setNotesError(_d.errorText(result.error))
-                            },
-                            function(error) { channelDepositView.setNotesError(_d.errorText(error)) }
-                        )
-                    }
-                    onSubmitRequested: function(channelIdHex, inputNoteIdHexes, metadataBase58, changePublicKeyHex, fundingPublicKeyHexes, maxTxFee, optionalTipHex) {
-                        if (!root.backend) return
-                        logos.watch(
-                            root.backend.channelDepositWithNotes(
-                                channelIdHex, inputNoteIdHexes, metadataBase58,
-                                changePublicKeyHex, fundingPublicKeyHexes, maxTxFee, optionalTipHex),
-                            function(result) {
-                                if (result.success)
-                                    channelDepositView.setSubmitResult(true, result.value)
-                                else
-                                    channelDepositView.setSubmitResult(false, _d.errorText(result.error))
-                            },
-                            function(error) { channelDepositView.setSubmitResult(false, _d.errorText(error)) }
-                        )
-                    }
-                    onCopyToClipboard: (text) => {
-                        root.copyText(text)
-                    }
-                }
-
-                // ---- Section 7: Settings ----
-                // Surfaces the active configuration and the path back to the
-                // chooser (page 0) — the redesigned dashboard dropped the old
-                // NodeStatusCard "Change config" button, so this restores it.
-                LogosScrollView {
-                    id: settingsScrollView
+                // ---- Tab 4: Wallet operations (Rewards moved out to its own tab) ----
+                // Anchor-based (not a Layout): StackLayout force-fills this Item,
+                // and anchors give the SplitView explicit geometry. The panels
+                // have ~zero implicit height, so a plain Layout would collapse
+                // them — anchors + SplitView.fillHeight avoid that.
+                Item {
+                    // Sidebar navigation
                     ColumnLayout {
-                        width: settingsScrollView.availableWidth
-                        spacing: Theme.spacing.large
+                        id: opSidebar
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 180
+                        spacing: Theme.spacing.small
 
-                        // Empowering (PoW mining) preferences — auto-claim lives here, on by default.
-                        LogosFrame {
-                            Layout.fillWidth: true
-                            backgroundColor: Theme.palette.surfaceRaised
-                            borderColor: "transparent"
-                            radius: Theme.spacing.radiusLarge
-                            padding: Theme.spacing.large
-                            contentItem: ColumnLayout {
-                                spacing: Theme.spacing.medium
-                                LogosText {
-                                    text: qsTr("Empowering")
-                                    color: Theme.palette.text
-                                    font.pixelSize: 20
-                                    font.weight: Theme.typography.weightBold
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spacing.medium
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 2
-                                        LogosText {
-                                            text: qsTr("Auto-claim mined rewards")
-                                            color: Theme.palette.text
-                                            font.pixelSize: Theme.typography.secondaryText
+                        NavItem { label: qsTr("Accounts"); index: 0; pinnable: true }
+                        NavItem { label: qsTr("Transfer"); index: 1 }
+                        NavItem { label: qsTr("Channel Deposit"); index: 2 }
+
+                        Item { Layout.fillHeight: true }
+                    }
+
+                    Rectangle {
+                        id: opDivider
+                        anchors.left: opSidebar.right
+                        anchors.leftMargin: Theme.spacing.large
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: 1
+                        color: Theme.palette.borderSecondary
+                    }
+
+                    // Operation panels. Accounts lives outside the stack so it
+                    // can stay pinned on top while another operation is shown;
+                    // a vertical SplitView keeps both visible and resizable.
+                    SplitView {
+                        anchors.left: opDivider.right
+                        anchors.leftMargin: Theme.spacing.large
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        orientation: Qt.Vertical
+
+                        AccountsView {
+                            id: accountsView
+                            visible: opPage.operationIndex === 0 || opPage.accountsPinned
+                            // Fills when it's the sole panel; when pinned beside
+                            // an operation it's a resizable 260px strip on top
+                            // (the operation below is the SplitView filler).
+                            SplitView.fillHeight: opPage.operationIndex === 0
+                            SplitView.preferredHeight: 260
+                            SplitView.minimumHeight: 120
+
+                            accountsModel: root.accountsModel
+
+                            onGetBalanceRequested: function(addressHex) {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.getBalance(addressHex),
+                                    function(result) {
+                                        if (result.success) {
+                                            accountsView.lastBalanceErrorAddress = ""
+                                            accountsView.lastBalanceError = ""
+                                        } else {
+                                            accountsView.lastBalanceErrorAddress = addressHex
+                                            accountsView.lastBalanceError = _d.errorText(result.error)
                                         }
-                                        LogosText {
-                                            text: qsTr("Claim mined tickets automatically in the background until the target balance is reached. Turn off to accumulate and claim tickets manually.")
-                                            color: Theme.palette.textSecondary
-                                            font.pixelSize: Theme.typography.secondaryText
-                                            wrapMode: Text.WordWrap
-                                            Layout.fillWidth: true
-                                        }
+                                    },
+                                    function(error) {
+                                        accountsView.lastBalanceErrorAddress = addressHex
+                                        accountsView.lastBalanceError = _d.errorText(error)
                                     }
-                                    LogosSwitch {
-                                        id: autoClaimSwitch
-                                        checked: true                 // on by default
-                                        Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                                    }
-                                }
+                                )
+                            }
+                            onRefreshAccountsRequested: if (root.backend) root.backend.refreshAccounts()
+                            onCopyToClipboard: (text) => {
+                                root.copyText(text)
                             }
                         }
 
-                        LogosFrame {
-                            Layout.fillWidth: true
-                            backgroundColor: Theme.palette.surfaceRaised
-                            borderColor: "transparent"
-                            radius: Theme.spacing.radiusLarge
-                            padding: Theme.spacing.large
-                            contentItem: ColumnLayout {
-                                spacing: Theme.spacing.medium
-                                LogosText {
-                                    text: qsTr("Configuration")
-                                    color: Theme.palette.text
-                                    font.pixelSize: 20
-                                    font.weight: Theme.typography.weightBold
-                                }
-                                LogosText {
-                                    text: qsTr("The node is started from the configuration below. Change it to point at a different config or regenerate one.")
-                                    color: Theme.palette.textSecondary
-                                    font.pixelSize: Theme.typography.secondaryText
-                                    wrapMode: Text.WordWrap
-                                    Layout.fillWidth: true
-                                }
+                        // Transfer / Leader Rewards / Channel Deposit.
+                        // operationIndex 1,2 maps to stack index 0,1 (Transfer, Channel Deposit).
+                        StackLayout {
+                            id: otherOpsStack
+                            SplitView.fillHeight: true
+                            SplitView.minimumHeight: 150
+                            visible: opPage.operationIndex !== 0
+                            currentIndex: Math.max(0, opPage.operationIndex - 1)
 
-                                // user config
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spacing.medium
-                                    LogosText {
-                                        text: qsTr("User config")
-                                        color: Theme.palette.textSecondary
-                                        font.pixelSize: Theme.typography.secondaryText
-                                        Layout.preferredWidth: 140
-                                    }
-                                    LogosText {
-                                        text: (root.backend && root.backend.userConfig && root.backend.userConfig.length > 0)
-                                              ? root.backend.userConfig : qsTr("—")
-                                        color: Theme.palette.text
-                                        font.pixelSize: Theme.typography.secondaryText
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
+                        TransferView {
+                            id: transferView
+                            accountsModel: root.accountsModel
 
-                                // deployment config (only when set)
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.spacing.medium
-                                    visible: !!root.backend && !!root.backend.deploymentConfig && root.backend.deploymentConfig.length > 0
-                                    LogosText {
-                                        text: qsTr("Deployment config")
-                                        color: Theme.palette.textSecondary
-                                        font.pixelSize: Theme.typography.secondaryText
-                                        Layout.preferredWidth: 140
-                                    }
-                                    LogosText {
-                                        text: root.backend ? root.backend.deploymentConfig : ""
-                                        color: Theme.palette.text
-                                        font.pixelSize: Theme.typography.secondaryText
-                                        elide: Text.ElideMiddle
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.topMargin: Theme.spacing.small
-                                    LogosButton {
-                                        text: qsTr("Change configuration")
-                                        variant: LogosButton.Variant.Primary
-                                        enabled: !opPage.nodeRunning
-                                        onClicked: _d.currentPage = 0
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    LogosText {
-                                        visible: opPage.nodeRunning
-                                        text: qsTr("Stop the node to change its configuration.")
-                                        color: Theme.palette.textTertiary
-                                        font.pixelSize: Theme.typography.secondaryText
-                                        Layout.alignment: Qt.AlignVCenter
-                                    }
-                                }
+                            onTransferRequested: function(fromKeyHex, toKeyHex, amount) {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.transferFunds(fromKeyHex, toKeyHex, amount),
+                                    function(result) {
+                                        if (result.success) {
+                                            transferView.setTransferResult(result.value)
+                                        } else {
+                                            transferView.setTransferResult(_d.errorText(result.error))
+                                        }
+                                    },
+                                    function(error) { transferView.setTransferResult(_d.errorText(error)) }
+                                )
+                            }
+                            onCopyToClipboard: (text) => {
+                                root.copyText(text)
                             }
                         }
+
+                        ChannelDepositView {
+                            id: channelDepositView
+                            accountsModel: root.accountsModel
+                            nodeRunning: opPage.nodeRunning
+
+                            onGetNotesRequested: function(addressHex, optionalTipHex) {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.getNotes(addressHex, optionalTipHex),
+                                    function(result) {
+                                        if (result.success)
+                                            channelDepositView.setNotes(result.value)
+                                        else
+                                            channelDepositView.setNotesError(_d.errorText(result.error))
+                                    },
+                                    function(error) { channelDepositView.setNotesError(_d.errorText(error)) }
+                                )
+                            }
+                            onSubmitRequested: function(channelIdHex, inputNoteIdHexes, metadataBase58, changePublicKeyHex, fundingPublicKeyHexes, maxTxFee, optionalTipHex) {
+                                if (!root.backend) return
+                                logos.watch(
+                                    root.backend.channelDepositWithNotes(
+                                        channelIdHex, inputNoteIdHexes, metadataBase58,
+                                        changePublicKeyHex, fundingPublicKeyHexes, maxTxFee, optionalTipHex),
+                                    function(result) {
+                                        if (result.success)
+                                            channelDepositView.setSubmitResult(true, result.value)
+                                        else
+                                            channelDepositView.setSubmitResult(false, _d.errorText(result.error))
+                                    },
+                                    function(error) { channelDepositView.setSubmitResult(false, _d.errorText(error)) }
+                                )
+                            }
+                            onCopyToClipboard: (text) => {
+                                root.copyText(text)
+                            }
+                        }
+                        }
+                    }
+                }
+
+                // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----
+                SettingsView {
+                    id: settingsView
+                    // real config paths (keystore sits beside the node config)
+                    nodeConfigPath: root.backend
+                        ? ((root.backend.userConfig && root.backend.userConfig.length)
+                            ? root.backend.userConfig : root.backend.generatedUserConfigPath) : "—"
+                    devConfigPath: (root.backend && root.backend.deploymentConfig.length)
+                        ? root.backend.deploymentConfig : "—"
+                    keysConfigPath: (nodeConfigPath && nodeConfigPath.length && nodeConfigPath !== "—")
+                        ? nodeConfigPath.replace(/[^\/]*$/, "keystore.yaml") : "—"
+                    keystorePath: settingsView.keysConfigPath
+                    // The keystore is created on first node start; once the node has an
+                    // address the file exists. (saveKeystore re-checks disk regardless.)
+                    keystoreExists: root.backend && (root.backend.primaryAddress || "").length > 0
+                    // real bootstrap peers, rewards state, live CPU/RAM
+                    bootstrapPeers: root.defaultBootstrapPeers.join("\n")
+                    rewardsAutoClaim: nodeSettings.rewardsAutoClaim
+                    cpuUsage: root.backend ? root.backend.cpuUsage : ""
+                    ramUsage: root.backend ? root.backend.ramUsage : ""
+                    diskUsage: root.backend ? root.backend.diskUsage : ""
+                    // hardware caps (session state, enforced by the host watcher)
+                    capsEnabled: nodeSettings.capsEnabled
+                    cpuCap: nodeSettings.cpuCap; ramCap: nodeSettings.ramCap; diskCap: nodeSettings.diskCap
+
+                    onCopyText: (text) => root.copyText(text)
+                    onResetChainRequested: if (root.backend)
+                        logos.watch(root.backend.resetChainState(), function(r){}, function(e){})
+                    onRegenerateKeysRequested: if (root.backend)
+                        logos.watch(root.backend.regenerateNodeKeys(), function(r){}, function(e){})
+                    onBackupConfigRequested: if (root.backend)
+                        logos.watch(root.backend.backupUserConfig(),
+                            function(r){ if (r.success && r.value) root.copyText(r.value) }, function(e){})
+                    onDownloadKeystoreRequested: (destPath) => {
+                        if (!root.backend) return
+                        logos.watch(root.backend.saveKeystore(destPath),
+                            function(r){
+                                if (r.success) {
+                                    settingsView.keystoreBackupResult = qsTr("Saved to %1").arg(r.value)
+                                    settingsView.keysBackedUp()
+                                } else {
+                                    settingsView.keystoreBackupResult = qsTr("Error: %1").arg(r.error || _d.errorText(r))
+                                }
+                            },
+                            function(e){ settingsView.keystoreBackupResult = qsTr("Error: %1").arg(_d.errorText(e)) })
+                    }
+                    onRewardsAutoClaimToggled: (on) => { nodeSettings.rewardsAutoClaim = on }
+                    onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
+                    onChangeConfigRequested: operationTabBar.currentIndex = 0
+                    onCapsChanged: (enabled, cpu, ram, disk) => {
+                        nodeSettings.capsEnabled = enabled
+                        nodeSettings.cpuCap = cpu; nodeSettings.ramCap = ram; nodeSettings.diskCap = disk
+                    }
+                }
+            }
+
+            // Sidebar nav entry used by the Operations tab. `pinnable` adds a
+            // pin toggle on the right (used by Accounts) that keeps the panel
+            // visible alongside other operations.
+            component NavItem: Rectangle {
+                property string label
+                property int index
+                property bool pinnable: false
+
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
+                radius: Theme.spacing.radiusSmall
+                color: opPage.operationIndex === index
+                    ? Theme.palette.backgroundTertiary
+                    : (navMouse.containsMouse ? Theme.palette.backgroundSecondary : "transparent")
+
+                // Background click selects the operation. Sits below the row so
+                // the pin button on top captures its own clicks.
+                MouseArea {
+                    id: navMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: opPage.operationIndex = index
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.spacing.medium
+                    anchors.rightMargin: Theme.spacing.small
+                    spacing: Theme.spacing.small
+
+                    LogosText {
+                        Layout.fillWidth: true
+                        text: label
+                        elide: Text.ElideRight
+                        font.pixelSize: Theme.typography.secondaryText
+                        font.bold: opPage.operationIndex === index
+                        color: opPage.operationIndex === index
+                            ? Theme.palette.primary
+                            : Theme.palette.text
+                    }
+
+                    // Pin toggle (Accounts only). A flat icon button matching
+                    // the other SVG icons; the pin colours up when pinned. Its
+                    // own click handling stops the nav-background MouseArea
+                    // below from also selecting the item.
+                    Button {
+                        visible: pinnable
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 28
+                        display: AbstractButton.IconOnly
+                        flat: true
+                        padding: 4
+                        icon.source: Qt.resolvedUrl("icons/pin.svg")
+                        icon.width: 18
+                        icon.height: 18
+                        icon.color: opPage.accountsPinned
+                            ? Theme.palette.primary
+                            : Theme.palette.textTertiary
+                        onClicked: opPage.accountsPinned = !opPage.accountsPinned
+
+                        ToolTip.visible: hovered
+                        ToolTip.text: opPage.accountsPinned
+                            ? qsTr("Unpin accounts") : qsTr("Pin accounts")
                     }
                 }
             }
         }
-    }
 
+        // Page 2: first-run one-click screen (#10); shown only when no config (#15).
+        FirstRunView {
+            onRunNodeRequested: _d.runNodeOneClick()
+            onHaveConfigRequested: { configChoiceView.showSetConfigPath(); _d.currentPage = 0 }
+            onGenerateCustomRequested: _d.currentPage = 0
+        }
+    }
 }

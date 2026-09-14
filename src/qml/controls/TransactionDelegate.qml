@@ -79,12 +79,12 @@ ColumnLayout {
             elide: Text.ElideMiddle
             font.pixelSize: Theme.typography.secondaryText
             font.bold: true
-            font.family: txRoot.txId !== "" ? Theme.typography.mono : Theme.typography.publicSans
+            font.family: txRoot.txId !== "" ? "monospace" : Theme.typography.publicSans
             TapHandler { onTapped: txRoot.open = !txRoot.open }
         }
-        LogosCopyButton {
+        BcCopyButton {
             // Copy the tx id when available, otherwise the full tx JSON.
-            value: txRoot.txId !== "" ? txRoot.txId : txRoot.json
+            onCopyText: txRoot.copyToClipboard(txRoot.txId !== "" ? txRoot.txId : txRoot.json)
         }
     }
 
@@ -123,12 +123,20 @@ ColumnLayout {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacing.small
-            LogosBadge {
-                text: qsTr("op %1").arg(opView.op && opView.op.opcode !== undefined ? opView.op.opcode : "?")
-                backgroundColor: Theme.palette.backgroundSecondary
-                borderColor: Theme.palette.border
-                labelItem.color: Theme.palette.textSecondary
-                labelItem.font.pixelSize: Theme.typography.secondaryText
+            Rectangle {
+                radius: Theme.spacing.radiusSmall
+                color: Theme.palette.backgroundSecondary
+                border.color: Theme.palette.border
+                border.width: 1
+                implicitWidth: opcodeText.implicitWidth + 2 * Theme.spacing.small
+                implicitHeight: opcodeText.implicitHeight + Theme.spacing.tiny
+                LogosText {
+                    id: opcodeText
+                    anchors.centerIn: parent
+                    text: qsTr("op %1").arg(opView.op && opView.op.opcode !== undefined ? opView.op.opcode : "?")
+                    font.pixelSize: Theme.typography.secondaryText
+                    color: Theme.palette.textSecondary
+                }
             }
             LogosText {
                 Layout.fillWidth: true
@@ -136,8 +144,8 @@ ColumnLayout {
                 font.pixelSize: Theme.typography.secondaryText
                 font.bold: true
             }
-            LogosCopyButton {
-                value: txRoot.pretty(opView.op ? opView.op.payload : null)
+            BcCopyButton {
+                onCopyText: txRoot.copyToClipboard(txRoot.pretty(opView.op ? opView.op.payload : null))
             }
         }
 
@@ -160,7 +168,7 @@ ColumnLayout {
                 font.pixelSize: Theme.typography.secondaryText
             }
             Item { Layout.fillWidth: true }
-            LogosCopyButton { value: txRoot.pretty(opView.proof) }
+            BcCopyButton { onCopyText: txRoot.copyToClipboard(txRoot.pretty(opView.proof)) }
         }
         JsonBlock {
             Layout.fillWidth: true

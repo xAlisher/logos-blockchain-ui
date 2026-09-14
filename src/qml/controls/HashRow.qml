@@ -14,46 +14,37 @@ RowLayout {
     property int labelWidth: 110
     property bool copyable: true
 
-    // Overridable so the chain-stats card can use the design's larger TiP/LiB
-    // label without changing every other caller.
-    property int labelPixelSize: Theme.typography.secondaryText
-    property int valuePixelSize: Theme.typography.secondaryText
-    property color labelColor: Theme.palette.textSecondary
-    property int labelWeight: Theme.typography.weightRegular
-
-    // Optional qualifier shown after the label, e.g. the slot a hash belongs to.
-    property string note: ""
-
     signal copyRequested(string text)
 
     Layout.fillWidth: true
     spacing: Theme.spacing.small
 
+    // All three centre on the same line. The label used to be Qt.AlignTop while
+    // the value and button defaulted to centring in a row whose height comes from
+    // the 22px copy button — so the label floated above its own value. The value
+    // is single-line by construction (ElideMiddle, no wrapMode), so there is
+    // nothing for AlignTop to serve. The label is also a different font family
+    // from the monospace value, so centring is what keeps them visually level.
     LogosText {
         visible: root.label.length > 0
         text: root.label
         Layout.preferredWidth: root.labelWidth
         Layout.alignment: Qt.AlignVCenter
-        color: root.labelColor
-        font.pixelSize: root.labelPixelSize
-        font.weight: root.labelWeight
-    }
-    LogosText {
-        visible: root.note.length > 0
-        text: root.note
-        Layout.alignment: Qt.AlignVCenter
-        color: Theme.palette.textTertiary
+        color: Theme.palette.textSecondary
         font.pixelSize: Theme.typography.secondaryText
     }
     LogosText {
         Layout.fillWidth: true
+        Layout.alignment: Qt.AlignVCenter
         text: root.value && root.value.length > 0 ? root.value : "—"
         elide: Text.ElideMiddle
-        font.pixelSize: root.valuePixelSize
-        font.family: Theme.typography.mono
+        verticalAlignment: Text.AlignVCenter
+        font.pixelSize: Theme.typography.secondaryText
+        font.family: "monospace"
     }
-    LogosCopyButton {
+    BcCopyButton {
+        Layout.alignment: Qt.AlignVCenter
         visible: root.copyable && root.value && root.value.length > 0
-        value: root.value
+        onCopyText: root.copyRequested(root.value)
     }
 }

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 import Logos.Theme
@@ -280,8 +281,9 @@ ColumnLayout {
         }
 
         // ---- Step 1: Fields ----
-        LogosScrollView {
+        ScrollView {
             id: fieldsScroll
+            clip: true
             ColumnLayout {
                 width: fieldsScroll.availableWidth
                 spacing: Theme.spacing.medium
@@ -338,14 +340,22 @@ ColumnLayout {
                         }
                     }
                 }
-                LogosScrollView {
+                ScrollView {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 80
-                    LogosTextArea {
+                    clip: true
+                    TextArea {
                         id: fundingKeysArea
-                        borderColor: Theme.palette.backgroundElevated
+                        background: Rectangle {
+                            radius: Theme.spacing.radiusSmall
+                            color: Theme.palette.backgroundSecondary
+                            border.width: 1
+                            border.color: Theme.palette.backgroundElevated
+                        }
                         placeholderText: qsTr("Funding public key hex, one per line")
+                        placeholderTextColor: Theme.palette.textTertiary
                         font.pixelSize: Theme.typography.secondaryText
+                        color: Theme.palette.text
                     }
                 }
 
@@ -417,15 +427,19 @@ ColumnLayout {
                 wrapMode: Text.WordWrap
             }
 
-            LogosFrame {
+            Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                padding: Theme.spacing.large
-                backgroundColor: Theme.palette.backgroundTertiary
+                color: Theme.palette.backgroundTertiary
                 radius: Theme.spacing.radiusLarge
+                border.color: Theme.palette.border
+                border.width: 1
 
-                contentItem: LogosScrollView {
+                ScrollView {
                     id: confirmScroll
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacing.large
+                    clip: true
                     ColumnLayout {
                         width: confirmScroll.availableWidth
                         spacing: Theme.spacing.medium
@@ -465,7 +479,7 @@ ColumnLayout {
                 color: Theme.palette.textSecondary
                 font.pixelSize: Theme.typography.secondaryText
             }
-            LogosSpinner {
+            BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
                 visible: d.resultPending
                 running: d.resultPending
@@ -485,23 +499,27 @@ ColumnLayout {
                 Layout.fillWidth: true
                 visible: !d.resultPending && d.resultSuccess
                 spacing: Theme.spacing.small
-                LogosFrame {
+                Rectangle {
                     Layout.fillWidth: true
-                    padding: Theme.spacing.small
-                    backgroundColor: Theme.palette.backgroundTertiary
+                    implicitHeight: txHashText.implicitHeight + Theme.spacing.medium
+                    color: Theme.palette.backgroundTertiary
                     radius: Theme.spacing.radiusSmall
-                    contentItem: LogosText {
+                    border.color: Theme.palette.border
+                    border.width: 1
+                    LogosText {
                         id: txHashText
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacing.small
                         text: d.resultText
                         font.pixelSize: Theme.typography.secondaryText
                         wrapMode: Text.WrapAnywhere
                         verticalAlignment: Text.AlignVCenter
                     }
                 }
-                LogosCopyButton {
+                BcCopyButton {
                     Layout.preferredHeight: 40
                     Layout.preferredWidth: 40
-                    value: d.resultText
+                    onCopyText: root.copyToClipboard(d.resultText)
                 }
             }
 

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 import Logos.Theme
@@ -45,8 +46,6 @@ ColumnLayout {
         font.pixelSize: Theme.typography.secondaryText
         color: Theme.palette.textSecondary
         wrapMode: Text.WordWrap
-        Layout.fillWidth: true
-        Layout.minimumWidth: 0
     }
 
     RowLayout {
@@ -54,7 +53,6 @@ ColumnLayout {
         spacing: Theme.spacing.large
 
         LogosButton {
-            objectName: "chooserGenerateButton"
             text: qsTr("Generate config")
             Layout.preferredHeight: 50
             Layout.fillWidth: true
@@ -62,7 +60,6 @@ ColumnLayout {
         }
 
         LogosButton {
-            objectName: "chooserSetPathButton"
             text: qsTr("Set path to config")
             Layout.preferredHeight: 50
             Layout.fillWidth: true
