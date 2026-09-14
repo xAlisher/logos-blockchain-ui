@@ -3,6 +3,7 @@ import QtCore
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQuick.Dialogs
 
 import Logos.Theme
 import Logos.Controls
@@ -2061,11 +2062,123 @@ Rectangle {
             }
         }
 
-        // Page 2: first-run one-click screen (#10); shown only when no config (#15).
-        FirstRunView {
-            onRunNodeRequested: _d.runNodeOneClick()
-            onHaveConfigRequested: { configChoiceView.showSetConfigPath(); _d.currentPage = 0 }
-            onGenerateCustomRequested: _d.currentPage = 0
+        // Page 2: first-run welcome splash (#10); shown only when no config (#15).
+        WelcomeView {
+            versionText: qsTr("UI 0.2.20, core 0.2.4")
+            onQuickStartRequested: _d.runNodeOneClick()
+            onAdvancedRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }
+            onCopyToClipboard: (t) => root.copyText(t)
+        }
+
+        // Page 3: the onboarding flow (Quick start / Advanced stepper). All backend
+        // work is done here and fed back through the view's feedback properties.
+        OnboardingView {
+            id: onboardingView
+            defaultPeers: root.defaultBootstrapPeers.join("\n")
+            primaryAddress: root.backend ? (root.backend.primaryAddress || "") : ""
+            nodeRunning: root.backend && root.backend.status === BlockchainBackend.Running
+            fundStage: root._fundStage
+            fundDetail: root._fundResult
+
+            onExitRequested: _d.currentPage = 2
+            onCopyToClipboard: (t) => root.copyText(t)
+
+            onQuickStartRequested: _d.runNodeOneClick()
+
+            onGenerateConfigRequested: (peers, deploymentMode, deploymentConfigPath) => {
+                if (!root.backend) return
+                onboardingView.configPending = true
+                onboardingView.configError = ""
+                logos.watch(
+                    root.backend.generateConfig("", peers, 0, 0, "", "", false,
+                                                deploymentMode, deploymentConfigPath, ""),
+                    function(result) {
+                        onboardingView.configPending = false
+                        if (!result.success) {
+                            onboardingView.configError = result.error && result.error.length
+                                ? result.error : qsTr("Could not generate the config.")
+                            return
+                        }
+                        root.backend.userConfig =
+                            (result.value !== undefined && result.value !== "")
+                                ? result.value : root.backend.generatedUserConfigPath
+                        root.backend.useGeneratedConfig = true
+                        onboardingView.keystoreExists = true
+                        onboardingView.configReady = true
+                    },
+                    function(error) {
+                        onboardingView.configPending = false
+                        onboardingView.configError = qsTr("Could not generate the config: %1").arg(_d.errorText(error))
+                    }
+                )
+            }
+
+            onUseExistingConfigRequested: (userConfigPath, deploymentConfigPath) => {
+                if (!root.backend) return
+                root.backend.userConfig = userConfigPath
+                if (deploymentConfigPath && deploymentConfigPath.length)
+                    root.backend.deploymentConfig = deploymentConfigPath
+                root.backend.useGeneratedConfig = false
+                onboardingView.keystoreExists = true   // keystore lives beside the user config
+                onboardingView.configReady = true
+            }
+
+            onSaveKeystoreRequested: (destPath) => {
+                if (!root.backend) return
+                logos.watch(
+                    root.backend.saveKeystore(destPath),
+                    function(r) {
+                        onboardingView.keystoreResult = r.success
+                            ? qsTr("Saved to %1").arg(r.value)
+                            : qsTr("Error: %1").arg(r.error && r.error.length ? r.error : _d.errorText(r))
+                    },
+                    function(e) { onboardingView.keystoreResult = qsTr("Error: %1").arg(_d.errorText(e)) }
+                )
+            }
+
+            onRequestFundsRequested: root._requestFunds()
+
+            // Start the node in the background (entering the Fund step) — no navigation.
+            onStartNodeRequested: {
+                if (root.backend && root.backend.status !== BlockchainBackend.Running
+                        && root.backend.status !== BlockchainBackend.Starting)
+                    root.backend.startBlockchain()
+            }
+
+            // Start the node (if not already) and hand off to the dashboard.
+            onFinishRequested: {
+                if (root.backend && root.backend.status !== BlockchainBackend.Running
+                        && root.backend.status !== BlockchainBackend.Starting)
+                    root.backend.startBlockchain()
+                _d.currentPage = 1
+            }
+
+            onBrowseUserConfig: onbUserCfgDialog.open()
+            onBrowseDeploymentConfig: onbDeployCfgDialog.open()
+        }
+    }
+
+    // File pickers for the onboarding "existing config" path.
+    FileDialog {
+        id: onbUserCfgDialog
+        modality: Qt.NonModal
+        nameFilters: ["YAML files (*.yaml *.yml)", "All files (*)"]
+        currentFolder: StandardPaths.standardLocations(StandardPaths.HomeLocation)[0]
+        onAccepted: {
+            var p = selectedFile.toString()
+            if (p.indexOf("file://") === 0) p = p.substring(7)
+            onboardingView.userConfigPath = p
+        }
+    }
+    FileDialog {
+        id: onbDeployCfgDialog
+        modality: Qt.NonModal
+        nameFilters: ["YAML files (*.yaml *.yml)", "All files (*)"]
+        currentFolder: StandardPaths.standardLocations(StandardPaths.HomeLocation)[0]
+        onAccepted: {
+            var p = selectedFile.toString()
+            if (p.indexOf("file://") === 0) p = p.substring(7)
+            onboardingView.deploymentConfigPath = p
         }
     }
 }
