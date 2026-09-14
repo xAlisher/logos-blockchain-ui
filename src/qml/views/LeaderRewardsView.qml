@@ -138,6 +138,11 @@ ColumnLayout {
     }
 
     function setLeaderClaimResult(text) {
+        // "No claimable voucher found" is the benign empty-claim case: a claim ran
+        // with zero vouchers (an auto-claim race where the cached count led the pool,
+        // or a manual press at 0). "Ready to claim: 0" already says this, so don't
+        // surface it as an error. Real claim failures still show.
+        if (text && /no claimable voucher/i.test(text)) { root._lastResult = ""; return }
         root._lastResult = text
     }
     property string _lastResult: ""
