@@ -588,8 +588,10 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
                 }
                 // ---- Earned by epoch (experimental) — full-width chart below the grid ----
+                // Shown only once there's a first earning to plot (empty until then).
                 LogosFrame {
                     Layout.fillWidth: true
+                    visible: root.earnedByEpoch && root.earnedByEpoch.length > 0
                     backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
                     radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
                     contentItem: ColumnLayout {
