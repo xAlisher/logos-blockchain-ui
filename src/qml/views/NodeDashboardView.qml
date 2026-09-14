@@ -5,6 +5,7 @@ import Logos.Theme
 import Logos.Controls
 import Logos.BlockchainBackend 1.0
 import "infoContent.js" as InfoContent
+import "../amounts.js" as Amounts
 
 // Dashboard CONTENT (epic #56): Status/Blend hero pair + 4×3 metric grid + real Blocks table.
 // Header + top-tab nav live in BlockchainView (persist across tabs). HONEST: fields with no real
@@ -42,7 +43,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.20"
+    property string moduleVersion: "0.2.21"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -136,6 +137,7 @@ Item {
     property string stakeStr: "—"                            // #59
     property string foundingAddr: ""
     property string earnedStr: "—"                           // #60
+    property var earnedByEpoch: []                           // [{epoch, lepta}] net earned per epoch (chart)
     property string feePct: ""
     property string uptime: ""
     property string replayProgress: ""
@@ -585,6 +587,104 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
                 }
+                // ---- Earned by epoch (experimental) — full-width chart below the grid ----
+                LogosFrame {
+                    Layout.fillWidth: true
+                    backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
+                    radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
+                    contentItem: ColumnLayout {
+                        spacing: Theme.spacing.small
+                        LogosText { text: qsTr("Earned by epoch (LGO)"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                        Item {
+                            Layout.fillWidth: true; Layout.preferredHeight: 180
+                            Canvas {
+                                id: earnChart
+                                anchors.fill: parent
+                                readonly property var series: root.earnedByEpoch
+                                // Geometry shared with the hover hit-test. padT leaves room for
+                                // the hovered value drawn above the bars. No Y labels → tiny padL.
+                                readonly property int padL: 6
+                                readonly property int padR: 6
+                                readonly property int padT: 22
+                                readonly property int padB: 20
+                                property int hoverIdx: -1
+                                onSeriesChanged: requestPaint()
+                                onWidthChanged: requestPaint()
+                                onHeightChanged: requestPaint()
+                                onHoverIdxChanged: requestPaint()
+                                onAvailableChanged: if (available) requestPaint()
+                                Component.onCompleted: requestPaint()
+                                function niceMax(v) {
+                                    if (v <= 0) return 1
+                                    var exp = Math.floor(Math.log(v) / Math.LN10)
+                                    var base = Math.pow(10, exp)
+                                    var f = v / base
+                                    var nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10
+                                    return nf * base
+                                }
+                                onPaint: {
+                                    var ctx = getContext("2d"); ctx.reset()
+                                    var W = width, H = height
+                                    var d = series || []
+                                    var axis = Theme.palette.textTertiary
+                                    var white = Theme.palette.text
+                                    ctx.font = "10px sans-serif"
+                                    if (d.length === 0) {
+                                        ctx.fillStyle = axis; ctx.textAlign = "center"; ctx.textBaseline = "middle"
+                                        ctx.fillText(qsTr("No earnings yet — claim a reward to see it here."), W / 2, H / 2)
+                                        return
+                                    }
+                                    // Y auto-scaled to the data (meaningful for tiny rewards); no labels.
+                                    var maxLGO = 0
+                                    for (var i = 0; i < d.length; i++) maxLGO = Math.max(maxLGO, Math.max(0, Number(d[i].lepta) / 1e9))
+                                    var top = niceMax(maxLGO)
+                                    var pw = Math.max(1, W - padL - padR), ph = Math.max(1, H - padT - padB)
+                                    var baseY = padT + ph
+                                    // faint baseline
+                                    ctx.strokeStyle = Theme.palette.border; ctx.globalAlpha = 0.4; ctx.lineWidth = 1
+                                    ctx.beginPath(); ctx.moveTo(padL, baseY); ctx.lineTo(W - padR, baseY); ctx.stroke(); ctx.globalAlpha = 1
+                                    // Bars (white), one per epoch.
+                                    var slot = pw / d.length, bw = Math.min(28, slot * 0.6)
+                                    ctx.textAlign = "center"; ctx.textBaseline = "top"
+                                    var lblEvery = Math.ceil(d.length / Math.max(1, Math.floor(pw / 44)))
+                                    for (var j = 0; j < d.length; j++) {
+                                        var v = Math.max(0, Number(d[j].lepta) / 1e9)
+                                        var cx = padL + slot * (j + 0.5)
+                                        var bh = top > 0 ? (v / top) * ph : 0
+                                        var hovered = (j === hoverIdx)
+                                        ctx.fillStyle = white; ctx.globalAlpha = hovered ? 1.0 : 0.85
+                                        ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh); ctx.globalAlpha = 1
+                                        if (j % lblEvery === 0 || hovered) {
+                                            ctx.fillStyle = hovered ? white : axis
+                                            ctx.fillText(String(d[j].epoch), cx, baseY + 4)
+                                        }
+                                    }
+                                    // Hovered value, drawn above its bar (clamped inside the plot).
+                                    if (hoverIdx >= 0 && hoverIdx < d.length) {
+                                        var hv = Amounts.preciseNum(Number(d[hoverIdx].lepta)) + " LGO"
+                                        var hx = padL + slot * (hoverIdx + 0.5)
+                                        ctx.font = "11px sans-serif"; ctx.fillStyle = white
+                                        ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"
+                                        ctx.fillText(hv, Math.max(padL + 30, Math.min(W - padR - 30, hx)), padT - 7)
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent; hoverEnabled: true
+                                    onPositionChanged: {
+                                        var d = earnChart.series || []
+                                        if (d.length === 0) { earnChart.hoverIdx = -1; return }
+                                        var pw = earnChart.width - earnChart.padL - earnChart.padR
+                                        var slot = pw / d.length
+                                        var idx = Math.floor((mouseX - earnChart.padL) / slot)
+                                        earnChart.hoverIdx = (idx >= 0 && idx < d.length) ? idx : -1
+                                    }
+                                    onExited: earnChart.hoverIdx = -1
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ---- footer: version line (+ copy) · legal disclaimer (modal) ----
                 RowLayout {
                     Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.small
