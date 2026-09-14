@@ -24,7 +24,9 @@ Rectangle {
 
     signal clicked()
 
-    readonly property color ctaOrange: Theme.palette.primaryHover
+    // Brighter DS orange (orange400 #FF8800) instead of primaryHover (orange500
+    // #F55702). Hover/press darken from this base.
+    readonly property color ctaOrange: Theme.colors.orange400
 
     implicitWidth: label.implicitWidth + (root.compact ? 22 : 4 * Theme.spacing.large)
     implicitHeight: root.compact ? 28 : 48
