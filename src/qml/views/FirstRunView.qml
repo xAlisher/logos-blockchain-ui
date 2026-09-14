@@ -16,9 +16,9 @@ Item {
     signal generateCustomRequested()
 
     // The design-system `primary` orange (#ED7B58) is too pale for a CTA. Use the
-    // brighter tone (primaryHover, #F55702) as the base and darken it slightly on
-    // hover/press.
-    readonly property color ctaOrange: Theme.palette.primaryHover
+    // brighter DS tone (orange400, #FF8800) as the base and darken it slightly on
+    // hover/press. Matches CtaButton.
+    readonly property color ctaOrange: Theme.colors.orange400
 
     // Centered, contained hero — never let it sprawl across the whole canvas.
     ColumnLayout {
