@@ -28,7 +28,10 @@ Rectangle {
 
     implicitWidth: label.implicitWidth + (root.compact ? 22 : 4 * Theme.spacing.large)
     implicitHeight: root.compact ? 28 : 48
-    radius: root.compact ? 14 : Theme.spacing.radiusXlarge
+    // Unified button rounding: full-size uses the DS button radius (radiusXlarge,
+    // as LogosButton); compact uses radiusLarge so small buttons read as rounded
+    // corners, not pills. Never height/2.
+    radius: root.compact ? Theme.spacing.radiusLarge : Theme.spacing.radiusXlarge
     opacity: root.enabled ? 1 : 0.4
     color: !root.enabled
            ? root.ctaOrange

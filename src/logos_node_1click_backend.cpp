@@ -2145,7 +2145,12 @@ QVariantMap LogosNode1clickBackend::clearProposals()
 // an on-chain leader_key match can't identify our blocks — but the node LOGS every block
 // it produces ("proposed block HeaderId(<id>) with <n> transactions (<m> removed)"), which
 // is authoritative. Same source the logos-node-dashboard uses. Returns {success, value:[…]}.
-QVariantMap LogosNode1clickBackend::getProposals()
+//
+// tailBytes bounds how much of each log file is read: the frequent incremental
+// refresh passes 1 MiB (cheap), but the scan-on-start passes 0 = WHOLE FILE so a
+// proposal early in a large on-disk log is captured before it rotates off disk
+// (mitigation for #88). Either way the durable store is union-only, never shrunk.
+QVariantMap LogosNode1clickBackend::scanProposals(qint64 tailBytes)
 {
     QVariantList out;
     QStringList seenIds;
@@ -2192,7 +2197,7 @@ QVariantMap LogosNode1clickBackend::getProposals()
                 if (scannedFiles++ >= 240) break;               // bound work (logs rotate hourly)
                 QFile f(fi.absoluteFilePath());
                 if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
-                const qint64 tail = qMin<qint64>(f.size(), 1024 * 1024);
+                const qint64 tail = tailBytes > 0 ? qMin<qint64>(f.size(), tailBytes) : f.size();
                 f.seek(f.size() - tail);
                 const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
                 f.close();
@@ -2271,6 +2276,13 @@ QVariantMap LogosNode1clickBackend::getProposals()
     res.insert(QStringLiteral("value"), json);
     return res;
 }
+
+// Incremental refresh (frequent): only the tail of each log is read.
+QVariantMap LogosNode1clickBackend::getProposals() { return scanProposals(1024 * 1024); }
+
+// Thorough scan (scan-on-start / periodic): reads each on-disk log in full so a
+// proposal early in a large file is captured before it rotates off disk (#88).
+QVariantMap LogosNode1clickBackend::getProposalsFull() { return scanProposals(0); }
 
 // The node picks IBD download sources from bootstrap.ibd.peers — a list of bare
 // peer-IDs, SEPARATE from initial_peers (multiaddrs). The module's

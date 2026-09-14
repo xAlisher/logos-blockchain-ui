@@ -105,7 +105,7 @@ Item {
         signal clicked()
         implicitHeight: Math.max(40, lbl.implicitHeight + 2 * Theme.spacing.medium)
         implicitWidth: lbl.implicitWidth + 2 * Theme.spacing.large
-        radius: height / 2
+        radius: Theme.spacing.radiusXlarge      // match LogosButton (was height/2 = pill)
         color: ma.pressed ? Theme.palette.errorPressed : (ma.containsMouse ? Theme.palette.errorHover : Theme.palette.error)
         LogosText { id: lbl; anchors.centerIn: parent; color: "#FFFFFF"; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
         MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: db.clicked() }

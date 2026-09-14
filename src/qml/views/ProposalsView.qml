@@ -5,6 +5,8 @@ import QtQuick.Layouts
 import Logos.Theme
 import Logos.Controls
 
+import "../controls"
+
 // Blocks THIS node proposed (#14). Cryptarchia leadership is private on-chain (each
 // block's leader_key is per-note-derived), so we can't match blocks by a node key.
 // Instead the backend parses the node's OWN log ("proposed block HeaderId(…)") — the
@@ -85,7 +87,8 @@ Control {
             RowLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.large
                 Item { Layout.fillWidth: true }
-                LogosButton {
+                GhostButton {
+                    Layout.alignment: Qt.AlignVCenter
                     text: qsTr("Clear"); enabled: root.proposals.length > 0
                     onClicked: clearProposalsDlg.open()
                 }

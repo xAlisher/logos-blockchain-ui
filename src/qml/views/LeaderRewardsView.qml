@@ -602,11 +602,10 @@ ColumnLayout {
             Item { Layout.fillWidth: true }
             // Clear = archive (#50): the list empties, the record survives, and
             // the alarm still counts archived failures. Far-right per request.
-            CtaButton {
+            GhostButton {
                 Layout.alignment: Qt.AlignVCenter
-                compact: true
                 visible: root.claims.length > 0
-                text: qsTr("Clear log")
+                text: qsTr("Clear")
                 onClicked: clearConfirm.open()
             }
             Button {
@@ -838,7 +837,7 @@ ColumnLayout {
                 anchors.rightMargin: Theme.spacing.large
                 implicitWidth: closeLabel.implicitWidth + 3 * Theme.spacing.large
                 implicitHeight: 32
-                radius: Theme.spacing.radiusXlarge
+                radius: Theme.spacing.radiusLarge   // compact: rounded corners, not a pill
                 color: closeMouse.containsMouse ? Theme.palette.backgroundHover
                                                 : "transparent"
                 border.color: Theme.palette.border

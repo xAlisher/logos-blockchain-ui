@@ -74,6 +74,7 @@ public slots:
     // Blocks THIS node proposed, parsed from the node's own log (the authoritative
     // "my proposals" — leadership is private on-chain so a leader_key match can't work).
     QVariantMap getProposals() override;
+    QVariantMap getProposalsFull() override;
     QVariantMap generateConfig(QString outputPath, QStringList initialPeers, int netPort,
                        int blendPort, QString httpAddr, QString externalAddress,
                        bool noPublicIpCheck, int deploymentMode,
@@ -102,6 +103,8 @@ protected:
     void onContextReady() override;
 
 private:
+    // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).
+    QVariantMap scanProposals(qint64 tailBytes);
     // Bounded retries for refreshAccounts(): the wallet can lag the API after a start.
     int m_accountRetries = 0;
     void fetchBalancesForAccounts(const QStringList& list);
