@@ -41,7 +41,7 @@ Rectangle {
     color: del.isMine ? Qt.rgba(Theme.palette.success.r, Theme.palette.success.g,
                                 Theme.palette.success.b, 0.08)
                       : Theme.palette.backgroundTertiary
-    radius: Theme.spacing.radiusLarge
+    radius: Theme.spacing.radiusMedium    // unified row-card radius (Blocks/Proposals/Rewards)
     border.width: 0                       // no stroke around block cards (isMine kept via fill)
 
     ColumnLayout {

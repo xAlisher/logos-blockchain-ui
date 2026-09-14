@@ -1137,14 +1137,22 @@ Rectangle {
     }
     // PREVIEW: per-epoch proposed count from our claims' slots. epoch_length is the
     // testnet constant (36000 slots); the node doesn't expose it on the 0.2.4 line (#61).
+    // Blocks proposed in the current epoch — read from the SAME source as the
+    // Proposals tab (proposalsJson), with the identical epoch-from-time derivation
+    // ProposalsView uses, so the dashboard tile and the Proposals list always
+    // agree. (Previously counted claims-in-epoch, a different number.)
     readonly property int _proposedEpoch: {
         if (!opPage.nodeRunning) return -1        // no current epoch while stopped → "—"
         var e = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
         if (isNaN(e)) return -1
-        var cs = leaderRewardsView.claims, L = 36000, n = 0
-        for (var i = 0; i < cs.length; ++i) {
-            var sl = cs[i] ? Number(cs[i].slot) : NaN
-            if (!isNaN(sl) && Math.floor(sl / L) === e) n++
+        var arr
+        try { arr = root.proposalsJson && root.proposalsJson.length ? JSON.parse(root.proposalsJson) : [] }
+        catch (err) { return -1 }
+        var L = 36000, GEN = 1788525000000, n = 0   // epoch_length slots · genesis ms (testnet)
+        for (var i = 0; i < arr.length; ++i) {
+            var ms = Date.parse(String(arr[i].time).replace(" ", "T"))
+            if (isNaN(ms)) continue
+            if (Math.floor((ms - GEN) / 1000 / L) === e) n++
         }
         return n
     }
@@ -1930,6 +1938,10 @@ Rectangle {
                         ? root.backend.deploymentConfig : "—"
                     keysConfigPath: (nodeConfigPath && nodeConfigPath.length && nodeConfigPath !== "—")
                         ? nodeConfigPath.replace(/[^\/]*$/, "keystore.yaml") : "—"
+                    keystorePath: settingsView.keysConfigPath
+                    // The keystore is created on first node start; once the node has an
+                    // address the file exists. (saveKeystore re-checks disk regardless.)
+                    keystoreExists: root.backend && (root.backend.primaryAddress || "").length > 0
                     // real bootstrap peers, rewards state, live CPU/RAM
                     bootstrapPeers: root.defaultBootstrapPeers.join("\n")
                     rewardsAutoClaim: nodeSettings.rewardsAutoClaim
@@ -1948,6 +1960,19 @@ Rectangle {
                     onBackupConfigRequested: if (root.backend)
                         logos.watch(root.backend.backupUserConfig(),
                             function(r){ if (r.success && r.value) root.copyText(r.value) }, function(e){})
+                    onDownloadKeystoreRequested: (destPath) => {
+                        if (!root.backend) return
+                        logos.watch(root.backend.saveKeystore(destPath),
+                            function(r){
+                                if (r.success) {
+                                    settingsView.keystoreBackupResult = qsTr("Saved to %1").arg(r.value)
+                                    settingsView.keysBackedUp()
+                                } else {
+                                    settingsView.keystoreBackupResult = qsTr("Error: %1").arg(r.error || _d.errorText(r))
+                                }
+                            },
+                            function(e){ settingsView.keystoreBackupResult = qsTr("Error: %1").arg(_d.errorText(e)) })
+                    }
                     onRewardsAutoClaimToggled: (on) => { nodeSettings.rewardsAutoClaim = on }
                     onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
                     onChangeConfigRequested: operationTabBar.currentIndex = 0

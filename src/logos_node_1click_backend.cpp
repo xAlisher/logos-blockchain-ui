@@ -2224,12 +2224,43 @@ QVariantMap LogosNode1clickBackend::getProposals()
     });
     while (out.size() > 500) out.removeLast();
 
-    // 3) persist newly-seen proposals back to the durable store
+    // 3) persist newly-seen proposals back to the durable store.
+    //    DATA-LOSS GUARDS (a log-only scan must never erase accumulated history):
+    //    (a) re-read the file right before writing and re-union — another refresh
+    //        (onRowsInserted fires many during sync) may have added entries since
+    //        step 1; without this a stale in-memory `out` would clobber them;
+    //    (b) never shrink — if the on-disk set already has entries we don't, keep
+    //        them; only ever write a superset;
+    //    (c) write atomically via a temp file + rename so a concurrent reader can
+    //        never observe a half-truncated file.
     if (changed && !storePath.isEmpty()) {
-        QFile sf(storePath);
+        QFile rf(storePath);
+        if (rf.open(QIODevice::ReadOnly)) {
+            const QJsonDocument d = QJsonDocument::fromJson(rf.readAll());
+            rf.close();
+            if (d.isArray()) {
+                for (const QJsonValue& v : d.array()) {
+                    const QVariantMap m = v.toObject().toVariantMap();
+                    const QString id = m.value(QStringLiteral("id")).toString();
+                    if (id.isEmpty() || seenIds.contains(id)) continue;
+                    seenIds << id;
+                    out.append(m);              // preserve entries added since step 1
+                }
+            }
+        }
+        std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
+            return a.toMap().value(QStringLiteral("time")).toString()
+                 > b.toMap().value(QStringLiteral("time")).toString();
+        });
+        while (out.size() > 500) out.removeLast();
+        const QString tmp = storePath + QStringLiteral(".tmp");
+        QFile sf(tmp);
         if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             sf.write(QJsonDocument(QJsonArray::fromVariantList(out)).toJson(QJsonDocument::Compact));
+            sf.flush();
             sf.close();
+            QFile::remove(storePath);
+            QFile::rename(tmp, storePath);      // atomic replace on the same fs
         }
     }
     // value is a JSON string (same convention as getCryptarchiaInfo / getClaimableVouchers).
@@ -2630,6 +2661,27 @@ QVariantMap LogosNode1clickBackend::backupUserConfig()
     if (made.isEmpty())
         return result::toVariantMap(result::err(QStringLiteral("Backup failed (nothing copied).")));
     return result::toVariantMap(LogosResult{true, QVariant(dir.filePath(made.first())), QVariant()});
+}
+
+// Copy the keystore.yaml (beside the node config) to a user-chosen path — the Settings
+// "Download keystore.yaml" action. Overwrites the destination if the user picked one.
+QVariantMap LogosNode1clickBackend::saveKeystore(QString destPath)
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("No config loaded — can't locate the keystore.")));
+    const QDir dir = QFileInfo(cfg).absoluteDir();
+    const QString keystore = dir.filePath(QStringLiteral("keystore.yaml"));
+    if (!QFile::exists(keystore))
+        return result::toVariantMap(result::err(QStringLiteral("No keystore found yet — start the node once to create it.")));
+    if (destPath.trimmed().isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("No destination chosen.")));
+    // A Save-As dialog already prompts on overwrite; honor the user's choice here.
+    if (QFile::exists(destPath) && !QFile::remove(destPath))
+        return result::toVariantMap(result::err(QStringLiteral("Could not overwrite the existing file: %1").arg(destPath)));
+    if (!QFile::copy(keystore, destPath))
+        return result::toVariantMap(result::err(QStringLiteral("Could not write the keystore to: %1").arg(destPath)));
+    return result::toVariantMap(LogosResult{true, QVariant(destPath), QVariant()});
 }
 
 // PREVIEW (#81): back up then remove the keystore so the node mints a fresh identity on

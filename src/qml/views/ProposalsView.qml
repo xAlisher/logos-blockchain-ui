@@ -93,36 +93,40 @@ Control {
 
             Rectangle {
                 Layout.fillWidth: true; Layout.fillHeight: true
-                color: Theme.palette.backgroundSecondary; radius: Theme.spacing.radiusLarge; border.width: 0
+                // Unified: transparent list surface — row cards carry the weight.
+                color: "transparent"; border.width: 0
 
                 ListView {
                     id: lv
-                    anchors.fill: parent; anchors.margins: Theme.spacing.small
-                    clip: true; spacing: 2
+                    anchors.fill: parent
+                    clip: true; spacing: Theme.spacing.small
                     model: root.filtered
                     section.property: epochNav.selected === -1 ? "epochLabel" : ""
                     section.delegate: Rectangle {
-                        width: lv.width; height: 26; color: "transparent"
+                        width: lv.width; height: 44; color: "transparent"
                         LogosText {
+                            id: secLabel
                             anchors.left: parent.left; anchors.leftMargin: Theme.spacing.small
-                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.top: parent.top; anchors.topMargin: Theme.spacing.tiny
                             text: section; color: Theme.palette.textTertiary
                             font.pixelSize: 11; font.weight: Theme.typography.weightBold
                         }
-                        Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
+                        Rectangle { anchors.top: secLabel.bottom; anchors.topMargin: Theme.spacing.small; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
                     }
 
+                    // Unified row card: backgroundTertiary, radiusMedium, no stroke,
+                    // hover lightens (matches BlockDelegate + the Rewards claim rows).
                     delegate: Rectangle {
                         id: rowDelegate
-                        width: lv.width; height: 40
-                        color: rowHover.hovered ? Theme.palette.backgroundHover : "transparent"
-                        radius: Theme.spacing.radiusSmall
+                        width: lv.width; height: 44
+                        color: rowHover.hovered ? Theme.palette.backgroundHover : Theme.palette.backgroundTertiary
+                        radius: Theme.spacing.radiusMedium
                         HoverHandler { id: rowHover }
                         RowLayout {
-                            anchors.fill: parent; anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small
+                            anchors.fill: parent; anchors.leftMargin: Theme.spacing.medium; anchors.rightMargin: Theme.spacing.medium
                             spacing: Theme.spacing.medium
-                            LogosText { text: (modelData.time || ""); font.pixelSize: Theme.typography.secondaryText; color: Theme.palette.textSecondary; Layout.preferredWidth: 150 }
-                            LogosText { text: root.shortId(modelData.id); font.family: "monospace"; font.pixelSize: Theme.typography.secondaryText; color: Theme.palette.text; Layout.fillWidth: true }
+                            LogosText { text: (modelData.time || ""); font.pixelSize: Theme.typography.secondaryText; font.bold: true; color: Theme.palette.text; Layout.preferredWidth: 150 }
+                            LogosText { text: root.shortId(modelData.id); font.family: "monospace"; font.pixelSize: Theme.typography.secondaryText; color: Theme.palette.textSecondary; Layout.fillWidth: true }
                             LogosText { text: qsTr("%1 tx").arg(modelData.txs !== undefined ? modelData.txs : 0); font.pixelSize: Theme.typography.secondaryText; color: Theme.palette.textSecondary; Layout.preferredWidth: 60; horizontalAlignment: Text.AlignRight }
                             Button {
                                 id: copyBtn
@@ -136,7 +140,6 @@ Control {
                                 Timer { id: copyReset; interval: 1200; onTriggered: copyBtn.copied = false }
                             }
                         }
-                        Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
                     }
 
                     Column {

@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC
+import QtQuick.Dialogs
+import QtCore
 import Logos.Theme
 import Logos.Controls
 
@@ -18,6 +20,9 @@ Item {
     property string nodeConfigPath: "—"
     property string devConfigPath: "—"
     property string keysConfigPath: "—"
+    property string keystorePath: "—"            // real keystore.yaml path (beside the node config)
+    property bool keystoreExists: false          // host: keystore.yaml is present on disk
+    property string keystoreBackupResult: ""      // host sets on save (a path, or "Error: …")
     property string bootstrapPeers: ""           // real initial peers, one per line
     property bool rewardsAutoClaim: false
     property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
@@ -36,6 +41,8 @@ Item {
     signal applyBootstrapPeers(string peersText)   // host: generateConfig + restart
     signal changeConfigRequested()                 // host: open the config setup screen
     signal backupConfigRequested()                 // host: copy the node config beside itself
+    signal downloadKeystoreRequested(string destPath)  // host: copy keystore.yaml to destPath
+    signal keysBackedUp()                          // host: clears the "back up your keys" banner
     signal capsChanged(bool enabled, string cpu, string ram, string disk)
 
     // ---- reusable rows ----
@@ -127,6 +134,31 @@ Item {
                 }
             }
 
+            // BACK UP YOUR KEYS
+            Card {
+                heading: qsTr("Back up your keys")
+                LogosText { text: qsTr("Your keystore holds the keys that control this node's identity, stake, and rewards. There is no way to recover them if lost. Save the file somewhere safe."); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+                RowLayout {
+                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.medium
+                    LogosButton {
+                        text: qsTr("Download keystore.yaml")
+                        variant: LogosButton.Variant.Primary
+                        enabled: root.keystoreExists
+                        onClicked: keystoreSaveDialog.open()
+                    }
+                    // Result / hint line: a saved path (success) or an error, else why it's disabled.
+                    LogosText {
+                        Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter
+                        wrapMode: Text.WordWrap
+                        visible: text.length > 0
+                        text: root.keystoreBackupResult.length > 0 ? root.keystoreBackupResult
+                              : (!root.keystoreExists ? qsTr("No keystore yet — start the node once to create it.") : "")
+                        color: root.keystoreBackupResult.indexOf("Error") === 0 ? Theme.palette.error : Theme.palette.textTertiary
+                        font.pixelSize: Theme.typography.secondaryText
+                    }
+                }
+            }
+
             // BOOTSTRAP NODES
             Card {
                 heading: qsTr("Bootstrap nodes")
@@ -202,5 +234,21 @@ Item {
         message: qsTr("This creates a new node identity and Peer ID. Any stake, rewards or reputation tied to the current keys will no longer be reachable. Back up your keys first. This cannot be undone.")
         leftActions: [ LogosButton { text: qsTr("Cancel"); onClicked: regenDlg.close() } ]
         rightActions: [ DangerButton { text: qsTr("Regenerate"); onClicked: { regenDlg.close(); root.regenerateKeysRequested() } } ]
+    }
+
+    // "Download keystore.yaml" → native Save-As; the host copies the real keystore
+    // to the chosen path (backend.saveKeystore) and reports back via keystoreBackupResult.
+    FileDialog {
+        id: keystoreSaveDialog
+        modality: Qt.NonModal
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["YAML files (*.yaml *.yml)", "All files (*)"]
+        currentFolder: StandardPaths.standardLocations(StandardPaths.DocumentsLocation)[0]
+        selectedFile: "keystore.yaml"
+        onAccepted: {
+            var p = selectedFile.toString()
+            if (p.indexOf("file://") === 0) p = p.substring(7)
+            root.downloadKeystoreRequested(p)
+        }
     }
 }

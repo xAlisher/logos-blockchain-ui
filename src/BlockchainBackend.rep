@@ -61,6 +61,9 @@ class BlockchainBackend
     // mints a fresh identity on the next start. Remove when the node offers these.
     SLOT(QVariantMap backupUserConfig())
     SLOT(QVariantMap regenerateNodeKeys())
+    // saveKeystore copies keystore.yaml (beside the node config) to a user-chosen
+    // path — the Settings "Download keystore.yaml" action. Returns the dest in value.
+    SLOT(QVariantMap saveKeystore(QString destPath))
     SLOT(void copyToClipboard(QString text))
     SLOT(void refreshBlendStatus())
 }

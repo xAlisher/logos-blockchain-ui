@@ -7,6 +7,7 @@ import Logos.Controls
 
 import "../controls"
 import "../amounts.js" as Amounts
+import "infoContent.js" as InfoContent
 
 // Leader rewards: a fungible voucher POOL plus a permanent CLAIMS LEDGER.
 //
@@ -48,6 +49,11 @@ ColumnLayout {
     signal clearClaimsRequested()
     signal copyToClipboard(string text)
 
+    // Structured (i) content + shared modal — same {title,what,calc,states,docs}
+    // modal the dashboard tiles use, so the Rewards (i)s match the dashboard.
+    readonly property var _rInfo: InfoContent.rewards
+    function _openInfo(i) { if (i) { infoModal.info = i; infoModal.open() } }
+
     // --- epoch sidebar (Rewards page) ---
     property int currentEpoch: -1
     function _cEpoch(c) { var sl = (c && c.slot !== undefined) ? Number(c.slot) : NaN; return isNaN(sl) ? -1 : Math.floor(sl / 36000) }
@@ -68,6 +74,8 @@ ColumnLayout {
         for (var i = 0; i < claims.length; i++) if (_cEpoch(claims[i]) === rewardsEpochNav.selected) out.push(claims[i])
         return out
     }
+
+    InfoModal { id: infoModal; onCopyText: (t) => root.copyToClipboard(t) }
 
     Dialog {
         id: clearConfirm
@@ -385,7 +393,8 @@ ColumnLayout {
                 topAligned: true
                 label: qsTr("Ready to claim")
                 value: String(root.vouchers.length)
-                info: qsTr("Vouchers the wallet can prove and claim right now. Each block your node leads mints a voucher; claiming turns it into spendable balance (auto-claim does this at each epoch start). Counted from wallet_get_claimable_vouchers, which returns only the READY set — the node's own reserved/in-flight vouchers are never sent to the UI, and a voucher the wallet cannot prove at the current tip is hidden until it can. Click a tile with vouchers to inspect each one.")
+                infoData: root._rInfo.readyToClaim
+                onInfoRequested: root._openInfo(infoData)
                 // No value here: "Unclaimed" in Rewards already carries it.
                 interactive: root.vouchers.length > 0
                 onClicked: if (root.vouchers.length > 0) voucherDialog.open()
@@ -396,7 +405,8 @@ ColumnLayout {
                 // "Submitted" matches the status word used on the claim rows.
                 label: qsTr("Submitted")
                 value: String(root.claimingCount)
-                info: qsTr("Claims submitted but not yet final. Counted from this ledger — the node never sends the UI its own reserved-voucher list.")
+                infoData: root._rInfo.submitted
+                onInfoRequested: root._openInfo(infoData)
             }
         }
 
@@ -476,13 +486,14 @@ ColumnLayout {
                         model: root.summary ? [
                             {
                                 k: qsTr("Claimed"),
+                                ik: "claimed",
                                 v: root.fmtLgo(root.summary.claimed),
                                 sub: qsTr("%1 claims").arg(root.fmt(root.summary.settled))
                             },
                             {
                                 // The actionable one: value still on the table.
                                 k: qsTr("Unclaimed"),
-                                info: qsTr("Vouchers ready to claim, valued at the most recent settled reward. An ESTIMATE: the reward is read from ledger state when a claim executes and does change (9,517 then 9,535 observed on this chain)."),
+                                ik: "unclaimed",
                                 v: root.lastReward > 0
                                     ? qsTr("~%1").arg(root.fmtLgo(root.unclaimedEst))
                                     : "—",
@@ -492,7 +503,7 @@ ColumnLayout {
                                 // Claiming burns a large share of the reward; an
                                 // operator should see that before pressing again.
                                 k: qsTr("Cost to claim"),
-                                info: qsTr("A claim is itself a transaction, so it costs a fee — which is why an empty wallet cannot claim. The fee is the spent note minus its change; the block records only the note's id, so a claim whose note was spent before this ledger existed cannot be priced."),
+                                ik: "costToClaim",
                                 v: root.feePct >= 0
                                     ? qsTr("%1  %2%").arg(root.fmtLgo(root.lastFee)).arg(root.feePct)
                                     : qsTr("not known yet"),
@@ -514,16 +525,14 @@ ColumnLayout {
                                 // but unexplainable from here. Stating a 1:1
                                 // relationship would be inventing one.
                                 k: qsTr("Blocks led"),
+                                ik: "blocksLed",
                                 v: root.blocksLed > 0 ? root.fmt(root.blocksLed) : "—",
                                 sub: root.firstProposalDay.length > 0
-                                    ? qsTr("since %1").arg(root.firstProposalDay) : "",
-                                info: qsTr("Blocks this node proposed, read from its own log (leadership is private on chain).\n\nThis is NOT the number of claimable vouchers: %1 led, %2 claimed, %3 claimable. The wallet hides any voucher it cannot prove at the current tip, and the node exposes no way to list those — so the difference cannot be explained from here.")
-                                    .arg(root.fmt(root.blocksLed))
-                                    .arg(root.fmt(root.summary.settled))
-                                    .arg(root.vouchers.length)
+                                    ? qsTr("since %1").arg(root.firstProposalDay) : ""
                             },
                             {
                                 k: qsTr("Last claim"),
+                                ik: "lastClaim",
                                 // settledAt is stamped by the chain scan only; an
                                 // explorer-verdicted settle has none — fall back to
                                 // the submission time rather than an empty tile.
@@ -543,7 +552,8 @@ ColumnLayout {
                             label: modelData.k
                             value: modelData.v
                             sub: modelData.sub || ""
-                            info: modelData.info || ""
+                            infoData: modelData.ik ? root._rInfo[modelData.ik] : null
+                            onInfoRequested: root._openInfo(infoData)
                         }
                     }
                 }
@@ -599,8 +609,17 @@ ColumnLayout {
                 text: qsTr("Clear log")
                 onClicked: clearConfirm.open()
             }
-            InfoButton {
-                text: qsTr("Every claim you have made, kept permanently. A claim is recorded the moment it is submitted, then reconciled against the chain: Submitted → In a block → Settled. Only blocks below the last irreversible block count as settled, so a chain reorg moves a claim back rather than un-settling it.\n\nA claim that is never included shows as Not included. Nothing is consumed by one — the node releases its reservation and the voucher becomes claimable again. We cannot show WHICH voucher came back: the claim call returns only a transaction hash, and a claim that never lands leaves no record on chain to match it to.")
+            Button {
+                id: claimsInfoBtn
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: 28; implicitHeight: 28
+                display: AbstractButton.IconOnly
+                flat: true; padding: 4
+                background: Rectangle { color: "transparent" }
+                icon.source: Qt.resolvedUrl("../icons/info.svg")
+                icon.width: 18; icon.height: 18
+                icon.color: claimsInfoBtn.hovered ? Theme.palette.primary : Theme.palette.textMuted
+                onClicked: root._openInfo(root._rInfo.claims)
             }
         }
 
@@ -651,7 +670,7 @@ ColumnLayout {
                         // names. No stroke either — the tiles carry none, and the
                         // fill alone already separates the rows.
                         color: Theme.palette.backgroundTertiary
-                        radius: Theme.spacing.radiusSmall
+                        radius: Theme.spacing.radiusMedium    // unified row-card radius
                         border.width: 0
 
                         readonly property string st: modelData.status || "submitted"
@@ -737,21 +756,6 @@ ColumnLayout {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
                                 text: qsTr("Verified absent from the chain. Nothing was consumed — the voucher was released and no fee was charged.")
-                                color: Theme.palette.textTertiary
-                                font.pixelSize: Theme.typography.secondaryText
-                            }
-                            LogosText {
-                                visible: claimRow.st === "in_block"
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                text: {
-                                    var mins = -1
-                                    if (modelData.slot > 0 && root.summary && root.summary.libSlot > 0)
-                                        mins = Math.max(0, Math.round((modelData.slot - root.summary.libSlot) / 60))
-                                    return mins > 1
-                                        ? qsTr("Verified in a block at the chain tip — finalizing (~%1 min). The reward shows in the balance already.").arg(mins)
-                                        : qsTr("Verified in a block — finalizing any moment.")
-                                }
                                 color: Theme.palette.textTertiary
                                 font.pixelSize: Theme.typography.secondaryText
                             }

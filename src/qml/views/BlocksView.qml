@@ -77,24 +77,29 @@ Control {
 
             Rectangle {
                 Layout.fillWidth: true; Layout.fillHeight: true
-                color: Theme.palette.backgroundSecondary; radius: Theme.spacing.radiusLarge; border.width: 0
+                // Unified: transparent list surface — the row cards carry the visual
+                // weight, so no extra container fill or stroke behind them.
+                color: "transparent"; border.width: 0
 
                 ListView {
                     id: blocksListView
-                    anchors.fill: parent; anchors.margins: Theme.spacing.small
+                    anchors.fill: parent
                     clip: true; spacing: Theme.spacing.small
                     model: root.blockModel
 
                     section.property: epochNav.selected === -1 ? "epoch" : ""
                     section.delegate: Rectangle {
-                        width: blocksListView.width; height: 26; color: "transparent"
+                        // Taller header: label + divider sit up top, leaving a gap
+                        // below the divider before the first block card.
+                        width: blocksListView.width; height: 44; color: "transparent"
                         LogosText {
+                            id: secLabel
                             anchors.left: parent.left; anchors.leftMargin: Theme.spacing.small
-                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.top: parent.top; anchors.topMargin: Theme.spacing.tiny
                             text: qsTr("Epoch %1").arg(section)
                             color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold
                         }
-                        Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
+                        Rectangle { anchors.top: secLabel.bottom; anchors.topMargin: Theme.spacing.small; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: Theme.palette.border; opacity: 0.5 }
                     }
 
                     delegate: BlockDelegate {

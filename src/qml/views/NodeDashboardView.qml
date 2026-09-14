@@ -14,7 +14,13 @@ Item {
     id: root
     implicitWidth: 1040
     implicitHeight: 760
-    readonly property int _minCard: 210     // min card width; cards wrap to next line below this
+    // Min card width drives the grid's column count. The longest primary value
+    // (Earned, in full lepta precision) DEFINES the floor: once a value no longer
+    // fits a 210px card, _minCard grows to fit it so the grid drops to fewer
+    // columns (cards rearrange) instead of clipping the number. Stake abbreviates
+    // itself, so only the non-abbreviated Earned value needs to widen the card.
+    readonly property int _minCard: Math.max(210, Math.ceil(_earnedTM.advanceWidth) + 2 * Theme.spacing.large + 16)
+    TextMetrics { id: _earnedTM; font.pixelSize: 24; font.weight: Theme.typography.weightBold; text: root.earnedStr }
     readonly property int _heroMin: 340
 
     // ── WIRED (real backend, fed by BlockchainView) ──

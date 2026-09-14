@@ -31,6 +31,11 @@ Rectangle {
     property string sub: ""
     // Long-form help behind the (i). Empty = no icon.
     property string info: ""
+    // Structured (i): when set, the icon opens the shared InfoModal via infoRequested
+    // (same {title,what,calc,states,docs} modal as the dashboard) instead of the
+    // inline plain-text popup. Takes precedence over `info`.
+    property var infoData: null
+    signal infoRequested()
     property bool interactive: false
     // Flash the value green when it changes — for tiles that tick (Slot, Height).
     property bool flashOnChange: false
@@ -56,12 +61,30 @@ Rectangle {
     color: Theme.palette.backgroundTertiary
     border.width: 0
 
+    // Plain-text popup (legacy) — only when no structured infoData is provided.
     InfoButton {
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.margins: Theme.spacing.tiny
-        visible: root.info.length > 0
+        visible: root.infoData === null && root.info.length > 0
         text: root.info
+    }
+
+    // Structured (i) — opens the shared InfoModal (matches the dashboard tiles).
+    Button {
+        id: infoBtn
+        visible: root.infoData !== null
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: Theme.spacing.tiny
+        implicitWidth: 28; implicitHeight: 28
+        display: AbstractButton.IconOnly
+        flat: true; padding: 4
+        background: Rectangle { color: "transparent" }
+        icon.source: Qt.resolvedUrl("../icons/info.svg")
+        icon.width: 18; icon.height: 18
+        icon.color: infoBtn.hovered ? Theme.palette.primary : Theme.palette.textMuted
+        onClicked: root.infoRequested()
     }
 
     ColumnLayout {

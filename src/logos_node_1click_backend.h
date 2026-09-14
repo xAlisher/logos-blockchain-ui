@@ -91,6 +91,7 @@ public slots:
     // PREVIEW (#81) config/key management workarounds (app-side file ops).
     QVariantMap backupUserConfig() override;
     QVariantMap regenerateNodeKeys() override;
+    QVariantMap saveKeystore(QString destPath) override;
     void copyToClipboard(QString text) override;
     // Recompute the Blend status (blendStatus + lastBlendEvent) from the node
     // state, the blend::service log, and the live /blend/info. Driven by the

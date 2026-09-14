@@ -154,8 +154,6 @@ ColumnLayout {
         Layout.preferredHeight: searchCol.implicitHeight + 2 * Theme.spacing.large
         color: Theme.palette.backgroundTertiary
         radius: Theme.spacing.radiusLarge
-        border.color: Theme.palette.border
-        border.width: 1
 
         ColumnLayout {
             id: searchCol
@@ -212,9 +210,9 @@ ColumnLayout {
                     }
                 }
 
-                LogosButton {
-                    Layout.preferredWidth: 90
-                    Layout.preferredHeight: 30
+                CtaButton {
+                    compact: true
+                    Layout.alignment: Qt.AlignVCenter
                     text: root.busy ? qsTr("…") : qsTr("Search")
                     enabled: root.nodeRunning && !root.busy && idField.text.trim().length > 0
                     onClicked: root.doSearch()
@@ -263,8 +261,6 @@ ColumnLayout {
                 Layout.preferredHeight: blockCol.implicitHeight + 2 * Theme.spacing.large
                 color: Theme.palette.backgroundTertiary
                 radius: Theme.spacing.radiusLarge
-                border.color: Theme.palette.border
-                border.width: 1
 
                 ColumnLayout {
                     id: blockCol
@@ -397,8 +393,6 @@ ColumnLayout {
                 Layout.preferredHeight: txCol.implicitHeight + 2 * Theme.spacing.large
                 color: Theme.palette.backgroundTertiary
                 radius: Theme.spacing.radiusLarge
-                border.color: Theme.palette.border
-                border.width: 1
 
                 ColumnLayout {
                     id: txCol
