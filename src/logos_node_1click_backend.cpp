@@ -594,8 +594,15 @@ void LogosNode1clickBackend::sampleNodeResources()
         const double clk = (double) sysconf(_SC_CLK_TCK);
         const double elapsedSec = (nowMs - m_prevSampleMs) / 1000.0;
         const double busySec = (ticks - m_prevCpuTicks) / (clk > 0 ? clk : 100.0);
-        double pct = elapsedSec > 0 ? (busySec / elapsedSec) * 100.0 : 0.0;
+        // Normalise to % of the WHOLE machine (0-100), not per-core: busySec/elapsedSec
+        // is per-core and exceeds 100% on a multi-core node (150% = 1.5 cores). Dividing
+        // by the online CPU count gives an intuitive share of total capacity, and makes
+        // the 0-100% resource cap meaningful.
+        long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+        if (ncpu < 1) ncpu = 1;
+        double pct = elapsedSec > 0 ? (busySec / elapsedSec) * 100.0 / (double) ncpu : 0.0;
         if (pct < 0) pct = 0;
+        if (pct > 100) pct = 100;
         setCpuUsage(QStringLiteral("%1%").arg(pct, 0, 'f', pct >= 10 ? 0 : 1));
     }
     m_prevCpuTicks = ticks;

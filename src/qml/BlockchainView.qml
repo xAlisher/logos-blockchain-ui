@@ -510,11 +510,22 @@ Rectangle {
         ignoreUnknownSignals: true
         function onFaucetResult(ok, message) {
             if (ok) {
-                var tx = message
-                try { var j = JSON.parse(message); if (j && j.hash) tx = j.hash } catch (e) {}
+                // Show a real tx hash if the faucet returned one; otherwise show
+                // nothing (some faucets reply {"status":"queued"} with no hash —
+                // never surface the raw JSON to the user).
+                var tx = ""
+                try {
+                    var j = JSON.parse(message)
+                    if (j && typeof j === "object") tx = j.hash || j.tx || j.transaction || ""
+                } catch (e) {
+                    tx = message   // a plain hash string, not JSON
+                }
                 root._fundStage = "success"; root._fundResult = tx
             } else {
-                root._fundStage = "error"; root._fundResult = message
+                // Friendly error: extract a message field if the body is JSON.
+                var msg = message
+                try { var e = JSON.parse(message); if (e && typeof e === "object") msg = e.message || e.error || e.detail || message } catch (err) {}
+                root._fundStage = "error"; root._fundResult = msg
             }
         }
     }
