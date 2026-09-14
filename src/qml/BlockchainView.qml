@@ -1565,6 +1565,7 @@ Rectangle {
                     // One-click UX #13 — status-first node dashboard.
                     NodeDashboardView {
                         Layout.fillWidth: true
+                        Layout.fillHeight: true    // fill the tab; the inner ScrollView owns the scroll (else a short root leaves a black band that clips the chart)
 
                         // --- consensus / status ---
                         status: root.backend ? root.backend.status : -1
