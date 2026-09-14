@@ -15,7 +15,7 @@ Item {
     signal advancedRequested()       // open the advanced setup stepper
     signal copyToClipboard(string text)
 
-    property string versionText: qsTr("UI 0.2.20, core 0.2.4")
+    property string versionText: qsTr("UI 0.2.21, core 0.2.4")
     property string repoUrl: "https://github.com/xAlisher/logos-blockchain-ui"
 
     readonly property color ctaOrange: Theme.colors.orange400

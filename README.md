@@ -34,7 +34,7 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.20`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.20)** —
+- **[`logos_node_1click v0.2.21`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.21)** —
   **the verified feed.** Leader Rewards stops inferring and starts verifying: the explorer delivers
   the only verdicts (**Paid** with recovered reward/fee, or **Failed** — gray, because a priced-out
   claim is expected behavior; red is reserved for the rescan alarm), pool inference only ever says
@@ -50,11 +50,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.20/logos_node_1click-0.2.20-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos_node_1click-0.2.21-linux-amd64.lgx
 
 # macOS Apple Silicon / arm64 Linux — CI builds of the same commit (unsigned)
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.20/logos-blockchain-ui-aarch64-darwin.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos-blockchain-ui-aarch64-darwin.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
