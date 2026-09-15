@@ -584,8 +584,8 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap; info: root._infoData.cpu; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap; info: root._infoData.ram; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Disk"); value: root.disk; sub: root.diskPruneNote.length ? root.diskPruneNote : root.diskCap; info: root._infoData.disk; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; info: root._infoData.height; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; copyValue: root.slot !== "—" ? root.slot : ""; onCopyRequested: (t) => root.copyText(t); info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; copyValue: root.heightStr !== "—" ? root.heightStr : ""; onCopyRequested: (t) => root.copyText(t); info: root._infoData.height; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
                 }
@@ -599,21 +599,11 @@ Item {
                     contentItem: ColumnLayout {
                         spacing: Theme.spacing.small
                         RowLayout {
-                            Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            Layout.fillWidth: true
                             LogosText { text: qsTr("Earned by epoch (LGO)"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                            // (i) — opens the same info modal the tiles use; explains the chart is
-                            // built from the app's claims ledger (recent window, not from genesis).
-                            QQC.Button {
-                                id: earnInfoBtn
-                                Layout.alignment: Qt.AlignVCenter
-                                display: QQC.AbstractButton.IconOnly
-                                flat: true; padding: 2; implicitWidth: 20; implicitHeight: 20
-                                background: Rectangle { color: "transparent" }
-                                icon.source: Qt.resolvedUrl("../icons/info.svg"); icon.width: 15; icon.height: 15
-                                icon.color: hovered ? Theme.palette.primary : Theme.palette.textMuted
-                                onClicked: root._openInfo(root._infoData.earnedByEpoch)
-                            }
                             Item { Layout.fillWidth: true }
+                            // (i) — the SAME circled-i the metric tiles use; opens the shared InfoModal.
+                            Info { Layout.alignment: Qt.AlignVCenter; onClicked: root._openInfo(root._infoData.earnedByEpoch) }
                         }
                         Item {
                             Layout.fillWidth: true; Layout.preferredHeight: 180
