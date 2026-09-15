@@ -34,27 +34,27 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.22`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.22)** —
-  **onboarding cleanup + working maintenance actions.** Advanced onboarding drops the redundant **Fund**
-  step. Legal disclaimer aligned with the IFT CC-projects framework. **Reset chain state** and **Regenerate
-  keys** now actually run: they stop the node, perform the operation, then restart with progress feedback,
-  and **Change config** opens the real config flow. The benign *"No claimable voucher found"* is no longer
-  shown as an error. Module pin: **blockchain_module 0.2.3**.
-  Previous: **v0.2.21** onboarding + honest dashboard (Welcome, Quick start / Advanced onboarding, Earned by
-  epoch chart, honest Vouchers, Keystore backup); **v0.2.20** verified feed; **v0.2.15** phone claims.
+- **[`logos_node_1click v0.2.23`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.23)** —
+  **Ready-to-claim (i) + disk-cap log pruning.** The info **(i)** button on the "Ready to claim" dashboard
+  tile now opens its info modal (was inert). The **disk cap now actually prunes old logs** when the cap is
+  hit (was display-only) and the Disk tile shows a "Pruned N MB of old logs" note. Module pin:
+  **blockchain_module 0.2.3**.
+  Previous: **v0.2.22** onboarding cleanup + working reset/regenerate actions; **v0.2.21** onboarding +
+  honest dashboard (Welcome, Quick start / Advanced onboarding, Earned by epoch chart, honest Vouchers,
+  Keystore backup); **v0.2.20** verified feed; **v0.2.15** phone claims.
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos_node_1click-0.2.22-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.23/logos_node_1click-0.2.23-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos_node_1click-0.2.22-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.23/logos_node_1click-0.2.23-darwin-arm64.lgx
 
 # arm64 Linux — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos-blockchain-ui-aarch64-linux.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.23/logos-blockchain-ui-aarch64-linux.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
