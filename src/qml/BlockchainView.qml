@@ -1770,7 +1770,7 @@ Rectangle {
                         // net earned per epoch, for the "Earned by epoch" chart
                         earnedByEpoch: opPage.nodeRunning ? root._earnedByEpoch : []
 
-                        // version footer defaults to Module v<moduleVersion> (0.2.22)
+                        // version footer defaults to Module v<moduleVersion> (0.2.23)
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
@@ -2202,7 +2202,7 @@ Rectangle {
 
         // Page 2: first-run welcome splash (#10); shown only when no config (#15).
         WelcomeView {
-            versionText: qsTr("UI 0.2.22, core 0.2.4")
+            versionText: qsTr("UI 0.2.23, core 0.2.4")
             onQuickStartRequested: _d.runNodeOneClick()
             onAdvancedRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }
             onCopyToClipboard: (t) => root.copyText(t)

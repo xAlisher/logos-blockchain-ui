@@ -43,7 +43,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.22"
+    property string moduleVersion: "0.2.23"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
