@@ -60,7 +60,7 @@ Item {
     property string deploymentConfigPath: ""     // custom deployment YAML (both flows)
     property bool   keysSaved: false             // ticked the backup checkbox
 
-    readonly property color ctaOrange: Theme.colors.orange400
+    readonly property color ctaOrange: Theme.palette.primary   // unified primary orange
 
     // The four testnet bootstrap peers, editable in the Network step.
     property alias peersText: peersArea.text
@@ -111,7 +111,7 @@ Item {
         signal picked()
         Layout.fillWidth: true
         backgroundColor: Theme.palette.surfaceRaised
-        borderColor: selected ? Theme.colors.orange400 : Theme.palette.border
+        borderColor: Theme.palette.border   // no selected highlight — the checkbox tick carries selection
         radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         contentItem: RowLayout {
             spacing: Theme.spacing.medium
@@ -133,12 +133,22 @@ Item {
             Rectangle {
                 visible: !cc.arrow
                 width: 22; height: 22; radius: 11; Layout.alignment: Qt.AlignVCenter
-                color: cc.selected ? Theme.colors.orange400 : "transparent"
-                border.color: cc.selected ? Theme.colors.orange400 : Theme.palette.border; border.width: 2
+                color: cc.selected ? Theme.palette.primary : "transparent"
+                border.color: cc.selected ? Theme.palette.primary : Theme.palette.border; border.width: 2
                 LogosText { anchors.centerIn: parent; visible: cc.selected; text: "✓"; color: "#FFFFFF"; font.pixelSize: 13; font.weight: Theme.typography.weightBold }
             }
         }
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: cc.picked() }
+    }
+
+    // Exit setup — pinned to the far top-right corner (overlay, out of the header
+    // flow), advanced flow only.
+    GhostButton {
+        visible: root.advanced
+        anchors.top: parent.top; anchors.right: parent.right
+        anchors.topMargin: Theme.spacing.large; anchors.rightMargin: Theme.spacing.large
+        z: 10
+        text: qsTr("Exit setup"); onClicked: root.exitRequested()
     }
 
     ColumnLayout {
@@ -156,7 +166,6 @@ Item {
                     color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
                 }
             }
-            GhostButton { visible: root.advanced; text: qsTr("Exit setup"); onClicked: root.exitRequested() }
         }
 
         // step rail (advanced only)
@@ -168,9 +177,11 @@ Item {
                 delegate: ColumnLayout {
                     required property int index
                     required property string modelData
-                    Layout.fillWidth: true; spacing: 4
-                    Rectangle { Layout.fillWidth: true; height: 4; radius: 2; color: index <= root.step ? Theme.colors.orange400 : Theme.palette.border }
+                    // equal-width columns/bars regardless of label length
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; spacing: 4
+                    Rectangle { Layout.fillWidth: true; height: 4; radius: 2; color: index <= root.step ? Theme.palette.primary : Theme.palette.border }
                     LogosText {
+                        Layout.fillWidth: true; elide: Text.ElideRight
                         text: (index + 1) + ". " + modelData
                         color: index === root.step ? Theme.palette.text : Theme.palette.textTertiary
                         font.pixelSize: 11; font.weight: index === root.step ? Theme.typography.weightBold : Theme.typography.weightRegular
@@ -179,11 +190,11 @@ Item {
             }
         }
 
-        // body
+        // body — transparent: the cards carry the surface; no big grey panel behind them
         LogosFrame {
             Layout.fillWidth: true; Layout.fillHeight: true
-            backgroundColor: Theme.palette.surface; borderColor: "transparent"
-            radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
+            backgroundColor: "transparent"; borderColor: "transparent"
+            radius: Theme.spacing.radiusLarge; padding: 0
             contentItem: QQC.ScrollView {
                 contentWidth: availableWidth; clip: true
                 StackLayout {
