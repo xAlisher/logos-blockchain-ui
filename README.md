@@ -51,7 +51,10 @@ curl -fL -o logos_node_1click.lgx \
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
   https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos_node_1click-0.2.22-darwin-arm64.lgx
-# (arm64 Linux is not built for v0.2.22 — arm-Linux users stay on v0.2.20 until an arm builder is added)
+
+# arm64 Linux — signed, "✓ Signed by xAlisher"
+curl -fL -o logos_node_1click.lgx \
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos-blockchain-ui-aarch64-linux.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
