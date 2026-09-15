@@ -258,9 +258,9 @@ Item {
         { ok: gStakeNote, label: qsTr("Lockable stake note"),
           val: gStakeNote ? qsTr("%1 note(s) available").arg(noteCount) : (noteCount === 0 ? qsTr("none") : qsTr("checking…")),
           fix: qsTr("Fund a node key so there's a note to lock as your provider stake."), action: "", docs: "", kind: "" },
-        { ok: gPort,      label: qsTr("UDP %1 reachable").arg(blendPort),
-          val: gPort ? (portAttested && !portListening ? qsTr("confirmed") : qsTr("open")) : qsTr("not detected"),
-          fix: qsTr("Forward inbound udp/%1 to this machine on your router. The app can't open it, and can only detect a local listener — see the guide. If you've set up the forward, confirm below.").arg(blendPort),
+        { ok: gPort,      label: qsTr("UDP %1 forwarded").arg(blendPort),
+          val: gPort ? (portAttested && !portListening ? qsTr("confirmed") : qsTr("open")) : qsTr("needs your confirmation"),
+          fix: qsTr("The node only opens udp/%1 once it's a Core provider, so this can't be auto-checked yet — that's expected. Make sure udp/%1 is forwarded to this machine on your router (see the guide), then mark it below.").arg(blendPort).arg(blendPort),
           action: qsTr("I've forwarded this port"), docs: docsUrl, kind: "attest" },
         { ok: gNetwork,   label: qsTr("Blend network size"),
           val: netCount >= 0 ? qsTr("%1 provider(s)").arg(netCount) : qsTr("checking…"),
@@ -316,10 +316,13 @@ Item {
                         contentItem: RowLayout {
                             spacing: Theme.spacing.medium
                             Rectangle {
+                                // "attest" gates (the port forward) that aren't confirmed are amber
+                                // "needs your action", not alarm-red — they can't be auto-verified.
+                                readonly property color _pend: modelData.kind === "attest" ? Theme.palette.warning : Theme.palette.error
                                 Layout.alignment: Qt.AlignTop; width: 18; height: 18; radius: 9
                                 color: modelData.ok ? Theme.palette.success : "transparent"
-                                border.color: modelData.ok ? Theme.palette.success : Theme.palette.error; border.width: 2
-                                LogosText { anchors.centerIn: parent; text: modelData.ok ? "✓" : "!"; color: modelData.ok ? "#FFFFFF" : Theme.palette.error; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                                border.color: modelData.ok ? Theme.palette.success : _pend; border.width: 2
+                                LogosText { anchors.centerIn: parent; text: modelData.ok ? "✓" : "!"; color: modelData.ok ? "#FFFFFF" : parent._pend; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 1
