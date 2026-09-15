@@ -3,6 +3,7 @@ import QtCore
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQuick.Dialogs
 
 import Logos.Theme
 import Logos.Controls
@@ -491,9 +492,17 @@ Rectangle {
         onTriggered: root._fundDots = (root._fundDots + 1) % 4
     }
     function _fundDotStr() { return ["", ".", "..", "..."][root._fundDots] }
+    // Dashboard fund: primaryAddress (the backend also tops up the leader key).
     function _requestFunds() {
+        root._requestFundsFor(root.backend ? (root.backend.primaryAddress || "") : "")
+    }
+    // Fund a specific key. Onboarding passes the LEADER funding key so only that
+    // one key is funded (requestFaucetFunds skips its duplicate leader top-up when
+    // pk === leader) — the leader key is the one that actually stakes/proposes
+    // (verified on sneg + optiplex: only the leader key funded, both propose).
+    function _requestFundsFor(key) {
         if (!root.backend) return
-        var pk = (root.backend.primaryAddress || "").trim()
+        var pk = (key || "").trim()
         if (!pk.length) {
             root._fundStage = "error"
             root._fundResult = qsTr("No node key available yet — wait until the node is online.")
@@ -509,11 +518,22 @@ Rectangle {
         ignoreUnknownSignals: true
         function onFaucetResult(ok, message) {
             if (ok) {
-                var tx = message
-                try { var j = JSON.parse(message); if (j && j.hash) tx = j.hash } catch (e) {}
+                // Show a real tx hash if the faucet returned one; otherwise show
+                // nothing (some faucets reply {"status":"queued"} with no hash —
+                // never surface the raw JSON to the user).
+                var tx = ""
+                try {
+                    var j = JSON.parse(message)
+                    if (j && typeof j === "object") tx = j.hash || j.tx || j.transaction || ""
+                } catch (e) {
+                    tx = message   // a plain hash string, not JSON
+                }
                 root._fundStage = "success"; root._fundResult = tx
             } else {
-                root._fundStage = "error"; root._fundResult = message
+                // Friendly error: extract a message field if the body is JSON.
+                var msg = message
+                try { var e = JSON.parse(message); if (e && typeof e === "object") msg = e.message || e.error || e.detail || message } catch (err) {}
+                root._fundStage = "error"; root._fundResult = msg
             }
         }
     }
@@ -969,13 +989,71 @@ Rectangle {
     Connections {
         target: root.backend
         function onStatusChanged() {
-            if (root._pendingPeerApply && root.backend
-                && root.backend.status === BlockchainBackend.Stopped) {
+            if (!root.backend || root.backend.status !== BlockchainBackend.Stopped) return
+            if (root._pendingPeerApply) {
                 var fn = root._pendingPeerApply
                 root._pendingPeerApply = null
                 fn()
             }
+            if (root._pendingAfterStop) {
+                var g = root._pendingAfterStop
+                root._pendingAfterStop = null
+                g()
+            }
         }
+    }
+
+    // Run `fn` with the node guaranteed Stopped, then let `fn` restart it. Actions
+    // that regenerate config / chain state / keys need the node down first and only
+    // take effect on the next Start — so orchestrate stop → do → start rather than
+    // firing the backend call against a running node (which it rejects).
+    property var _pendingAfterStop: null
+    function _stopThenRun(fn) {
+        if (!root.backend) return
+        if (root.backend.status === BlockchainBackend.Running
+            || root.backend.status === BlockchainBackend.Starting) {
+            root._pendingAfterStop = fn
+            root.backend.stopBlockchain()
+        } else {
+            fn()
+        }
+    }
+
+    // Settings "Reset chain state" — stop, wipe chain db/state (keeps keys+config),
+    // restart to re-sync from genesis. Feedback surfaces on settingsView.actionResult.
+    function _resetChainThenRestart() {
+        if (!root.backend) return
+        settingsView.actionResult = qsTr("Stopping the node…")
+        root._stopThenRun(function() {
+            logos.watch(root.backend.resetChainState(),
+                function(r) {
+                    if (r.success) {
+                        settingsView.actionResult = qsTr("Chain state reset — restarting and re-syncing from genesis…")
+                        root.backend.startBlockchain()
+                    } else {
+                        settingsView.actionResult = qsTr("Error: %1").arg(r.error || _d.errorText(r))
+                    }
+                },
+                function(e) { settingsView.actionResult = qsTr("Error: %1").arg(_d.errorText(e)) })
+        })
+    }
+    // Settings "Regenerate keys" — stop, back up + remove the keystore, restart so the
+    // node mints a fresh identity. Feedback surfaces on settingsView.actionResult.
+    function _regenerateKeysThenRestart() {
+        if (!root.backend) return
+        settingsView.actionResult = qsTr("Stopping the node…")
+        root._stopThenRun(function() {
+            logos.watch(root.backend.regenerateNodeKeys(),
+                function(r) {
+                    if (r.success) {
+                        settingsView.actionResult = qsTr("New keys generated (old keystore backed up to %1) — restarting…").arg(r.value)
+                        root.backend.startBlockchain()
+                    } else {
+                        settingsView.actionResult = qsTr("Error: %1").arg(r.error || _d.errorText(r))
+                    }
+                },
+                function(e) { settingsView.actionResult = qsTr("Error: %1").arg(_d.errorText(e)) })
+        })
     }
 
     // --- Redesigned NodeDashboardView adapters (v0.2.20 backend → redesigned props) ---
@@ -1145,6 +1223,17 @@ Rectangle {
     // Proposals tab (proposalsJson), with the identical epoch-from-time derivation
     // ProposalsView uses, so the dashboard tile and the Proposals list always
     // agree. (Previously counted claims-in-epoch, a different number.)
+    // Node is caught up when it reports mode/state "Online" (same signal the
+    // dashboard hero uses). Until then it is bootstrapping / replaying (IBD).
+    readonly property bool _nodeSynced: {
+        if (!opPage.nodeRunning) return false
+        var o
+        try { o = root.cryptarchiaInfoJson && root.cryptarchiaInfoJson.length ? JSON.parse(root.cryptarchiaInfoJson) : null }
+        catch (e) { return false }
+        if (!o) return false
+        var m = o.mode || o.state || (o.cryptarchia_info && o.cryptarchia_info.state) || ""
+        return String(m) === "Online"
+    }
     readonly property int _proposedEpoch: {
         if (!opPage.nodeRunning) return -1        // no current epoch while stopped → "—"
         var e = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
@@ -1159,6 +1248,25 @@ Rectangle {
             if (Math.floor((ms - GEN) / 1000 / L) === e) n++
         }
         return n
+    }
+    // Net earned per epoch (lepta), from the claims ledger — for the dashboard's
+    // "Earned by epoch" chart. Sums (reward − fee) of settled/in_block claims,
+    // grouped by epoch (slot / 36000), ascending.
+    readonly property var _earnedByEpoch: {
+        var cs = leaderRewardsView.claims, L = 36000, m = ({})
+        for (var i = 0; i < cs.length; ++i) {
+            var c = cs[i]
+            if (!c || (c.status !== "settled" && c.status !== "in_block")) continue
+            var sl = Number(c.slot); if (isNaN(sl)) continue
+            var e = Math.floor(sl / L)
+            var net = Number(c.reward || 0) - Number(c.fee || 0)
+            if (isNaN(net)) net = 0
+            m[e] = (m[e] || 0) + net
+        }
+        var out = []
+        for (var k in m) out.push({ epoch: Number(k), lepta: m[k] })
+        out.sort(function(a, b) { return a.epoch - b.epoch })
+        return out
     }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
@@ -1527,24 +1635,27 @@ Rectangle {
                     HoverHandler { id: fundHover }
                 }
 
-                // Node run/stop — small primary CTA. Disabled mid-transition so a
-                // second start can't fire (#18). Stopping cleanly avoids DB-recovery pain.
+                // Node run/stop — small primary CTA. A bootstrapping node sits in
+                // Starting for a long time (the start RPC outlives IBD/recovery), so
+                // Stop must work then too — otherwise you can't abort a sync. Only the
+                // brief Stopping transition disables the button.
                 CtaButton {
                     id: nodeCtlBtn
                     compact: true
                     Layout.alignment: Qt.AlignVCenter
                     readonly property int st: root.backend ? root.backend.status : -1
                     readonly property bool running: st === BlockchainBackend.Running
-                    readonly property bool busy: st === BlockchainBackend.Starting
-                                                 || st === BlockchainBackend.Stopping
-                    enabled: root.backend && !busy
-                    text: st === BlockchainBackend.Starting ? qsTr("Starting…")
-                          : st === BlockchainBackend.Stopping ? qsTr("Stopping…")
-                          : running ? qsTr("Stop")
+                    readonly property bool starting: st === BlockchainBackend.Starting
+                    readonly property bool stopping: st === BlockchainBackend.Stopping
+                    // Live (running OR still starting/bootstrapping) → offer Stop.
+                    readonly property bool live: running || starting
+                    enabled: root.backend && !stopping
+                    text: stopping ? qsTr("Stopping…")
+                          : live ? qsTr("Stop")
                           : qsTr("Start")
                     onClicked: {
-                        if (!root.backend || nodeCtlBtn.busy) return
-                        if (nodeCtlBtn.running) root.backend.stopBlockchain()
+                        if (!root.backend || nodeCtlBtn.stopping) return
+                        if (nodeCtlBtn.live) root.backend.stopBlockchain()
                         else root.backend.startBlockchain()
                     }
                 }
@@ -1573,6 +1684,10 @@ Rectangle {
                         autoPauseReason: root._autoPauseReason
                         nodeRunning: opPage.nodeRunning
                         nodeRecovering: root.recoveryActive
+                        // Honest replay progress: the node logs only the TOTAL to replay
+                        // ("found N stored blocks"), no live count — so show the total.
+                        replayProgress: (root.recoveryActive && root.recoveryBlocks > 0)
+                            ? qsTr("Replaying %1 stored blocks…").arg(root.recoveryBlocks) : ""
                         lastErrorMessage: (root.cryptarchiaInfoError && root.cryptarchiaInfoError.length)
                             ? root.cryptarchiaInfoError
                             : ((root.backend && root.backend.status === BlockchainBackend.Error)
@@ -1632,7 +1747,10 @@ Rectangle {
                         diskCap: nodeSettings.capsEnabled && nodeSettings.diskCap.length ? qsTr("Cap %1 GB").arg(nodeSettings.diskCap) : ""
                         uptime: ""
 
-                        // version footer defaults to Module v<moduleVersion> (0.2.20)
+                        // net earned per epoch, for the "Earned by epoch" chart
+                        earnedByEpoch: opPage.nodeRunning ? root._earnedByEpoch : []
+
+                        // version footer defaults to Module v<moduleVersion> (0.2.21)
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
@@ -1712,6 +1830,7 @@ Rectangle {
                     myKey: root.backend ? (root.backend.primaryAddress || "") : ""
                     currentEpoch: parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
                     nodeRunning: opPage.nodeRunning
+                    bootstrapping: opPage.nodeRunning && !root._nodeSynced
                     onClearRequested: if (root.backend) root.backend.clearBlocks()
                     onCopyToClipboard: (text) => root.copyText(text)
 
@@ -1962,10 +2081,8 @@ Rectangle {
                     cpuCap: nodeSettings.cpuCap; ramCap: nodeSettings.ramCap; diskCap: nodeSettings.diskCap
 
                     onCopyText: (text) => root.copyText(text)
-                    onResetChainRequested: if (root.backend)
-                        logos.watch(root.backend.resetChainState(), function(r){}, function(e){})
-                    onRegenerateKeysRequested: if (root.backend)
-                        logos.watch(root.backend.regenerateNodeKeys(), function(r){}, function(e){})
+                    onResetChainRequested: root._resetChainThenRestart()
+                    onRegenerateKeysRequested: root._regenerateKeysThenRestart()
                     onBackupConfigRequested: if (root.backend)
                         logos.watch(root.backend.backupUserConfig(),
                             function(r){ if (r.success && r.value) root.copyText(r.value) }, function(e){})
@@ -1984,7 +2101,8 @@ Rectangle {
                     }
                     onRewardsAutoClaimToggled: (on) => { nodeSettings.rewardsAutoClaim = on }
                     onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
-                    onChangeConfigRequested: operationTabBar.currentIndex = 0
+                    // Open the real config flow (Advanced onboarding), not the dashboard tab.
+                    onChangeConfigRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }
                     onCapsChanged: (enabled, cpu, ram, disk) => {
                         nodeSettings.capsEnabled = enabled
                         nodeSettings.cpuCap = cpu; nodeSettings.ramCap = ram; nodeSettings.diskCap = disk
@@ -2062,11 +2180,125 @@ Rectangle {
             }
         }
 
-        // Page 2: first-run one-click screen (#10); shown only when no config (#15).
-        FirstRunView {
-            onRunNodeRequested: _d.runNodeOneClick()
-            onHaveConfigRequested: { configChoiceView.showSetConfigPath(); _d.currentPage = 0 }
-            onGenerateCustomRequested: _d.currentPage = 0
+        // Page 2: first-run welcome splash (#10); shown only when no config (#15).
+        WelcomeView {
+            versionText: qsTr("UI 0.2.21, core 0.2.4")
+            onQuickStartRequested: _d.runNodeOneClick()
+            onAdvancedRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }
+            onCopyToClipboard: (t) => root.copyText(t)
+        }
+
+        // Page 3: the onboarding flow (Quick start / Advanced stepper). All backend
+        // work is done here and fed back through the view's feedback properties.
+        OnboardingView {
+            id: onboardingView
+            defaultPeers: root.defaultBootstrapPeers.join("\n")
+            // The leader funding key is the one that stakes/proposes — fund + show it.
+            fundingKey: root.backend ? (root.backend.leaderKey || "") : ""
+            nodeRunning: root.backend && root.backend.status === BlockchainBackend.Running
+            synced: root._nodeSynced
+            fundStage: root._fundStage
+            fundDetail: root._fundResult
+
+            onExitRequested: _d.currentPage = 2
+            onCopyToClipboard: (t) => root.copyText(t)
+
+            onQuickStartRequested: _d.runNodeOneClick()
+
+            onGenerateConfigRequested: (peers, deploymentMode, deploymentConfigPath) => {
+                if (!root.backend) return
+                onboardingView.configPending = true
+                onboardingView.configError = ""
+                logos.watch(
+                    root.backend.generateConfig("", peers, 0, 0, "", "", false,
+                                                deploymentMode, deploymentConfigPath, ""),
+                    function(result) {
+                        onboardingView.configPending = false
+                        if (!result.success) {
+                            onboardingView.configError = result.error && result.error.length
+                                ? result.error : qsTr("Could not generate the config.")
+                            return
+                        }
+                        root.backend.userConfig =
+                            (result.value !== undefined && result.value !== "")
+                                ? result.value : root.backend.generatedUserConfigPath
+                        root.backend.useGeneratedConfig = true
+                        onboardingView.keystoreExists = true
+                        onboardingView.configReady = true
+                    },
+                    function(error) {
+                        onboardingView.configPending = false
+                        onboardingView.configError = qsTr("Could not generate the config: %1").arg(_d.errorText(error))
+                    }
+                )
+            }
+
+            onUseExistingConfigRequested: (userConfigPath, deploymentConfigPath) => {
+                if (!root.backend) return
+                root.backend.userConfig = userConfigPath
+                if (deploymentConfigPath && deploymentConfigPath.length)
+                    root.backend.deploymentConfig = deploymentConfigPath
+                root.backend.useGeneratedConfig = false
+                onboardingView.keystoreExists = true   // keystore lives beside the user config
+                onboardingView.configReady = true
+            }
+
+            onSaveKeystoreRequested: (destPath) => {
+                if (!root.backend) return
+                logos.watch(
+                    root.backend.saveKeystore(destPath),
+                    function(r) {
+                        onboardingView.keystoreResult = r.success
+                            ? qsTr("Saved to %1").arg(r.value)
+                            : qsTr("Error: %1").arg(r.error && r.error.length ? r.error : _d.errorText(r))
+                    },
+                    function(e) { onboardingView.keystoreResult = qsTr("Error: %1").arg(_d.errorText(e)) }
+                )
+            }
+
+            onRequestFundsRequested: root._requestFundsFor(root.backend ? root.backend.leaderKey : "")
+
+            // Start the node in the background (entering the Fund step) — no navigation.
+            onStartNodeRequested: {
+                if (root.backend && root.backend.status !== BlockchainBackend.Running
+                        && root.backend.status !== BlockchainBackend.Starting)
+                    root.backend.startBlockchain()
+            }
+
+            // Start the node (if not already) and hand off to the dashboard.
+            onFinishRequested: {
+                if (root.backend && root.backend.status !== BlockchainBackend.Running
+                        && root.backend.status !== BlockchainBackend.Starting)
+                    root.backend.startBlockchain()
+                _d.currentPage = 1
+            }
+
+            onBrowseUserConfig: onbUserCfgDialog.open()
+            onBrowseDeploymentConfig: onbDeployCfgDialog.open()
+        }
+    }
+
+    // File pickers for the onboarding "existing config" path.
+    FileDialog {
+        id: onbUserCfgDialog
+        modality: Qt.NonModal
+        nameFilters: ["YAML files (*.yaml *.yml)", "All files (*)"]
+        currentFolder: StandardPaths.standardLocations(StandardPaths.HomeLocation)[0]
+        onAccepted: {
+            var p = selectedFile.toString()
+            if (p.indexOf("file://") === 0) p = p.substring(7)
+            onboardingView.userConfigPath = p
+        }
+    }
+    FileDialog {
+        id: onbDeployCfgDialog
+        modality: Qt.NonModal
+        nameFilters: ["YAML files (*.yaml *.yml)", "All files (*)"]
+        currentFolder: StandardPaths.standardLocations(StandardPaths.HomeLocation)[0]
+        onAccepted: {
+            var p = selectedFile.toString()
+            if (p.indexOf("file://") === 0) p = p.substring(7)
+            onboardingView.deploymentConfigPath = p
         }
     }
 }
