@@ -23,3 +23,5 @@ EpochNav 1.0 EpochNav.qml
 NodeOverviewView 1.0 NodeOverviewView.qml
 NodeStatusCard 1.0 NodeStatusCard.qml
 ValidatorStatusCard 1.0 ValidatorStatusCard.qml
+WelcomeView 1.0 WelcomeView.qml
+OnboardingView 1.0 OnboardingView.qml

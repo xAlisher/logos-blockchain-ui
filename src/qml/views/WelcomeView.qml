@@ -18,7 +18,7 @@ Item {
     property string versionText: qsTr("UI 0.2.23, core 0.2.4")
     property string repoUrl: "https://github.com/xAlisher/logos-blockchain-ui"
 
-    readonly property color ctaOrange: Theme.colors.orange400
+    readonly property color ctaOrange: Theme.palette.primary   // use the shared primary, not a one-off brighter orange
 
     // ── Full-bleed background photo (fit to fill), darkened for legible text ──
     Image {
