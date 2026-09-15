@@ -94,7 +94,7 @@ ColumnLayout {
             LogosText {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
-                text: qsTr("Clear the claims list? The rows are archived, not deleted — totals and failure alerts still count them, and cleared claims will not reappear.")
+                text: qsTr("Clear the claims list? The dashboard’s “Earned” tile and the “Earned by epoch” chart are calculated from this list, so they reset to empty too — until you claim again. The rows are archived, not deleted, and won’t reappear; your actual balance is unaffected.")
                 font.pixelSize: Theme.typography.secondaryText
             }
             RowLayout {
