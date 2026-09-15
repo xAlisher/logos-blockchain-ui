@@ -930,10 +930,15 @@ Rectangle {
     }
     property int   _cpuOverCount: 0
     property int   _ramOverCount: 0
+    property int   _diskOverCount: 0
+    property bool   _diskPruneBusy: false        // paces pruning to at most once per cooldown
+    property string _diskPruneNote: ""           // transient "Pruned N MB of old logs" (Disk tile)
     property bool   _autoPaused: false          // node was stopped by a cap breach (not the user)
     property string _autoPauseReason: ""        // e.g. "CPU cap of 95%"
     function _numOf(s) { var m = String(s).match(/[0-9.]+/); return m ? parseFloat(m[0]) : NaN }
     function _ramPct(s) { var m = String(s).match(/([0-9.]+)\s*%/); return m ? parseFloat(m[1]) : NaN }  // the "/ N%" part
+    // Disk usage is a display string ("1.5 GB" / "500 MB"); normalize to GB for the cap compare.
+    function _diskGb(s) { var m = String(s).match(/([0-9.]+)\s*(GB|MB)/i); if (!m) return NaN; var v = parseFloat(m[1]); return m[2].toUpperCase() === "MB" ? v / 1024 : v }
     function _autoPause(res, cap) {
         root._cpuOverCount = 0; root._ramOverCount = 0
         root._autoPauseReason = res + qsTr(" cap of %1%").arg(Math.round(cap))
@@ -955,8 +960,22 @@ Rectangle {
             if (!isNaN(ram) && ramCap > 0 && ram > ramCap) {
                 if (++root._ramOverCount >= 2) { root._autoPause("RAM", ramCap); return }
             } else root._ramOverCount = 0
+            // Disk cap: prune OLD logs (does not stop the node), paced by a cooldown.
+            var disk = root._diskGb(root.backend.diskUsage), diskCap = root._numOf(nodeSettings.diskCap)
+            if (!root._diskPruneBusy && !isNaN(disk) && diskCap > 0 && disk > diskCap) {
+                if (++root._diskOverCount >= 2) {
+                    root._diskOverCount = 0; root._diskPruneBusy = true; _diskPruneCooldown.restart()
+                    logos.watch(root.backend.pruneLogs(nodeSettings.diskCap),
+                        function(r) { var f = (r && r.success) ? Number(r.value) : 0
+                            if (f > 0) { root._diskPruneNote = qsTr("Pruned %1 MB of old logs").arg(Math.round(f / 1048576)); _diskPruneClear.restart() } },
+                        function(e) {})
+                }
+            } else root._diskOverCount = 0
         }
     }
+    // Pace disk pruning (at most once per 30s) and clear the transient note after a few s.
+    Timer { id: _diskPruneCooldown; interval: 30000; onTriggered: root._diskPruneBusy = false }
+    Timer { id: _diskPruneClear; interval: 6000; onTriggered: root._diskPruneNote = "" }
 
     // PREVIEW (#81): apply edited bootstrap peers = regenerate the config with them and
     // restart the node (the node reads bootstrap.ibd.peers from initial_peers at start).
@@ -1745,12 +1764,13 @@ Rectangle {
                         ramCap: nodeSettings.capsEnabled && nodeSettings.ramCap.length ? qsTr("Cap %1%").arg(nodeSettings.ramCap) : ""
                         disk: (root.backend && root.backend.diskUsage.length) ? root.backend.diskUsage : "—"
                         diskCap: nodeSettings.capsEnabled && nodeSettings.diskCap.length ? qsTr("Cap %1 GB").arg(nodeSettings.diskCap) : ""
+                        diskPruneNote: root._diskPruneNote
                         uptime: ""
 
                         // net earned per epoch, for the "Earned by epoch" chart
                         earnedByEpoch: opPage.nodeRunning ? root._earnedByEpoch : []
 
-                        // version footer defaults to Module v<moduleVersion> (0.2.21)
+                        // version footer defaults to Module v<moduleVersion> (0.2.23)
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
@@ -2182,7 +2202,7 @@ Rectangle {
 
         // Page 2: first-run welcome splash (#10); shown only when no config (#15).
         WelcomeView {
-            versionText: qsTr("UI 0.2.21, core 0.2.4")
+            versionText: qsTr("UI 0.2.23, core 0.2.4")
             onQuickStartRequested: _d.runNodeOneClick()
             onAdvancedRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }
             onCopyToClipboard: (t) => root.copyText(t)

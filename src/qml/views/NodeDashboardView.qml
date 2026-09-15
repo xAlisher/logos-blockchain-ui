@@ -43,7 +43,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.21"
+    property string moduleVersion: "0.2.23"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -51,6 +51,7 @@ Item {
         ? qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
         : qsTr("Module v%1").arg(moduleVersion)
     readonly property var _infoData: InfoContent.data          // (i) tooltip content per tile
+    readonly property var _rewardsInfo: InfoContent.rewards    // (i) content for the claim/rewards tiles (separate object)
 
     // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
     function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
@@ -134,6 +135,7 @@ Item {
     property string ramCap: ""
     property string disk: "—"                                // node data-dir footprint (#89)
     property string diskCap: ""
+    property string diskPruneNote: ""                        // transient, shown on the Disk tile after a disk-cap prune
     property string stakeStr: "—"                            // #59
     property string foundingAddr: ""
     property string earnedStr: "—"                           // #60
@@ -572,7 +574,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     // Vouchers — the two honest numbers the Rewards tab shows:
                     // "Ready to claim" (claimable now) headlines; "Submitted" = claims in flight.
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Ready to claim"); value: root.vouchersReady >= 0 ? String(root.vouchersReady) : "—"; sub: root.vouchersSubmitted >= 0 ? qsTr("Submitted: %1").arg(root.vouchersSubmitted) : "" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Ready to claim"); value: root.vouchersReady >= 0 ? String(root.vouchersReady) : "—"; sub: root.vouchersSubmitted >= 0 ? qsTr("Submitted: %1").arg(root.vouchersSubmitted) : ""; info: root._rewardsInfo.readyToClaim; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
@@ -581,7 +583,7 @@ Item {
                             sub: (root.empoweringActive && root.empoweringTarget > 0) ? (root._fmtK(root.empoweringMined) + " / " + root._fmtK(root.empoweringTarget) + " LGO") : ""; info: root._infoData.mining; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("CPU"); value: root.cpu; sub: root.cpuCap; info: root._infoData.cpu; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("RAM"); value: root.ram; sub: root.ramCap; info: root._infoData.ram; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Disk"); value: root.disk; sub: root.diskCap; info: root._infoData.disk; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Disk"); value: root.disk; sub: root.diskPruneNote.length ? root.diskPruneNote : root.diskCap; info: root._infoData.disk; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Slot"); value: root.slot; info: root._infoData.slot; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; info: root._infoData.height; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
