@@ -162,7 +162,7 @@ Control {
         id: clearProposalsDlg
         anchors.centerIn: Overlay.overlay; modal: true; width: 460
         title: qsTr("Clear proposals?")
-        message: qsTr("This clears the stored proposals history. Blocks your node proposes after this still appear. Use it after a chain reset or key change to drop stale entries.")
+        message: qsTr("This deletes the stored proposals history — it cannot be undone. The per-epoch proposal counts reset, and only proposals still in the node’s recent log can be rebuilt (older ones are lost). Blocks you propose after this still appear. Use it after a chain reset or key change to drop stale entries.")
         leftActions: [ LogosButton { text: qsTr("Cancel"); onClicked: clearProposalsDlg.close() } ]
         rightActions: [ LogosButton { text: qsTr("Clear"); variant: LogosButton.Variant.Primary; onClicked: { clearProposalsDlg.close(); root.clearRequested() } } ]
     }

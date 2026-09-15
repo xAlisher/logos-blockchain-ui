@@ -50,8 +50,8 @@ var data = {
     },
     earned: {
         title: "Earned",
-        what: "Leader rewards this node has earned for proposing blocks, claimable to the wallet.",
-        calc: "The node can claim rewards and list claimable vouchers, but a running total isn't surfaced to this tile yet — shows —. A non-zero value marks the lifecycle stage 'Earning'.",
+        what: "Net leader rewards (reward minus claim fee) from the claims this app has collected — the rewards for blocks your node proposed and claimed.",
+        calc: "Summed from this app's claims ledger: each settled / in-a-block claim's reward minus its fee. It counts the claims the app has SEEN, reconciled from a recent window of the chain — NOT from genesis — so it is not a lifetime total. Rewards claimed before that window are already in your wallet (they show in the Stake balance) but are not summed here, so Earned can read lower than the balance actually grew. The Stake balance is the authoritative figure; this is the app's per-claim accounting of recent rewards.",
         states: [
             { label: "Amount", meaning: "Earned LGO, with 'Fees this epoch: N%' beneath." },
             { label: "—", meaning: "Not reported yet." }
