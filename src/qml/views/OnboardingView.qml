@@ -51,7 +51,9 @@ Item {
     // ── local step state ──
     property bool   advanced: false
     property int    step: 0
-    readonly property var stepNames: [qsTr("Setup"), qsTr("Network"), qsTr("Keys"), qsTr("Fund")]
+    // Fund is NOT an onboarding step — the faucet only works once the node is synced,
+    // which is minutes away during onboarding, so funding lives on the dashboard instead.
+    readonly property var stepNames: [qsTr("Setup"), qsTr("Network"), qsTr("Keys")]
     property string mode: ""                     // "generate" | "existing"
     property string deployment: "default"        // "default" | "custom"
     property string userConfigPath: ""           // for the "existing config" path (host-fed via browse)
@@ -91,16 +93,12 @@ Item {
     function _next() {
         if (!advanced) return
         if (step === 1 && !configReady) { _commitConfigThenNext(); return }   // commit, advance on configReady
-        if (step < 3) { step += 1; return }
-        root.finishRequested()                                                 // step 3 "Start node"
+        if (step < 2) { step += 1; return }
+        root.finishRequested()                                                 // step 2 (Keys) → start node + dashboard
     }
     // Welcome is the landing now, so backing out of step 0 returns there.
     function _back() { if (step > 0) step -= 1; else root.exitRequested() }
     function _openAdvanced() { root.mode = "generate"; root.step = 0; root.advanced = true }
-
-    // Entering the Fund step starts the node in the background so its wallet loads
-    // and the funding address appears — without leaving the onboarding screen.
-    onStepChanged: if (advanced && step === 3 && !nodeRunning) root.startNodeRequested()
 
     // ── selectable card (Setup / Network / landing) ──
     component ChoiceCard: LogosFrame {
@@ -331,75 +329,6 @@ Item {
                             }
                         }
 
-                        // 3 · FUND
-                        ColumnLayout {
-                            spacing: Theme.spacing.medium
-                            LogosText { text: qsTr("Fund your node"); color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightBold }
-                            LogosText {
-                                Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
-                                text: qsTr("A node needs stake before it can propose blocks. On testnet you request test funds for your funding key; they auto-stake once the node processes them.")
-                            }
-                            LogosFrame {
-                                Layout.fillWidth: true; visible: root.fundingKey.length > 0
-                                backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
-                                contentItem: RowLayout {
-                                    spacing: Theme.spacing.medium
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 0
-                                        LogosText { text: qsTr("Funding key (leader)"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                                        LogosText { text: root.fundingKey; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace"; elide: Text.ElideMiddle; Layout.fillWidth: true }
-                                    }
-                                    BcCopyButton { onCopyText: root.copyToClipboard(root.fundingKey) }
-                                }
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true; spacing: Theme.spacing.medium
-                                CtaButton {
-                                    text: root.fundStage === "requesting" ? qsTr("Requesting…")
-                                          : root.fundStage === "success" ? qsTr("Funds requested")
-                                          : root.fundStage === "error" ? qsTr("Try again")
-                                          : qsTr("Request test funds")
-                                    // Only fundable once the node is synced (Online) — a request
-                                    // sent while bootstrapping just queues and looks like nothing.
-                                    enabled: root.synced && root.fundStage !== "requesting"
-                                             && root.fundStage !== "success" && root.fundingKey.length > 0
-                                    onClicked: root.requestFundsRequested()
-                                }
-                                Item { Layout.fillWidth: true }
-                            }
-                            // Stage feedback, mirroring the dashboard fund dialog.
-                            LogosText {
-                                Layout.fillWidth: true; wrapMode: Text.WordWrap; visible: text.length > 0
-                                text: {
-                                    if (root.fundStage === "requesting") return qsTr("Requesting testnet funds…")
-                                    if (root.fundStage === "success") return qsTr("Funds requested successfully — they auto-stake shortly. You can continue.")
-                                    if (root.fundStage === "error") return root.fundDetail
-                                    if (!root.synced) return qsTr("Waiting for the node to finish syncing before it can be funded…")
-                                    if (root.fundingKey.length === 0) return qsTr("Preparing your keys…")
-                                    return ""
-                                }
-                                color: root.fundStage === "success" ? Theme.palette.success
-                                       : root.fundStage === "error" ? Theme.palette.error
-                                       : Theme.palette.textTertiary
-                                font.pixelSize: Theme.typography.secondaryText
-                                font.weight: (root.fundStage === "success" || root.fundStage === "error") ? Theme.typography.weightMedium : Theme.typography.weightRegular
-                            }
-                            // Transaction hash (copyable) on success.
-                            RowLayout {
-                                Layout.fillWidth: true; spacing: Theme.spacing.small
-                                visible: root.fundStage === "success" && root.fundDetail.length > 0
-                                LogosText {
-                                    Layout.fillWidth: true; elide: Text.ElideMiddle
-                                    text: root.fundDetail; font.family: "monospace"
-                                    color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
-                                }
-                                BcCopyButton { onCopyText: root.copyToClipboard(root.fundDetail) }
-                            }
-                            LogosText {
-                                Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.palette.textTertiary; font.pixelSize: 11
-                                text: qsTr("Optional — you can skip and fund later from the dashboard. The node is already starting in the background.")
-                            }
-                        }
                     }
                 }
             }
@@ -417,7 +346,7 @@ Item {
                 text: root.step === 2 ? qsTr("Confirm you saved your keys to continue") : ""
             }
             CtaButton {
-                text: root.step === 3 ? qsTr("Go to dashboard")
+                text: root.step === 2 ? qsTr("Start node")
                       : (root.step === 1 && root.configPending) ? qsTr("Preparing…")
                       : qsTr("Continue")
                 enabled: root._canContinue()
