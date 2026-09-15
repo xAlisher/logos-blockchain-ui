@@ -99,6 +99,12 @@ public slots:
     // state, the blend::service log, and the live /blend/info. Driven by the
     // dashboard refresh timer while the node is Running.
     void refreshBlendStatus() override;
+    // Blend Core provider lifecycle (epic #89). See the .rep for the API contract.
+    QVariantMap declareBlendCore(QString locator, QString lockedNoteId) override;
+    QVariantMap getBlendDeclarations() override;
+    QVariantMap withdrawBlendCore() override;
+    QVariantMap getSdpFundingKey() override;
+    QVariantMap checkBlendPortReachable() override;
 
 protected:
     void onContextReady() override;
@@ -120,6 +126,29 @@ private:
     // blendStateFromLog(): map the blend::service log tail → BlendStatus + *outEvent.
     QVariantMap getBlendInfo() const;
     BlendStatus blendStateFromLog(QString* outEvent) const;
+    // ---- Blend Core provider lifecycle helpers (epic #89) ----
+    // sdp.wallet.funding_pk from the node config — the key the declaration fee is
+    // paid from (mirrors leaderFundingKey()'s config walk, different sub-block).
+    QString sdpFundingKey() const;
+    // blend listening port from the config (blend_port / a udp/<port> in the blend
+    // listening_address). Falls back to 3400 (the testnet default) if not found.
+    int blendPortFromConfig() const;
+    // Public IP for the declaration locator: prefer an external_address in the config,
+    // else resolve via a public IP-echo over curl. Empty if it can't be determined.
+    QString resolvePublicIp() const;
+    // Build the declaration locator /ip4/<publicIp>/udp/<blendPort>/quic-v1. Empty if
+    // the public IP can't be resolved.
+    QString buildBlendLocator() const;
+    // Write-ahead store for THIS node's Blend declaration ({declaration_id, locked_note_id,
+    // locator, created_at}). declareBlendCore writes it so withdrawBlendCore can find the
+    // declaration id and refreshBlendStatus can report Activating; withdraw deletes it.
+    QString blendDeclStorePath() const;
+    QJsonObject loadBlendDecl() const;
+    void        saveBlendDecl(const QJsonObject& obj) const;
+    void        clearBlendDecl() const;
+    // Resolving the public IP hits the network (curl), so cache it for the session
+    // rather than re-resolving on every gate poll.
+    mutable QString m_publicIp;
     // Node consensus mode ("Online"/"Bootstrapping"/"") from the live API — the
     // authoritative gate for Blend (edge is automatic once Online).
     QString nodeMode() const;

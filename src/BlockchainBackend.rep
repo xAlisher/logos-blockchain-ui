@@ -1,7 +1,11 @@
 class BlockchainBackend
 {
     ENUM BlockchainStatus { NotStarted=0, Starting=1, Running=2, Stopping=3, Stopped=4, Error=5 }
-    ENUM BlendStatus { Off=0, WaitingForOnline=1, Edge=2, Core=3, Broadcast=4, NodeError=5, BlendError=6, Unknown=7 }
+    // Activating=8 (epic #89): this node has an on-chain Blend/SDP declaration that
+    // has NOT yet reached Core — it activates at created+2 epochs (SNAPSHOT_FINALIZATION_DELAY).
+    // Detected via a local write-ahead store (declareBlendCore persists the declaration id);
+    // a declaration made outside this UI reads as Edge until core_info populates.
+    ENUM BlendStatus { Off=0, WaitingForOnline=1, Edge=2, Core=3, Broadcast=4, NodeError=5, BlendError=6, Unknown=7, Activating=8 }
 
     PROP(BlockchainStatus status READONLY)
     PROP(QString userConfig READWRITE)
@@ -72,4 +76,38 @@ class BlockchainBackend
     SLOT(QVariantMap saveKeystore(QString destPath))
     SLOT(void copyToClipboard(QString text))
     SLOT(void refreshBlendStatus())
+
+    // ── Blend Core provider lifecycle (epic #89, #90-#96) ────────────────────
+    // Become a Blend Network CORE provider via the Service Declaration Protocol,
+    // proven end-to-end on sneg 2026-09-15 (fund sdp funding_pk → /blend/join →
+    // declaration → active at created+2 epochs → Mode::Core). All HTTP to the
+    // node's local API (127.0.0.1:8080) via system curl, like getBlendInfo/getNetworkInfo.
+
+    // POST /blend/join {"locator","locked_note_id"} → declares this node as a Blend
+    // core provider. If `locator` is empty the backend builds it from the resolved
+    // public IP + the config blend port (/ip4/<ip>/udp/<port>/quic-v1). `lockedNoteId`
+    // is a 32-byte note owned by a node key, staked as the provider bond. The 0.2.4
+    // node returns the new DeclarationId; we persist it (write-ahead) so Disable can
+    // withdraw it and refreshBlendStatus can report Activating. Returns {ok, tx, error}.
+    SLOT(QVariantMap declareBlendCore(QString locator, QString lockedNoteId))
+    // GET /mantle/sdp/declarations → all active BN declarations, keyed by id. Returns
+    // {ok, count, mineId, mineCreated, mineActive, mineWithdrawAt} — count drives the
+    // "network size ≥ 2" gate; the mine* fields (matched via the persisted declaration
+    // id / our locator) drive the Activating→Core polling.
+    SLOT(QVariantMap getBlendDeclarations())
+    // POST /sdp/withdrawal <declarationId> → leaves the Blend Network and unlocks the
+    // staked note (sets Declaration.withdraw_at). Resolves this node's declaration id
+    // from the write-ahead store, falling back to matching /mantle/sdp/declarations by
+    // our locked note / locator. Returns {ok, error}. Deletes the store on success.
+    SLOT(QVariantMap withdrawBlendCore())
+    // Config-derived, no running node needed: {ok, key, blendPort, publicIp, locator}.
+    // `key` = sdp.wallet.funding_pk (the key the declaration fee is paid from — the UI
+    // checks its balance for the "SDP funding key funded" gate and can faucet it).
+    SLOT(QVariantMap getSdpFundingKey())
+    // Best-effort UDP-3400 reachability: tries to bind the blend port locally. A bind
+    // that FAILS (address in use) means the node already holds the port → listening=true.
+    // The app can only detect a local listener, not inbound NAT traversal — the modal's
+    // docs link carries the shared-public-IP / one-relay-per-port caveat. Returns
+    // {ok, listening, blendPort, note}.
+    SLOT(QVariantMap checkBlendPortReachable())
 }

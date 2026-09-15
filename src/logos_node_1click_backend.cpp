@@ -13,6 +13,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -26,6 +27,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QTimer>
+#include <QUdpSocket>
 #include <QUrl>
 #include <QVariant>
 
@@ -962,6 +964,15 @@ void LogosNode1clickBackend::refreshBlendStatus()
                 evt = mp >= 0
                           ? QStringLiteral("%1 mix peers this epoch").arg(mp)
                           : QStringLiteral("mixing for the network");
+            } else if (!loadBlendDecl().value(QStringLiteral("declaration_id")).toString().isEmpty()) {
+                // We submitted a Blend declaration (write-ahead store) but core_info is
+                // not populated yet — the declaration activates at created+2 epochs
+                // (SNAPSHOT_FINALIZATION_DELAY). Report Activating so the header/tile
+                // read "activating…" rather than a bare Edge. Clears to Core above once
+                // core_info populates. A declaration made outside this UI has no store
+                // row, so it correctly reads as Edge here (honest — we can't claim it).
+                st = Activating;
+                evt = QStringLiteral("declaration pending — Core in ~2 epochs");
             } else {
                 // Online and not core → edge by default, unless this epoch fell back
                 // to broadcast or blend errored (both leave a log line we can find).
@@ -977,6 +988,444 @@ void LogosNode1clickBackend::refreshBlendStatus()
     }
     setBlendStatus(st);
     setLastBlendEvent(evt);
+}
+
+// ── Blend Core provider lifecycle (epic #89, #90-#96) ────────────────────────
+// Proven end-to-end on sneg 2026-09-15: fund sdp funding_pk → POST /blend/join
+// {locator, locked_note_id} → declaration lands in a block → active at created+2
+// epochs → Mode::Core. Route strings verified against the logos-blockchain 0.2.4 tag
+// (nodes/api-common/src/paths.rs): /blend/join, /blend/info, /mantle/sdp/declarations,
+// /sdp/withdrawal. All HTTP to the node's local API via system curl — the app's Qt/QML
+// HTTPS stack is unreliable on this AppImage (same rationale as getBlendInfo).
+
+// One synchronous request to the node's local HTTP API. Returns the response body;
+// *outCode gets the HTTP status (empty ⇒ curl couldn't run / no reply).
+static QString nodeApiRequest(const QString& method, const QString& path,
+                              const QString& jsonBody, QString* outCode)
+{
+    if (outCode) outCode->clear();
+    const QString curl = resolveCurl();
+    if (curl.isEmpty())
+        return {};
+    QStringList args{QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("8"),
+                     QStringLiteral("-X"), method,
+                     QStringLiteral("-w"), QStringLiteral("\n%{http_code}")};
+    if (!jsonBody.isEmpty())
+        args << QStringLiteral("-H") << QStringLiteral("Content-Type: application/json")
+             << QStringLiteral("-d") << jsonBody;
+    args << (QStringLiteral("http://127.0.0.1:8080") + path);
+    QProcess p;
+    p.setProcessEnvironment(curlEnv());
+    p.start(curl, args);
+    if (!p.waitForFinished(10000)) { p.kill(); return {}; }
+    const QString out = QString::fromUtf8(p.readAllStandardOutput());
+    // curl -w "\n%{http_code}" appends the status after the body.
+    const int nl = out.lastIndexOf(QLatin1Char('\n'));
+    if (outCode)
+        *outCode = (nl >= 0 ? out.mid(nl + 1) : QString()).trimmed();
+    return (nl >= 0 ? out.left(nl) : out).trimmed();
+}
+
+// Extract the node's own error text from an ErrorBody JSON (or return the raw body).
+static QString nodeApiError(const QString& body, const QString& code)
+{
+    const QJsonDocument d = QJsonDocument::fromJson(body.toUtf8());
+    if (d.isObject()) {
+        const QJsonObject o = d.object();
+        const QString m = o.value(QStringLiteral("error")).toString(
+            o.value(QStringLiteral("message")).toString());
+        if (!m.isEmpty()) return m;
+    }
+    if (!body.isEmpty()) return body;
+    return QStringLiteral("The node returned an error (HTTP %1).").arg(code);
+}
+
+// sdp.wallet.funding_pk from the node config — the key the declaration fee is paid
+// from. Same config walk as leaderFundingKey(), targeting the `sdp:` block instead of
+// `leader:` (both blocks contain a `funding_pk:`, so the block boundary matters).
+QString LogosNode1clickBackend::sdpFundingKey() const
+{
+    QStringList candidates;
+    if (!generatedUserConfigPath().isEmpty()) candidates << generatedUserConfigPath();
+    if (!userConfig().isEmpty())              candidates << userConfig();
+    const QString dataHome = QString::fromUtf8(qgetenv("XDG_DATA_HOME"));
+    const QString base = dataHome.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.local/share") : dataHome;
+    const QDir md(base + QStringLiteral("/Logos/LogosBasecamp/module_data/blockchain_module"));
+    const QFileInfoList insts =
+        md.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+    for (const QFileInfo& inst : insts)
+        candidates << inst.absoluteFilePath() + QStringLiteral("/user_config.yaml");
+
+    static const QRegularExpression hexRe(QStringLiteral("[0-9a-fA-F]{64}"));
+    for (const QString& path : candidates) {
+        QFile f(path);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
+        const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+        f.close();
+        bool inSdp = false;
+        for (const QString& line : lines) {
+            const QString t = line.trimmed();
+            // A non-indented key starts a new top-level block: enter only on `sdp:`,
+            // leave on anything else (e.g. `leader:`) so we never read the wrong funding_pk.
+            if (!line.startsWith(QLatin1Char(' ')) && !line.startsWith(QLatin1Char('\t'))
+                && t.endsWith(QLatin1Char(':')))
+                inSdp = t.startsWith(QStringLiteral("sdp:"));
+            if (inSdp && t.startsWith(QStringLiteral("funding_pk:"))) {
+                const auto m = hexRe.match(t);
+                if (m.hasMatch()) return m.captured(0);
+            }
+        }
+    }
+    return QString();
+}
+
+// The blend listening port from the config (blend_port: N, or a /udp/<port> inside a
+// blend listening_address). Falls back to 3400 — the testnet Blend default.
+int LogosNode1clickBackend::blendPortFromConfig() const
+{
+    QStringList candidates;
+    if (!generatedUserConfigPath().isEmpty()) candidates << generatedUserConfigPath();
+    if (!userConfig().isEmpty())              candidates << userConfig();
+    const QString dataHome = QString::fromUtf8(qgetenv("XDG_DATA_HOME"));
+    const QString base = dataHome.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.local/share") : dataHome;
+    const QDir md(base + QStringLiteral("/Logos/LogosBasecamp/module_data/blockchain_module"));
+    for (const QFileInfo& inst : md.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time))
+        candidates << inst.absoluteFilePath() + QStringLiteral("/user_config.yaml");
+
+    static const QRegularExpression portRe(QStringLiteral("blend_port:\\s*(\\d+)"));
+    static const QRegularExpression udpRe(QStringLiteral("/udp/(\\d+)/quic"));
+    for (const QString& path : candidates) {
+        QFile f(path);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
+        const QString body = QString::fromUtf8(f.readAll());
+        f.close();
+        auto m = portRe.match(body);
+        if (m.hasMatch()) return m.captured(1).toInt();
+        // else look for a udp/quic multiaddr on a line mentioning blend.
+        const QStringList lines = body.split(QLatin1Char('\n'));
+        for (const QString& ln : lines) {
+            if (!ln.contains(QStringLiteral("blend"), Qt::CaseInsensitive)) continue;
+            const auto um = udpRe.match(ln);
+            if (um.hasMatch()) return um.captured(1).toInt();
+        }
+    }
+    return 3400;
+}
+
+// Public IP for the declaration locator. Prefer an external_address in the config;
+// else resolve over curl (cached for the session). Empty if it can't be determined.
+QString LogosNode1clickBackend::resolvePublicIp() const
+{
+    if (!m_publicIp.isEmpty())
+        return m_publicIp;
+    static const QRegularExpression ipRe(QStringLiteral("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})"));
+
+    // 1) external_address from the config, if the operator pinned one.
+    QStringList candidates;
+    if (!generatedUserConfigPath().isEmpty()) candidates << generatedUserConfigPath();
+    if (!userConfig().isEmpty())              candidates << userConfig();
+    for (const QString& path : candidates) {
+        QFile f(path);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
+        const QString body = QString::fromUtf8(f.readAll());
+        f.close();
+        for (const QString& ln : body.split(QLatin1Char('\n'))) {
+            if (!ln.contains(QStringLiteral("external"), Qt::CaseInsensitive)) continue;
+            const auto m = ipRe.match(ln);
+            if (m.hasMatch() && m.captured(1) != QStringLiteral("127.0.0.1")) {
+                m_publicIp = m.captured(1);
+                return m_publicIp;
+            }
+        }
+    }
+
+    // 2) Resolve over the network via curl (system curl, like the faucet POST).
+    const QString curl = resolveCurl();
+    if (!curl.isEmpty()) {
+        for (const QString& url : {QStringLiteral("https://api.ipify.org"),
+                                   QStringLiteral("https://ifconfig.me/ip"),
+                                   QStringLiteral("https://icanhazip.com")}) {
+            QProcess p;
+            p.setProcessEnvironment(curlEnv());
+            p.start(curl, {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("6"), url});
+            if (!p.waitForFinished(7000)) { p.kill(); continue; }
+            const QString body = QString::fromUtf8(p.readAllStandardOutput()).trimmed();
+            const auto m = ipRe.match(body);
+            if (m.hasMatch()) {
+                m_publicIp = m.captured(1);
+                return m_publicIp;
+            }
+        }
+    }
+    return QString();
+}
+
+QString LogosNode1clickBackend::buildBlendLocator() const
+{
+    const QString ip = resolvePublicIp();
+    if (ip.isEmpty())
+        return QString();
+    return QStringLiteral("/ip4/%1/udp/%2/quic-v1").arg(ip).arg(blendPortFromConfig());
+}
+
+QString LogosNode1clickBackend::blendDeclStorePath() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return {};
+    return QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("blend-declaration.json"));
+}
+
+QJsonObject LogosNode1clickBackend::loadBlendDecl() const
+{
+    const QString p = blendDeclStorePath();
+    if (p.isEmpty())
+        return {};
+    QFile f(p);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+void LogosNode1clickBackend::saveBlendDecl(const QJsonObject& obj) const
+{
+    const QString p = blendDeclStorePath();
+    if (p.isEmpty())
+        return;
+    QSaveFile f(p);   // atomic rename-over-target, like saveClaimStore()
+    if (!f.open(QIODevice::WriteOnly))
+        return;
+    if (f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact)) < 0) {
+        f.cancelWriting();
+        return;
+    }
+    f.commit();
+}
+
+void LogosNode1clickBackend::clearBlendDecl() const
+{
+    const QString p = blendDeclStorePath();
+    if (!p.isEmpty())
+        QFile::remove(p);
+}
+
+QVariantMap LogosNode1clickBackend::declareBlendCore(QString locator, QString lockedNoteId)
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), false);
+    out.insert(QStringLiteral("tx"), QString());
+    out.insert(QStringLiteral("error"), QString());
+
+    QString loc = locator.trimmed();
+    if (loc.isEmpty())
+        loc = buildBlendLocator();
+    if (loc.isEmpty()) {
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("Couldn't determine this node's public address for the Blend "
+                                  "locator. Set external_address in the config, or check your "
+                                  "internet connection, and try again."));
+        return out;
+    }
+    const QString note = lockedNoteId.trimmed();
+    if (note.isEmpty()) {
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("No note to lock as the provider stake — fund a node key first."));
+        return out;
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("locator"), loc);
+    body.insert(QStringLiteral("locked_note_id"), note);
+    const QString jsonBody =
+        QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact));
+
+    QString code;
+    const QString resp = nodeApiRequest(QStringLiteral("POST"),
+                                        QStringLiteral("/blend/join"), jsonBody, &code);
+    if (code.isEmpty()) {
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("Couldn't reach the node's API. Is the node running?"));
+        return out;
+    }
+    if (!code.startsWith(QLatin1Char('2'))) {
+        out.insert(QStringLiteral("error"), nodeApiError(resp, code));
+        return out;
+    }
+    // 0.2.4 returns the new DeclarationId (Option<DeclarationId>) — a hex string,
+    // possibly JSON-quoted, or `null`. Strip quotes/whitespace for storage + display.
+    QString declId = resp;
+    declId.remove(QLatin1Char('"'));
+    declId = declId.trimmed();
+    if (declId.compare(QStringLiteral("null"), Qt::CaseInsensitive) == 0)
+        declId.clear();
+
+    // Write-ahead: persist so Disable can withdraw this exact declaration and
+    // refreshBlendStatus can report Activating until core_info populates.
+    QJsonObject store;
+    store.insert(QStringLiteral("declaration_id"), declId);
+    store.insert(QStringLiteral("locked_note_id"), note);
+    store.insert(QStringLiteral("locator"), loc);
+    store.insert(QStringLiteral("created_at"),
+                 QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    saveBlendDecl(store);
+
+    out.insert(QStringLiteral("ok"), true);
+    out.insert(QStringLiteral("tx"), declId);
+    // Reflect the new state immediately (don't wait for the next refresh tick).
+    if (status() == Running)
+        setBlendStatus(Activating);
+    return out;
+}
+
+QVariantMap LogosNode1clickBackend::getBlendDeclarations()
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), false);
+    out.insert(QStringLiteral("count"), 0);
+    out.insert(QStringLiteral("mineId"), QString());
+    out.insert(QStringLiteral("mineCreated"), -1);
+    out.insert(QStringLiteral("mineActive"), -1);
+    out.insert(QStringLiteral("mineWithdrawAt"), -1);
+
+    QString code;
+    const QString resp = nodeApiRequest(QStringLiteral("GET"),
+                                        QStringLiteral("/mantle/sdp/declarations"), QString(), &code);
+    if (code.isEmpty() || !code.startsWith(QLatin1Char('2')))
+        return out;
+    const QJsonDocument doc = QJsonDocument::fromJson(resp.toUtf8());
+    if (!doc.isObject())
+        return out;
+    const QJsonObject o = doc.object();   // { <declId>: Declaration, ... }
+    out.insert(QStringLiteral("ok"), true);
+    out.insert(QStringLiteral("count"), o.size());
+
+    // Identify ours: the persisted declaration id first, else match by locked note / locator.
+    const QJsonObject mineStore = loadBlendDecl();
+    const QString myId   = mineStore.value(QStringLiteral("declaration_id")).toString();
+    const QString myNote = mineStore.value(QStringLiteral("locked_note_id")).toString();
+    const QString myLoc  = mineStore.value(QStringLiteral("locator")).toString();
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        const QString id = it.key();
+        const QJsonObject d = it.value().toObject();
+        bool mine = false;
+        if (!myId.isEmpty() && id.compare(myId, Qt::CaseInsensitive) == 0)
+            mine = true;
+        else if (!myNote.isEmpty()
+                 && d.value(QStringLiteral("locked_note_id")).toString().compare(myNote, Qt::CaseInsensitive) == 0)
+            mine = true;
+        else if (!myLoc.isEmpty()) {
+            // locators is a list/map of multiaddrs — match our locator as a substring
+            // of the serialized declaration (the locator string is distinctive enough).
+            const QString ser = QString::fromUtf8(
+                QJsonDocument(d).toJson(QJsonDocument::Compact));
+            if (ser.contains(myLoc))
+                mine = true;
+        }
+        if (mine) {
+            out.insert(QStringLiteral("mineId"), id);
+            out.insert(QStringLiteral("mineCreated"), (int) d.value(QStringLiteral("created")).toDouble(-1));
+            out.insert(QStringLiteral("mineActive"), (int) d.value(QStringLiteral("active")).toDouble(-1));
+            out.insert(QStringLiteral("mineWithdrawAt"),
+                       d.value(QStringLiteral("withdraw_at")).isDouble()
+                           ? (int) d.value(QStringLiteral("withdraw_at")).toDouble() : -1);
+            break;
+        }
+    }
+    return out;
+}
+
+QVariantMap LogosNode1clickBackend::withdrawBlendCore()
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), false);
+    out.insert(QStringLiteral("error"), QString());
+
+    // Resolve our declaration id: the write-ahead store first, then the live
+    // declarations query (matched by locked note / locator).
+    QString declId = loadBlendDecl().value(QStringLiteral("declaration_id")).toString().trimmed();
+    if (declId.isEmpty()) {
+        const QVariantMap decls = getBlendDeclarations();
+        declId = decls.value(QStringLiteral("mineId")).toString().trimmed();
+    }
+    if (declId.isEmpty()) {
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("Couldn't find this node's Blend declaration to withdraw — it "
+                                  "may have been declared on another machine, or already withdrawn."));
+        return out;
+    }
+
+    // POST /sdp/withdrawal — the body is the bare DeclarationId, JSON-encoded as a
+    // quoted hex string (verified against the 0.2.4 handler: Json<DeclarationId>).
+    const QString jsonBody = QStringLiteral("\"%1\"").arg(declId);
+    QString code;
+    const QString resp = nodeApiRequest(QStringLiteral("POST"),
+                                        QStringLiteral("/sdp/withdrawal"), jsonBody, &code);
+    if (code.isEmpty()) {
+        out.insert(QStringLiteral("error"),
+                   QStringLiteral("Couldn't reach the node's API. Is the node running?"));
+        return out;
+    }
+    if (!code.startsWith(QLatin1Char('2'))) {
+        out.insert(QStringLiteral("error"), nodeApiError(resp, code));
+        return out;
+    }
+    // Left the network: stop reporting Activating/Core for a declaration we've withdrawn.
+    // The staked note unlocks when the withdrawal (withdraw_at) takes effect next epoch.
+    clearBlendDecl();
+    out.insert(QStringLiteral("ok"), true);
+    if (status() == Running)
+        setBlendStatus(Edge);
+    return out;
+}
+
+QVariantMap LogosNode1clickBackend::getSdpFundingKey()
+{
+    QVariantMap out;
+    const QString key = sdpFundingKey();
+    const int port = blendPortFromConfig();
+    const QString ip = resolvePublicIp();
+    const QString loc = ip.isEmpty()
+        ? QString()
+        : QStringLiteral("/ip4/%1/udp/%2/quic-v1").arg(ip).arg(port);
+    out.insert(QStringLiteral("ok"), !key.isEmpty());
+    out.insert(QStringLiteral("key"), key);
+    out.insert(QStringLiteral("blendPort"), port);
+    out.insert(QStringLiteral("publicIp"), ip);
+    out.insert(QStringLiteral("locator"), loc);
+    return out;
+}
+
+QVariantMap LogosNode1clickBackend::checkBlendPortReachable()
+{
+    QVariantMap out;
+    const int port = blendPortFromConfig();
+    out.insert(QStringLiteral("ok"), true);
+    out.insert(QStringLiteral("blendPort"), port);
+    // BEST-EFFORT, LOCAL ONLY. Try to bind udp/<port>: a bind that FAILS (address in
+    // use) means the node — or another relay — already holds the port, i.e. a local
+    // listener exists. A successful bind means nothing is listening. This cannot test
+    // inbound NAT/port-forward reachability from the internet (the node binds udp/3400
+    // only once it reaches Core, and a shared public IP allows one relay per port), so
+    // the modal pairs this with the port-forward guide + an operator attestation.
+    QUdpSocket probe;
+    const bool bound = probe.bind(QHostAddress::AnyIPv4, static_cast<quint16>(port));
+    if (bound) {
+        probe.close();
+        out.insert(QStringLiteral("listening"), false);
+        out.insert(QStringLiteral("note"),
+                   QStringLiteral("Nothing is listening on udp/%1 locally yet — the node binds it "
+                                  "once your declaration reaches Core.").arg(port));
+    } else {
+        out.insert(QStringLiteral("listening"), true);
+        out.insert(QStringLiteral("note"),
+                   QStringLiteral("A local listener holds udp/%1. Inbound reachability from the "
+                                  "internet still depends on your router's port-forward.").arg(port));
+    }
+    return out;
 }
 
 QVariantMap LogosNode1clickBackend::getBlock(QString headerIdHex)
