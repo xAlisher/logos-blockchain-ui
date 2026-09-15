@@ -19,3 +19,4 @@ SettingsView 1.0 SettingsView.qml
 LegalDisclaimerModal 1.0 LegalDisclaimerModal.qml
 WelcomeView 1.0 WelcomeView.qml
 OnboardingView 1.0 OnboardingView.qml
+EnableBlendCoreModal 1.0 EnableBlendCoreModal.qml

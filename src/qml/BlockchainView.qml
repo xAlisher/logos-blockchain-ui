@@ -794,6 +794,18 @@ Rectangle {
         ]
     }
 
+    // ── Enable / Manage Blend Core modal (epic #89) ──
+    // Full-view overlay, hidden until open()ed from the header action or the Blend
+    // tile CTA. Fed by real backend calls (getSdpFundingKey/getBalance/getNotes/
+    // checkBlendPortReachable/getBlendDeclarations for the gates; declareBlendCore
+    // to enable; withdrawBlendCore to disable). blendStatus drives the header label.
+    EnableBlendCoreModal {
+        id: enableBlendModal
+        anchors.fill: parent
+        z: 300
+        backend: root.backend
+    }
+
     // Node balance for the dashboard tile and the claim gate.
     //
     // This polls the LEADER FUNDING KEY, not primaryAddress. They are different
@@ -1089,9 +1101,11 @@ Rectangle {
                 ? String(p.time_info.current_epoch) : "—"
         } catch (e) { return "—" }
     }
-    // BlendStatus enum → the view's none|edge|core. Edge=2, Core=3, Broadcast=4.
+    // BlendStatus enum → the view's none|edge|activating|core. Edge=2, Core=3,
+    // Broadcast=4, Activating=8 (a pending declaration, epic #89).
     function _dashBlend(bs) {
         if (bs === BlockchainBackend.Edge) return "edge"
+        if (bs === BlockchainBackend.Activating) return "activating"
         if (bs === BlockchainBackend.Core || bs === BlockchainBackend.Broadcast) return "core"
         return "none"
     }
@@ -1656,6 +1670,25 @@ Rectangle {
                     HoverHandler { id: fundHover }
                 }
 
+                // Blend Core provider action (epic #89). Label follows blendStatus:
+                // "Enable Blend Core" (Edge) / "Blend: activating…" (declaration pending)
+                // / "Blend Core ✓" (Core). Opens the gated Enable/Manage modal. Enabled
+                // only once the node is Online (Blend is meaningless while bootstrapping).
+                GhostButton {
+                    id: blendBtn
+                    Layout.alignment: Qt.AlignVCenter
+                    readonly property string bs: root.backend
+                        ? root._dashBlend(root.backend.blendStatus) : "none"
+                    readonly property bool online: root.backend
+                        && root.backend.status === BlockchainBackend.Running
+                    visible: online
+                    text: bs === "core" ? qsTr("Blend Core ✓")
+                          : bs === "activating" ? qsTr("Blend: activating…")
+                          : qsTr("Enable Blend Core")
+                    enabled: online
+                    onClicked: enableBlendModal.open()
+                }
+
                 // Node run/stop — small primary CTA. A bootstrapping node sits in
                 // Starting for a long time (the start RPC outlives IBD/recovery), so
                 // Stop must work then too — otherwise you can't abort a sync. Only the
@@ -1776,6 +1809,7 @@ Rectangle {
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
+                        onEnableBlendRequested: enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
                     }
 
                 }

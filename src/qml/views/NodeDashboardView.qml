@@ -38,6 +38,7 @@ Item {
     property string blocksEmptyText: qsTr("Start the node to see blocks arrive.")
     signal clearBlocksRequested()
     signal copyText(string t)
+    signal enableBlendRequested()             // open the Enable-Blend-Core flow (epic #89)
 
     // Version footer. This fork ships ONE module version — the /release in-UI guard
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
@@ -257,10 +258,14 @@ Item {
             ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Following the chain")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
-    readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: Theme.palette.info })
+    readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: "#d9a521" })
+                                : blendState === "activating" ? ({ label: qsTr("Activating…"), c: Theme.palette.warning })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
-    readonly property string _blendSub: blendState === "none" ? qsTr("Proposals not mixed") : qsTr("Proposals mixed")
+    readonly property string _blendSub: blendState === "core" ? qsTr("Proposals mixed")
+                                      : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
+                                      : blendState === "edge" ? qsTr("Proposals not mixed")
+                                      : qsTr("Proposals not mixed")
     // Blend state is only meaningful once the node is Online (following the chain).
     // While stopped / starting / replaying / bootstrapping, show "—" and no sub
     // rather than a misleading "Not active · Proposals not mixed".
@@ -455,6 +460,9 @@ Item {
         property bool hero: false
         property bool dots: false                 // animate a reserved-width "…" after the value
         property bool flash: !hero                // flash green on value change (live grid tiles)
+        property bool shine: false                // subtle gold pulse on the value (e.g. Blend = Core)
+        property string cta: ""                    // optional action link in the sub row (e.g. "Enable Blend Core")
+        signal ctaClicked()
         property bool showLane: false             // embed the lifecycle lane at the bottom (merged Status card)
         property var laneSteps: []
         property int laneReached: -1
@@ -489,13 +497,45 @@ Item {
                     id: fv
                     Layout.fillWidth: false; text: blk._fitValue
                     property color restColor: accent
-                    color: restColor                       // binding; flashAnim overrides on change
+                    readonly property color _gold: "#d9a521"
+                    readonly property color _goldLight: "#f4d072"
+                    color: restColor                       // binding; flashAnim/shineAnim override
                     font.pixelSize: _vsize; font.weight: Theme.typography.weightBold; elide: Text.ElideRight
-                    onTextChanged: if (flash) flashAnim.restart()
+                    onTextChanged: if (flash && !blk.shine) flashAnim.restart()
                     SequentialAnimation {
                         id: flashAnim
                         ColorAnimation { target: fv; property: "color"; to: Theme.palette.success; duration: 160; easing.type: Easing.OutQuad }
                         ColorAnimation { target: fv; property: "color"; to: fv.restColor; duration: 1100; easing.type: Easing.InOutQuad }
+                    }
+                    // Subtle gold shine while blk.shine (e.g. Blend reached Core). Pure color
+                    // pulse — no shader, so it renders under the prototype's software backend too.
+                    SequentialAnimation {
+                        id: shineAnim
+                        running: blk.shine; loops: Animation.Infinite
+                        ColorAnimation { target: fv; property: "color"; from: fv._gold; to: fv._goldLight; duration: 1500; easing.type: Easing.InOutSine }
+                        ColorAnimation { target: fv; property: "color"; to: fv._gold; duration: 1500; easing.type: Easing.InOutSine }
+                    }
+                    Connections {
+                        target: blk
+                        function onShineChanged() { if (!blk.shine) fv.color = Qt.binding(function() { return fv.restColor }) }
+                    }
+                    // Golden GLOW halo — a scaled, low-opacity gold twin behind the glyphs
+                    // (negative-z child paints behind its parent). Its opacity pulses, giving a
+                    // soft animated bloom. Software-safe (no shader), so it shows in the studio;
+                    // in the GPU app it reads as a real glow.
+                    LogosText {
+                        id: fvGlow
+                        z: -1; visible: blk.shine
+                        anchors.centerIn: parent
+                        text: fv.text
+                        font.pixelSize: fv.font.pixelSize; font.weight: Theme.typography.weightBold
+                        color: fv._goldLight
+                        scale: 1.14; opacity: 0.0
+                        SequentialAnimation on opacity {
+                            running: blk.shine; loops: Animation.Infinite
+                            NumberAnimation { from: 0.16; to: 0.5; duration: 1500; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 0.16; duration: 1500; easing.type: Easing.InOutSine }
+                        }
                     }
                 }
                 Row {   // reserved-width animated ellipsis (only opacity animates → no jump)
@@ -525,9 +565,12 @@ Item {
             }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
-                // normal sub text (hidden when the row is a copy-only button)
-                LogosText { visible: copyValue.length === 0 && sub.length > 0; text: sub; color: subColor
+                // normal sub text (hidden when the row is a copy-only button, or a CTA link is shown)
+                LogosText { visible: copyValue.length === 0 && sub.length > 0 && blk.cta.length === 0; text: sub; color: subColor
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
+                // CTA action link (e.g. "Enable Blend Core") — shown in relevant states
+                LogosLink { visible: blk.cta.length > 0; text: blk.cta; font.pixelSize: Theme.typography.secondaryText
+                            onActivated: blk.ctaClicked() }
                 // short display text alongside a full-value copy (e.g. Stake address)
                 LogosText { visible: copyValue.length > 0 && sub.length > 0; text: sub; color: subColor
                             font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
@@ -569,7 +612,12 @@ Item {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Last claim fee: %1% of reward").arg(root.feePct) : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendKnown ? root._blend.label : "—"; sub: root._blendKnown ? root._blendSub : ""; accent: root._blendKnown ? root._blend.c : Theme.palette.text; info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendKnown ? root._blend.label : "—"; sub: root._blendKnown ? root._blendSub : ""; accent: root._blendKnown ? root._blend.c : Theme.palette.text; shine: root._blendKnown && root.blendState === "core"
+                            // Edge node → offer to become a Core provider (epic #89). Activating/Core
+                            // keep their status sub; the header action manages those states.
+                            cta: (root._blendKnown && root.blendState === "edge") ? qsTr("Enable Blend Core") : ""
+                            onCtaClicked: root.enableBlendRequested()
+                            info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     // Vouchers — the two honest numbers the Rewards tab shows:
