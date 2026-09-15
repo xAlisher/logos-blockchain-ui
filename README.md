@@ -34,26 +34,24 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.21`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.21)** —
-  **onboarding + honest dashboard.** In-app Welcome + Quick start / Advanced onboarding (wires the real
-  backend, funds the leader key, gates on synced). New **Earned by epoch** chart (shown after the first
-  earning). Rewards made honest: full-width Vouchers, *Ready to claim* / *Submitted*, info modals — and the
-  benign *"No claimable voucher found"* is no longer shown as an error. **Keystore backup** in Settings.
-  Explorer folded into **Blocks**; Operations → **Wallet**. Honest node states: real replay/bootstrap
-  progress, Stop works during bootstrap (force-kill fallback for wedged nodes), Blend shows "—" until
-  Online. CPU% normalized to the whole machine; faucet feedback parsed; unified buttons/cards + brighter
-  CTA orange; Mining info = "Available in 0.3.0." Module pin: **blockchain_module 0.2.3**.
-  Previous: **v0.2.20** verified feed (explorer verdicts, buttonless auto-claim); **v0.2.15** phone claims.
+- **[`logos_node_1click v0.2.22`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.22)** —
+  **onboarding cleanup + working maintenance actions.** Advanced onboarding drops the redundant **Fund**
+  step. Legal disclaimer aligned with the IFT CC-projects framework. **Reset chain state** and **Regenerate
+  keys** now actually run: they stop the node, perform the operation, then restart with progress feedback,
+  and **Change config** opens the real config flow. The benign *"No claimable voucher found"* is no longer
+  shown as an error. Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.21** onboarding + honest dashboard (Welcome, Quick start / Advanced onboarding, Earned by
+  epoch chart, honest Vouchers, Keystore backup); **v0.2.20** verified feed; **v0.2.15** phone claims.
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos_node_1click-0.2.21-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos_node_1click-0.2.22-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.21/logos_node_1click-0.2.21-darwin-arm64.lgx
-# (arm64 Linux is not built for v0.2.21 — arm-Linux users stay on v0.2.20 until an arm builder is added)
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.22/logos_node_1click-0.2.22-darwin-arm64.lgx
+# (arm64 Linux is not built for v0.2.22 — arm-Linux users stay on v0.2.20 until an arm builder is added)
 
 lgpm install --file logos_node_1click.lgx
 ```
