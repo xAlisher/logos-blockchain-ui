@@ -23,6 +23,7 @@ Item {
     property string keystorePath: "—"            // real keystore.yaml path (beside the node config)
     property bool keystoreExists: false          // host: keystore.yaml is present on disk
     property string keystoreBackupResult: ""      // host sets on save (a path, or "Error: …")
+    property string actionResult: ""              // host sets during reset/regenerate (stop→do→restart progress, or "Error: …")
     property string bootstrapPeers: ""           // real initial peers, one per line
     property bool rewardsAutoClaim: false
     property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
@@ -212,6 +213,14 @@ Item {
                     DangerButton { text: qsTr("Reset chain state"); onClicked: resetDlg.open() }
                     DangerButton { text: qsTr("Regenerate keys"); onClicked: regenDlg.open() }
                     Item { Layout.fillWidth: true }
+                }
+                // Progress / result of the stop→do→restart the host orchestrates.
+                LogosText {
+                    visible: root.actionResult.length > 0
+                    Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: root.actionResult
+                    color: root.actionResult.indexOf("Error") === 0 ? Theme.palette.error : Theme.palette.textTertiary
+                    font.pixelSize: Theme.typography.secondaryText
                 }
             }
             Item { Layout.preferredHeight: Theme.spacing.large }

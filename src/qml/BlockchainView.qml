@@ -989,13 +989,71 @@ Rectangle {
     Connections {
         target: root.backend
         function onStatusChanged() {
-            if (root._pendingPeerApply && root.backend
-                && root.backend.status === BlockchainBackend.Stopped) {
+            if (!root.backend || root.backend.status !== BlockchainBackend.Stopped) return
+            if (root._pendingPeerApply) {
                 var fn = root._pendingPeerApply
                 root._pendingPeerApply = null
                 fn()
             }
+            if (root._pendingAfterStop) {
+                var g = root._pendingAfterStop
+                root._pendingAfterStop = null
+                g()
+            }
         }
+    }
+
+    // Run `fn` with the node guaranteed Stopped, then let `fn` restart it. Actions
+    // that regenerate config / chain state / keys need the node down first and only
+    // take effect on the next Start — so orchestrate stop → do → start rather than
+    // firing the backend call against a running node (which it rejects).
+    property var _pendingAfterStop: null
+    function _stopThenRun(fn) {
+        if (!root.backend) return
+        if (root.backend.status === BlockchainBackend.Running
+            || root.backend.status === BlockchainBackend.Starting) {
+            root._pendingAfterStop = fn
+            root.backend.stopBlockchain()
+        } else {
+            fn()
+        }
+    }
+
+    // Settings "Reset chain state" — stop, wipe chain db/state (keeps keys+config),
+    // restart to re-sync from genesis. Feedback surfaces on settingsView.actionResult.
+    function _resetChainThenRestart() {
+        if (!root.backend) return
+        settingsView.actionResult = qsTr("Stopping the node…")
+        root._stopThenRun(function() {
+            logos.watch(root.backend.resetChainState(),
+                function(r) {
+                    if (r.success) {
+                        settingsView.actionResult = qsTr("Chain state reset — restarting and re-syncing from genesis…")
+                        root.backend.startBlockchain()
+                    } else {
+                        settingsView.actionResult = qsTr("Error: %1").arg(r.error || _d.errorText(r))
+                    }
+                },
+                function(e) { settingsView.actionResult = qsTr("Error: %1").arg(_d.errorText(e)) })
+        })
+    }
+    // Settings "Regenerate keys" — stop, back up + remove the keystore, restart so the
+    // node mints a fresh identity. Feedback surfaces on settingsView.actionResult.
+    function _regenerateKeysThenRestart() {
+        if (!root.backend) return
+        settingsView.actionResult = qsTr("Stopping the node…")
+        root._stopThenRun(function() {
+            logos.watch(root.backend.regenerateNodeKeys(),
+                function(r) {
+                    if (r.success) {
+                        settingsView.actionResult = qsTr("New keys generated (old keystore backed up to %1) — restarting…").arg(r.value)
+                        root.backend.startBlockchain()
+                    } else {
+                        settingsView.actionResult = qsTr("Error: %1").arg(r.error || _d.errorText(r))
+                    }
+                },
+                function(e) { settingsView.actionResult = qsTr("Error: %1").arg(_d.errorText(e)) })
+        })
     }
 
     // --- Redesigned NodeDashboardView adapters (v0.2.20 backend → redesigned props) ---
@@ -2023,10 +2081,8 @@ Rectangle {
                     cpuCap: nodeSettings.cpuCap; ramCap: nodeSettings.ramCap; diskCap: nodeSettings.diskCap
 
                     onCopyText: (text) => root.copyText(text)
-                    onResetChainRequested: if (root.backend)
-                        logos.watch(root.backend.resetChainState(), function(r){}, function(e){})
-                    onRegenerateKeysRequested: if (root.backend)
-                        logos.watch(root.backend.regenerateNodeKeys(), function(r){}, function(e){})
+                    onResetChainRequested: root._resetChainThenRestart()
+                    onRegenerateKeysRequested: root._regenerateKeysThenRestart()
                     onBackupConfigRequested: if (root.backend)
                         logos.watch(root.backend.backupUserConfig(),
                             function(r){ if (r.success && r.value) root.copyText(r.value) }, function(e){})
@@ -2045,7 +2101,8 @@ Rectangle {
                     }
                     onRewardsAutoClaimToggled: (on) => { nodeSettings.rewardsAutoClaim = on }
                     onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
-                    onChangeConfigRequested: operationTabBar.currentIndex = 0
+                    // Open the real config flow (Advanced onboarding), not the dashboard tab.
+                    onChangeConfigRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }
                     onCapsChanged: (enabled, cpu, ram, disk) => {
                         nodeSettings.capsEnabled = enabled
                         nodeSettings.cpuCap = cpu; nodeSettings.ramCap = ram; nodeSettings.diskCap = disk
