@@ -34,29 +34,30 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.24`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.24)** —
-  **Earned-chart rework + copyable Slot/Height.** The "Earned by epoch" chart now packs thin fixed-width
-  bars from the left (progress-bar style, not stretched), with a width-adaptive rolling window of the most
-  recent epochs; x-axis labels are hidden and hovering a bar reveals "Epoch N: X LGO". The chart header gains
-  a circled **(i)** explaining it's computed from the app's claims ledger over a recent window, not from
-  genesis. **Slot** and **Height** tiles are now copyable (like LiB/TiP). Module pin:
+- **[`logos_node_1click v0.2.25`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.25)** —
+  **Unified CTA orange + onboarding refinements.** All primary calls-to-action now use the shared primary
+  color (some buttons, WelcomeView "Quick start" and the Start/Stop button, previously carried a one-off
+  brighter orange). Onboarding is refined: no border on the selected option card (the checkbox tick and
+  primary radio carry the selection), "Exit setup" pinned to the top-right corner, equal-width step-progress
+  bars, and a transparent step body (the large grey panel behind the cards is gone). Module pin:
   **blockchain_module 0.2.3**.
-  Previous: **v0.2.23** ready-to-claim (i) + disk-cap log pruning; **v0.2.22** onboarding cleanup + working
-  reset/regenerate actions; **v0.2.21** onboarding + honest dashboard (Welcome, Quick start / Advanced
-  onboarding, Earned by epoch chart, honest Vouchers, Keystore backup); **v0.2.20** verified feed.
+  Previous: **v0.2.24** earned-chart rework + copyable Slot/Height; **v0.2.23** ready-to-claim (i) + disk-cap
+  log pruning; **v0.2.22** onboarding cleanup + working reset/regenerate actions; **v0.2.21** onboarding +
+  honest dashboard (Welcome, Quick start / Advanced onboarding, Earned by epoch chart, honest Vouchers,
+  Keystore backup); **v0.2.20** verified feed.
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.24/logos_node_1click-0.2.24-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.25/logos_node_1click-0.2.25-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.24/logos_node_1click-0.2.24-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.25/logos_node_1click-0.2.25-darwin-arm64.lgx
 
 # arm64 Linux — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.24/logos-blockchain-ui-aarch64-linux.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.25/logos-blockchain-ui-aarch64-linux.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
