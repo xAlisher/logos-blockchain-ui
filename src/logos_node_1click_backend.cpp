@@ -2778,6 +2778,40 @@ QVariantMap LogosNode1clickBackend::regenerateNodeKeys()
     return result::toVariantMap(LogosResult{true, QVariant(backup), QVariant()});
 }
 
+QVariantMap LogosNode1clickBackend::pruneLogs(QString capGb)
+{
+    // Disk-cap enforcement (Settings): when the node data-dir exceeds the cap, delete
+    // the OLDEST rotated log files to reclaim space. Never touches the current (newest)
+    // log the node is writing to, nor the chain db/state — so this is safe while the
+    // node runs. If db+state alone exceed the cap, logs are all we can free from here.
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return result::toVariantMap(result::err(QStringLiteral("No config loaded.")));
+    bool ok = false;
+    const double gb = capGb.toDouble(&ok);
+    if (!ok || gb <= 0.0)
+        return result::toVariantMap(result::err(QStringLiteral("Invalid disk cap.")));
+    const qint64 capBytes = static_cast<qint64>(gb * 1024.0 * 1024.0 * 1024.0);
+    const QString dataDir = QFileInfo(cfg).absolutePath();
+    qint64 current = dirSizeBytes(dataDir);
+    if (current < 0 || current <= capBytes)
+        return result::toVariantMap(LogosResult{true, QVariant(QStringLiteral("0")), QVariant()});
+    const QDir logsDir(QDir(dataDir).filePath(QStringLiteral("logs")));
+    if (!logsDir.exists())
+        return result::toVariantMap(LogosResult{true, QVariant(QStringLiteral("0")), QVariant()});
+    // Newest first; drop the current log (index 0) from the deletion candidates.
+    QFileInfoList files = logsDir.entryInfoList(QDir::Files, QDir::Time);
+    if (!files.isEmpty()) files.removeFirst();
+    qint64 freed = 0;
+    // Delete oldest-first (from the tail) while still over the cap; subtract as we go
+    // so we don't rescan the whole dir per file.
+    for (int i = files.size() - 1; i >= 0 && current > capBytes; --i) {
+        const qint64 sz = files.at(i).size();
+        if (QFile::remove(files.at(i).absoluteFilePath())) { freed += sz; current -= sz; }
+    }
+    return result::toVariantMap(LogosResult{true, QVariant(QString::number(freed)), QVariant()});
+}
+
 void LogosNode1clickBackend::copyToClipboard(QString text)
 {
     // The backend runs in a non-GUI ViewModuleHost subprocess, where there is

@@ -64,6 +64,9 @@ class BlockchainBackend
     // mints a fresh identity on the next start. Remove when the node offers these.
     SLOT(QVariantMap backupUserConfig())
     SLOT(QVariantMap regenerateNodeKeys())
+    // pruneLogs deletes the OLDEST rotated log files (never the current one) when the
+    // node data-dir exceeds the disk cap (GB), best-effort disk relief. value = bytes freed.
+    SLOT(QVariantMap pruneLogs(QString capGb))
     // saveKeystore copies keystore.yaml (beside the node config) to a user-chosen
     // path — the Settings "Download keystore.yaml" action. Returns the dest in value.
     SLOT(QVariantMap saveKeystore(QString destPath))
