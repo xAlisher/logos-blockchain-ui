@@ -58,6 +58,12 @@ var data = {
         ],
         docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
     },
+    earnedByEpoch: {
+        title: "Earned by epoch",
+        what: "The same net rewards as the Earned tile, broken out per epoch — one bar per epoch, its height the net LGO (reward minus fee) from the claims this app collected in that epoch.",
+        calc: "Built from this app's claims ledger, the same source as the Earned tile: each claim's net reward (reward minus fee) is grouped into its epoch (epoch = floor(slot / 36000)), and the bars sum those groups. So it is the app's per-claim accounting over a recent window of the chain — NOT from genesis — and epochs whose rewards were claimed before that window won't appear. Bars pack from the left and stay a fixed width; once history outgrows the width, the chart shows a rolling window of the most recent epochs. Epoch numbers are hidden to keep the bars readable — hover a bar to see 'Epoch N: X LGO'.",
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
     proposed: {
         title: "Proposed in current epoch",
         what: "How many blocks this node has proposed (won the leader lottery for) this epoch, and whether it's currently eligible to propose at all.",

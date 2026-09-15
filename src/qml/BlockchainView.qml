@@ -1285,6 +1285,8 @@ Rectangle {
         var out = []
         for (var k in m) out.push({ epoch: Number(k), lepta: m[k] })
         out.sort(function(a, b) { return a.epoch - b.epoch })
+        // Full per-epoch series; the chart itself keeps only the most recent epochs that
+        // fit its width (fixed-width, left-packed bars) and reveals labels on hover.
         return out
     }
     function refreshLeaderClaims() {
