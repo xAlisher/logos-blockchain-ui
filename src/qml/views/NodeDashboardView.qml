@@ -51,6 +51,7 @@ Item {
         ? qsTr("core %1 • UI %2 • testnet %3").arg(coreVersion).arg(uiVersion).arg(testnetVersion)
         : qsTr("Module v%1").arg(moduleVersion)
     readonly property var _infoData: InfoContent.data          // (i) tooltip content per tile
+    readonly property var _rewardsInfo: InfoContent.rewards    // (i) content for the claim/rewards tiles (separate object)
 
     // ── derived from JSON; "—" when the node hasn't reported (no fake fallbacks) ──
     function _parse(s) { try { return (s && s.length) ? JSON.parse(s) : null } catch (e) { return null } }
@@ -572,7 +573,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     // Vouchers — the two honest numbers the Rewards tab shows:
                     // "Ready to claim" (claimable now) headlines; "Submitted" = claims in flight.
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Ready to claim"); value: root.vouchersReady >= 0 ? String(root.vouchersReady) : "—"; sub: root.vouchersSubmitted >= 0 ? qsTr("Submitted: %1").arg(root.vouchersSubmitted) : "" }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Ready to claim"); value: root.vouchersReady >= 0 ? String(root.vouchersReady) : "—"; sub: root.vouchersSubmitted >= 0 ? qsTr("Submitted: %1").arg(root.vouchersSubmitted) : ""; info: root._rewardsInfo.readyToClaim; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peers"); value: root.peers; sub: root.connections; info: root._infoData.peers; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Peer ID"); value: root.peerIdShort; copyValue: root.peerId; onCopyRequested: (t) => root.copyText(t); info: root._infoData.peerId; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Mining")
