@@ -21,6 +21,11 @@ import "infoContent.js" as InfoContent
 ColumnLayout {
     id: root
     spacing: Theme.spacing.large
+    // Uniform horizontal inset for every direct child, so the Vouchers / Claims content
+    // isn't flush to the window edge. Applied per-child (a ColumnLayout honors child
+    // Layout.*Margin; a StackLayout parent ignores margins set on THIS root, so putting
+    // them here does nothing — hence the child-level `_inset` below).
+    readonly property real _inset: Theme.spacing.xlarge
 
     // JSON from wallet_get_claimable_vouchers:
     //   { "tip": "<hex>", "vouchers": [ {commitment, nullifier}, ... ] }
@@ -68,10 +73,18 @@ ColumnLayout {
         for (var i = 0; i < claims.length; i++) { var e = _cEpoch(claims[i]); if (e >= 0) m[e] = (m[e] || 0) + 1 }
         return m
     }
+    function _isLanded(c) { return c && (c.status === "settled" || c.status === "in_block") }
+    // Only LANDED claims appear as rows — every row is real earnings, so no per-row
+    // state label is needed. The not-landed count still surfaces in the summary line
+    // above the list (#46), so the "are my claims landing" signal isn't lost.
     readonly property var filteredClaims: {
-        if (rewardsEpochNav.selected === -1) return claims
         var out = []
-        for (var i = 0; i < claims.length; i++) if (_cEpoch(claims[i]) === rewardsEpochNav.selected) out.push(claims[i])
+        for (var i = 0; i < claims.length; i++) {
+            var c = claims[i]
+            if (!_isLanded(c)) continue
+            if (rewardsEpochNav.selected !== -1 && _cEpoch(c) !== rewardsEpochNav.selected) continue
+            out.push(c)
+        }
         return out
     }
 
@@ -304,6 +317,8 @@ ColumnLayout {
     // row: it is global state (not per-epoch), so it sits over both columns.
     // ======================= VOUCHERS =======================
         RowLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             Layout.fillHeight: false   // nested layouts default fillHeight=true; pin it so only the ledger row grows
             spacing: Theme.spacing.medium
@@ -388,6 +403,8 @@ ColumnLayout {
         // the borders. Columns are derived from the available width against a
         // minimum tile size, so tiles drop to the next line instead.
         GridLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             Layout.fillHeight: false   // nested layouts default fillHeight=true → tiles ballooned; pin it
             columnSpacing: Theme.spacing.medium
@@ -418,6 +435,8 @@ ColumnLayout {
         // Why the button is unavailable, stated rather than left to guess. Suppressed
         // in the no-vouchers case: the "Ready to claim: 0" tile already says it.
         LogosText {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             visible: !root.canClaim && root.claimBlockedReason.length > 0 && root.vouchers.length > 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -426,6 +445,8 @@ ColumnLayout {
             font.pixelSize: Theme.typography.secondaryText
         }
         LogosText {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             visible: root._lastResult.length > 0 && root._lastResult.indexOf("Error") === 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -434,8 +455,41 @@ ColumnLayout {
             font.pixelSize: Theme.typography.secondaryText
         }
 
+        // ======================= CLAIMS =======================
+        // Full-width title (Clear + info) ABOVE the epoch rail + list.
+        RowLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
+            Layout.fillWidth: true
+            LogosText {
+                text: qsTr("Claims")
+                font.pixelSize: Theme.typography.subtitleText
+                font.weight: Theme.typography.weightMedium
+            }
+            Item { Layout.fillWidth: true }
+            GhostButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.claims.length > 0
+                text: qsTr("Clear")
+                onClicked: clearConfirm.open()
+            }
+            Button {
+                id: claimsInfoBtn
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: 28; implicitHeight: 28
+                display: AbstractButton.IconOnly
+                flat: true; padding: 4
+                background: Rectangle { color: "transparent" }
+                icon.source: Qt.resolvedUrl("../icons/info.svg")
+                icon.width: 18; icon.height: 18
+                icon.color: claimsInfoBtn.hovered ? Theme.palette.primary : Theme.palette.textMuted
+                onClicked: root._openInfo(root._rInfo.claims)
+            }
+        }
         // The epoch sidebar filters the claims ledger; the page scrolls once it fills.
         RowLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.spacing.large
@@ -457,194 +511,6 @@ ColumnLayout {
             ColumnLayout {
                 width: rewardsScroll.availableWidth
                 spacing: Theme.spacing.large
-
-        // ======================= REWARDS =======================
-        LogosText {
-            visible: root.summary && root.summary.settled > 0
-            text: qsTr("Rewards")
-            font.pixelSize: Theme.typography.subtitleText
-            font.weight: Theme.typography.weightMedium
-        }
-
-        Item {
-            Layout.fillWidth: true
-            visible: root.summary && root.summary.settled > 0
-            implicitHeight: lifeCol.implicitHeight
-
-            ColumnLayout {
-                id: lifeCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                spacing: Theme.spacing.small
-
-                // Operator-facing figures. The previous version spent two of four
-                // tiles on "Fees ≥ 0" and "Net ≤ +N" — bounds that are honest but
-                // carry no information. These answer what an operator actually
-                // asks: is money sitting unclaimed, is claiming worth it, am I
-                // still winning slots.
-                GridLayout {
-                    Layout.fillWidth: true
-                    columnSpacing: Theme.spacing.medium
-                    rowSpacing: Theme.spacing.medium
-                    columns: Math.max(1, Math.floor((width + columnSpacing) / (180 + columnSpacing)))
-                    Repeater {
-                        model: root.summary ? [
-                            {
-                                k: qsTr("Claimed"),
-                                ik: "claimed",
-                                v: root.fmtLgo(root.summary.claimed),
-                                sub: qsTr("%1 claims").arg(root.fmt(root.summary.settled))
-                            },
-                            {
-                                // The actionable one: value still on the table.
-                                k: qsTr("Unclaimed"),
-                                ik: "unclaimed",
-                                v: root.lastReward > 0
-                                    ? qsTr("~%1").arg(root.fmtLgo(root.unclaimedEst))
-                                    : "—",
-                                sub: qsTr("%1 vouchers ready").arg(root.vouchers.length)
-                            },
-                            {
-                                // Claiming burns a large share of the reward; an
-                                // operator should see that before pressing again.
-                                k: qsTr("Cost to claim"),
-                                ik: "costToClaim",
-                                v: root.feePct >= 0
-                                    ? qsTr("%1  %2%").arg(root.fmtLgo(root.lastFee)).arg(root.feePct)
-                                    : qsTr("not known yet"),
-                                sub: root.feePct >= 0
-                                    ? qsTr("net +%1 per claim").arg(root.fmt(root.netPerClaim))
-                                    : qsTr("of a %1 reward").arg(root.fmtLgo(root.lastReward))
-                            },
-                            {
-                                // Recency: a node that stopped winning slots shows here.
-                                //
-                                // Do NOT label this "vouchers earned". Measured on
-                                // this node: 110 blocks led, 10 claimed, 12
-                                // claimable — and 7 of 8 sampled proposals ARE in
-                                // the chain, so they were not orphaned. The wallet
-                                // drops a voucher it cannot prove at the current
-                                // tip into neither `available` nor `pending`
-                                // (states.rs claimable_vouchers), and no API
-                                // reports that bucket, so the difference is real
-                                // but unexplainable from here. Stating a 1:1
-                                // relationship would be inventing one.
-                                k: qsTr("Blocks led"),
-                                ik: "blocksLed",
-                                v: root.blocksLed > 0 ? root.fmt(root.blocksLed) : "—",
-                                sub: root.firstProposalDay.length > 0
-                                    ? qsTr("since %1").arg(root.firstProposalDay) : ""
-                            },
-                            {
-                                k: qsTr("Last claim"),
-                                ik: "lastClaim",
-                                // settledAt is stamped by the chain scan only; an
-                                // explorer-verdicted settle has none — fall back to
-                                // the submission time rather than an empty tile.
-                                v: (function() {
-                                    if (!root._lastSettled) return "—"
-                                    var t = String(root._lastSettled.settledAt
-                                                   || root._lastSettled.submittedAt || "")
-                                                .replace("T", " ").substring(11, 16)
-                                    return t.length ? t : "—"
-                                })(),
-                                sub: root._lastSettled
-                                    ? qsTr("+%1").arg(root.fmtLgo(root._lastSettled.reward))
-                                    : ""
-                            }
-                        ] : []
-                        delegate: StatTile {
-                            label: modelData.k
-                            value: modelData.v
-                            sub: modelData.sub || ""
-                            infoData: modelData.ik ? root._rInfo[modelData.ik] : null
-                            onInfoRequested: root._openInfo(infoData)
-                        }
-                    }
-                }
-
-                // One caveat line, not three. It states only what is actually
-                // uncertain right now and disappears entirely once the scan has
-                // caught up and every fee is priced.
-                LogosText {
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacing.tiny
-                    wrapMode: Text.WordWrap
-                    color: Theme.palette.textTertiary
-                    opacity: 0.65
-                    font.pixelSize: Theme.typography.secondaryText
-                    visible: text.length > 0
-                    text: {
-                        if (!root.summary) return ""
-                        var parts = []
-                        if (!root.summary.scanCaughtUp)
-                            parts.push(qsTr("Still scanning the chain (slot %1 of %2) — totals are partial")
-                                .arg(root.fmt(root.summary.lastScannedSlot))
-                                .arg(root.fmt(root.summary.libSlot)))
-                        else if (root.summary.historyFromSlot > 0)
-                            parts.push(qsTr("History from slot %1, not genesis")
-                                .arg(root.fmt(root.summary.historyFromSlot)))
-                        if (root.summary.settled > 0 && !root.summary.feesComplete)
-                            parts.push(qsTr("fees known for %1 of %2 claims")
-                                .arg(root.feesKnown).arg(root.summary.settled))
-                        return parts.join(" · ")
-                    }
-                }
-            }
-        }
-
-        // ======================= CLAIMS =======================
-        // Heading outside the block, matching Vouchers and Rewards. No outer
-        // stroke: the rows already carry their own borders, so an enclosing one
-        // just boxes a box.
-        RowLayout {
-            Layout.fillWidth: true
-            LogosText {
-                text: qsTr("Claims")
-                font.pixelSize: Theme.typography.subtitleText
-                font.weight: Theme.typography.weightMedium
-            }
-            Item { Layout.fillWidth: true }
-            // Clear = archive (#50): the list empties, the record survives, and
-            // the alarm still counts archived failures. Far-right per request.
-            GhostButton {
-                Layout.alignment: Qt.AlignVCenter
-                visible: root.claims.length > 0
-                text: qsTr("Clear")
-                onClicked: clearConfirm.open()
-            }
-            Button {
-                id: claimsInfoBtn
-                Layout.alignment: Qt.AlignVCenter
-                implicitWidth: 28; implicitHeight: 28
-                display: AbstractButton.IconOnly
-                flat: true; padding: 4
-                background: Rectangle { color: "transparent" }
-                icon.source: Qt.resolvedUrl("../icons/info.svg")
-                icon.width: 18; icon.height: 18
-                icon.color: claimsInfoBtn.hovered ? Theme.palette.primary : Theme.palette.textMuted
-                onClicked: root._openInfo(root._rInfo.claims)
-            }
-        }
-
-        // The rows say what happened; THIS says how it is going. Two different jobs,
-        // and collapsing them was a mistake: repeating "nothing was consumed" on 34
-        // rows is accurate and useless — a 41% landing rate is not a labelling
-        // problem, it is a claims-are-not-landing problem, and the user should be
-        // told so rather than soothed. So: the rate leads, the reassurance is one
-        // clause, and the action closes. See #46.
-        LogosText {
-            visible: root.notIncludedCount > 0
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: qsTr("%1 of %2 claims have landed. The other %3 weren't included in a block — nothing was consumed, and %4 vouchers are still ready. Claims land far more reliably a few seconds apart.")
-                      .arg(root.fmt(root.landedCount))
-                      .arg(root.fmt(root.landedCount + root.notIncludedCount))
-                      .arg(root.fmt(root.notIncludedCount))
-                      .arg(root.fmt(root.vouchers.length))
-            color: Theme.palette.textSecondary
-            font.pixelSize: Theme.typography.secondaryText
-        }
 
         Item {
             Layout.fillWidth: true
@@ -690,39 +556,37 @@ ColumnLayout {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing.small
-                                // No status dot: the label already carries the colour,
-                                // so the dot repeated the same information twice.
+                                // Every row is a landed claim → real earnings. Headline the
+                                // net in white; reward/fees as a gray aside. No status label,
+                                // no green — the amount is the point. Datestamp far right.
                                 LogosText {
-                                    text: root.statusLabel(claimRow.st)
-                                    color: root.statusColor(claimRow.st)
                                     Layout.alignment: Qt.AlignVCenter
+                                    text: qsTr("Earned: %1").arg(root.fmtLgo(
+                                              modelData.fee > 0 ? (modelData.reward - modelData.fee)
+                                                                : modelData.reward))
+                                    color: Theme.palette.text
                                     font.pixelSize: Theme.typography.secondaryText
                                     font.weight: Theme.typography.weightMedium
                                 }
                                 LogosText {
-                                    // ISO "2026-08-17T15:31:47" reads better without the T.
-                                    // Held back so the status and the amount lead:
-                                    // the timestamp is context, not the headline.
-                                    text: String(modelData.settledAt || modelData.submittedAt || "")
-                                              .replace("T", " ")
                                     Layout.alignment: Qt.AlignVCenter
+                                    text: modelData.fee > 0
+                                        ? qsTr("(reward %1, fees %2)")
+                                            .arg(root.fmt(modelData.reward))
+                                            .arg(root.fmt(modelData.fee))
+                                        : qsTr("(fees unknown)")
                                     color: Theme.palette.textTertiary
-                                    opacity: 0.65
                                     font.pixelSize: Theme.typography.secondaryText
                                 }
                                 Item { Layout.fillWidth: true }
                                 LogosText {
-                                    visible: claimRow.st === "settled"
-                                             || (claimRow.st === "in_block" && modelData.reward > 0)
-                                    text: modelData.fee > 0
-                                        ? qsTr("+%1 − %2 = +%3 LGO")
-                                            .arg(root.fmt(modelData.reward))
-                                            .arg(root.fmt(modelData.fee))
-                                            .arg(root.fmt(modelData.reward - modelData.fee))
-                                        : qsTr("+%1 (fee unknown)").arg(root.fmtLgo(modelData.reward))
-                                    color: Theme.palette.success
+                                    // ISO "2026-08-17T15:31:47" reads better without the T.
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: String(modelData.settledAt || modelData.submittedAt || "")
+                                              .replace("T", " ")
+                                    color: Theme.palette.textTertiary
+                                    opacity: 0.65
                                     font.pixelSize: Theme.typography.secondaryText
-                                    font.weight: Theme.typography.weightMedium
                                 }
                             }
 
