@@ -2848,39 +2848,35 @@ void LogosNode1clickBackend::stopBlockchain()
 
     setStatus(Stopping);
 
-    // Bound the graceful stop to 5s (default is 20s). A WEDGED node never answers this
-    // synchronous RPC, so the default froze the whole UI for 20s — the button "did
-    // nothing" — before the forceStopNode() fallback below could run. A healthy node
-    // stops in well under a second, so 5s is a generous ceiling that keeps the wedged
-    // case snappy: fail fast → force-kill. (SIGKILL is safe; the chain DB recovers.)
-    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
-        BLOCKCHAIN_MODULE_NAME, "stop", QVariantList(), Timeout(5000)));
+    // ASYNC graceful stop — never block the UI thread. The old code called this
+    // synchronously, and a WEDGED node never answers "stop", so the call hung: `status`
+    // stayed Stopping forever, the onStatusChanged==Stopped handler never ran, and Stop /
+    // Settings-reset / the recovery button all "did nothing". Now we fire-and-forget and
+    // let the UI's stop-confirm probe decide the outcome:
+    //   - node's API goes down        → the probe calls confirmStopped() (setStatus Stopped)
+    //   - a clean "stop"/"not running" reply arrives first → we mark Stopped here
+    //   - node never goes down (wedged) → the probe calls forceStopNow() after its deadline
+    m_blockchainClient->invokeRemoteMethodAsync(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("stop"), QVariantList(),
+        [this](QVariant res) {
+            const LogosResult r = result::toLogosResult(res);
+            if (r.success
+                || r.error.toString().contains(QStringLiteral("not running"), Qt::CaseInsensitive)) {
+                if (status() == Stopping)
+                    setStatus(Stopped);
+            }
+            // A real error leaves us in Stopping; the stop-confirm probe force-kills after
+            // its deadline. We do NOT force-kill here — SIGKILL leaves the module host dead
+            // and un-restartable in-app, so it must be a genuine last resort, not the norm.
+        });
+}
 
-    if (r.success) {
+// The UI's stop-confirm probe saw the node's API stop answering → it really is down,
+// whatever the async "stop" reply said. Idempotent (no-op once already Stopped).
+void LogosNode1clickBackend::confirmStopped()
+{
+    if (status() == Stopping || status() == Running || status() == Error)
         setStatus(Stopped);
-    } else if (r.error.toString().contains(QStringLiteral("not running"), Qt::CaseInsensitive)) {
-        // The node was already down: "stop" reports it isn't running. Treat as reconciled
-        // rather than an error, so we land in a known-stopped state from which Start is
-        // safe again (avoids a stuck Error ⇄ "already running" loop).
-        //
-        // Carried over from Daniel's #45 when this file was renamed out from under it.
-        // The intent guard in setError() happens to neutralise this case too — intent is
-        // written "stopped" at the top of this function — but that is incidental, and a
-        // reconcile this important should not depend on a guard somewhere else noticing.
-        setStatus(Stopped);
-    } else if (forceStopNode()) {
-        // Graceful stop didn't take. This is the wedged-node case: a node stuck in
-        // ProlongedBootstrap (peers can't serve its target block) leaves the module's
-        // "stop" RPC erroring/timing out while the node keeps running, so the button
-        // "does nothing". Last resort: SIGKILL the module host bound to the node's HTTP
-        // port. After this the module needs a Basecamp restart to run again, but the
-        // node IS stopped — which is what the user asked for.
-        qWarning() << "stopBlockchain: graceful stop failed (" << r.error.toString()
-                   << ") — force-killed the module host";
-        setStatus(Stopped);
-    } else {
-        setError(r.error.toString());
-    }
 }
 
 // Last-resort force stop for a wedged node: find the process listening on the node's
@@ -3166,6 +3162,17 @@ QVariantMap LogosNode1clickBackend::resetChainState()
     setStatus(NotStarted);
     return result::toVariantMap(
         LogosResult{true, QVariant(removed.join(", ")), QVariant()});
+}
+
+// Last-resort stop, called by the UI's stop-confirm probe after its deadline when a wedged
+// node never actually went down. SIGKILL the module host bound to the node's port, then mark
+// Stopped (which lets the stop→wipe→start orchestration proceed). The host is dead afterward
+// and only a Basecamp reopen respawns it, so a following in-app Start will fail until then.
+void LogosNode1clickBackend::forceStopNow()
+{
+    writeNodeIntent(QStringLiteral("stopped"));
+    forceStopNode();
+    setStatus(Stopped);
 }
 
 // PREVIEW (#81): copy the node config (and keystore, if present) beside itself with a

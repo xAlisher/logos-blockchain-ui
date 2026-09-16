@@ -89,6 +89,14 @@ public slots:
                                     QString optionalTipHex) override;
     void clearBlocks() override;
     QVariantMap resetChainState() override;
+    // Last-resort stop for a WEDGED node whose graceful "stop" never lands: SIGKILL the
+    // module host bound to the node's port, then mark the node Stopped. Called by the UI's
+    // stop-confirm probe after its deadline. Runs in the UI-host (no dependency on the
+    // wedged module answering). NOTE: after this the module host is dead and only reopening
+    // Basecamp respawns it, so a subsequent in-app Start will fail until then.
+    void forceStopNow() override;
+    // The UI's stop-confirm probe saw the node's API go down → mark it Stopped (idempotent).
+    void confirmStopped() override;
     // PREVIEW (#81) config/key management workarounds (app-side file ops).
     QVariantMap backupUserConfig() override;
     QVariantMap regenerateNodeKeys() override;

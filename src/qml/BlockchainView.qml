@@ -156,6 +156,43 @@ Rectangle {
         ]
     }
 
+    // "Bootstrap stuck" recovery modal — opened from the dashboard hero CTA when the node is
+    // wedged. Force-kills the module host + wipes chain state (reliable: runs in the UI-host,
+    // no dependency on the wedged module answering). The host can't be respawned in-app after
+    // a kill, so on success it tells the user to reopen Basecamp to finish re-bootstrapping.
+    LogosDialog {
+        id: recoverStuckDialog
+        anchors.centerIn: parent
+        width: 440
+        title: qsTr("Recover the stuck node?")
+
+        // LogosDialog renders its body from contentItem (a plain child renders blank).
+        contentItem: LogosText {
+            wrapMode: Text.WordWrap
+            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
+            text: qsTr("The node stopped making progress and is falling behind the chain, usually "
+                       + "because it has lost reachable peers. This stops the node, deletes the local "
+                       + "chain database, and re-starts it to re-sync from scratch. Your wallet keys "
+                       + "and config are kept. If the node is badly wedged it may need Basecamp reopened "
+                       + "to finish. Watch the status: Stopping → re-syncing.")
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Cancel")
+                implicitWidth: 130; implicitHeight: 40
+                onClicked: recoverStuckDialog.close()
+            },
+            LogosButton {
+                text: qsTr("Reset & re-bootstrap")
+                implicitWidth: 180; implicitHeight: 40
+                // Same proven path as Settings → Reset chain state, now that stop is async +
+                // force-kill-verified: stop → wipe chain → start. Progress shows on the hero.
+                onClicked: { recoverStuckDialog.close(); root._resetChainThenRestart() }
+            }
+        ]
+    }
+
     // Honest-error recovery modal (one-click UX #16). Blocks the UI when the
     // node hits an error, shows the honest cause, explains that a wipe keeps the
     // config, and offers one "wipe + start over" that cleans the store and
@@ -406,6 +443,37 @@ Rectangle {
                         if (root.backend) root.backend.confirmStartFailed()
                     }
                 }
+            )
+        }
+    }
+
+    // While Stopping, poll :8080 (backend QRO liveness). When the node's API stops
+    // answering → confirmStopped(); if it is STILL answering after ~12s the node is wedged
+    // and won't stop gracefully → forceStopNow() (SIGKILL). This is what makes Stop /
+    // Settings-reset / the recovery button actually work: the graceful "stop" is now async,
+    // so this probe is the source of truth for the Stopped transition instead of a blocking RPC.
+    property int _stopTries: 0
+    Timer {
+        id: stopConfirmProbe
+        interval: 1500; repeat: true
+        running: root.ready && root.backend && root.backend.status === BlockchainBackend.Stopping
+        onRunningChanged: if (!running) root._stopTries = 0
+        onTriggered: {
+            if (!root.backend) return
+            root._stopTries += 1
+            var tries = root._stopTries
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success) {
+                        // Node still answering. Give the graceful stop a window, then force-kill.
+                        if (tries > 8 && root.backend) root.backend.forceStopNow()
+                    } else if (root.backend) {
+                        // API no longer answering → the node really stopped.
+                        root.backend.confirmStopped()
+                    }
+                },
+                function(error) { if (root.backend) root.backend.confirmStopped() }
             )
         }
     }
@@ -1836,6 +1904,7 @@ Rectangle {
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
                         onEnableBlendRequested: enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
+                        onRecoverRequested: recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 
                 }
