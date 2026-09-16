@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC
+import QtQuick.Effects
 import Logos.Theme
 import Logos.Controls
 import Logos.BlockchainBackend 1.0
@@ -112,6 +113,7 @@ Item {
 
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
+    property int blendPeers: -1                               // Blend core mix-set size (getBlendInfo.mixPeers); <0 = unknown
     property string epoch: "—"
     property string epochProgress: ""                        // e.g. "6h of 10h" — needs epoch length + slot-in-epoch from the node
     property string proposed: "—"                            // #61
@@ -262,7 +264,7 @@ Item {
                                 : blendState === "activating" ? ({ label: qsTr("Activating…"), c: Theme.palette.warning })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
-    readonly property string _blendSub: blendState === "core" ? qsTr("Proposals mixed")
+    readonly property string _blendSub: blendState === "core" ? (blendPeers > 0 ? qsTr("Proposals mixed by %1 nodes").arg(blendPeers) : qsTr("Proposals mixed"))
                                       : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
                                       : blendState === "edge" ? qsTr("Proposals not mixed")
                                       : qsTr("Proposals not mixed")
@@ -519,10 +521,10 @@ Item {
                         target: blk
                         function onShineChanged() { if (!blk.shine) fv.color = Qt.binding(function() { return fv.restColor }) }
                     }
-                    // Golden GLOW halo — a scaled, low-opacity gold twin behind the glyphs
-                    // (negative-z child paints behind its parent). Its opacity pulses, giving a
-                    // soft animated bloom. Software-safe (no shader), so it shows in the studio;
-                    // in the GPU app it reads as a real glow.
+                    // Golden GLOW halo — a gold twin behind the glyphs (negative-z child paints
+                    // behind its parent), BLURRED via MultiEffect into a soft bloom, its opacity
+                    // pulsing. Blur is a shader → renders on the real GPU app (blank under the
+                    // software backend, where the color pulse above still carries the effect).
                     LogosText {
                         id: fvGlow
                         z: -1; visible: blk.shine
@@ -530,11 +532,13 @@ Item {
                         text: fv.text
                         font.pixelSize: fv.font.pixelSize; font.weight: Theme.typography.weightBold
                         color: fv._goldLight
-                        scale: 1.14; opacity: 0.0
+                        scale: 1.08; opacity: 0.0
+                        layer.enabled: true
+                        layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 40; autoPaddingEnabled: true }
                         SequentialAnimation on opacity {
                             running: blk.shine; loops: Animation.Infinite
-                            NumberAnimation { from: 0.16; to: 0.5; duration: 1500; easing.type: Easing.InOutSine }
-                            NumberAnimation { to: 0.16; duration: 1500; easing.type: Easing.InOutSine }
+                            NumberAnimation { from: 0.35; to: 0.85; duration: 1500; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 0.35; duration: 1500; easing.type: Easing.InOutSine }
                         }
                     }
                 }

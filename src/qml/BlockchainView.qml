@@ -1151,6 +1151,30 @@ Rectangle {
         }
     }
 
+    // Blend core mix-set size — the "Proposals mixed by N nodes" line on the dashboard.
+    // Separate, slower poll than cryptarchiaTimer: current_epoch_peers only turns over at
+    // epoch boundaries (~1h testnet), so a 20s cadence is plenty and keeps the getBlendInfo
+    // curl off the hot 2s path. Runs only while the node is up; mixPeers is <0 (unknown)
+    // for an Edge node / null core_info, which the dashboard renders as plain "Proposals mixed".
+    Timer {
+        id: blendPeersTimer
+        interval: 20000
+        repeat: true
+        triggeredOnStart: true
+        running: root.ready && root.backend
+                 && root.backend.status === BlockchainBackend.Running
+        onTriggered: {
+            if (!root.backend) return
+            logos.watch(
+                root.backend.getBlendInfo(),
+                function(r) {
+                    root._blendPeers = (r && r.mixPeers !== undefined) ? r.mixPeers : -1
+                },
+                function(e) { /* leave last known value */ }
+            )
+        }
+    }
+
     // The cryptarchia poll above only runs while status === Running, so the last value it
     // wrote is FROZEN once the node leaves that state — a stale error then outlives the
     // state it described, and _statusDisplay() renders errorText ahead of the status. This
@@ -1180,6 +1204,7 @@ Rectangle {
     // have it (so it's always shown, not blank while the chain API is still down).
     property bool recoveryActive: false
     property int  recoveryBlocks: 0
+    property int  _blendPeers: -1     // Blend core mix-set size from getBlendInfo().mixPeers (<0 = unknown)
     Timer {
         id: recoveryTimer
         interval: 2000
@@ -1757,6 +1782,7 @@ Rectangle {
                         epoch: opPage.nodeRunning ? root._dashEpoch(root.cryptarchiaInfoJson) : "—"
                         epochProgress: ""                                  // no epoch_length from the node yet (#61)
                         blendState: opPage.nodeRunning ? root._dashBlend(root.backend ? root.backend.blendStatus : 0) : "none"
+                        blendPeers: opPage.nodeRunning ? root._blendPeers : -1
 
                         // --- peers / connections (#62, real via curl bridge) ---
                         peers: opPage.nodeRunning && root.nodePeers >= 0 ? String(root.nodePeers) : "—"
