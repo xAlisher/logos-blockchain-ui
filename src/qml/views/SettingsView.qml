@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC
-import QtQuick.Dialogs
 import QtCore
 import Logos.Theme
 import Logos.Controls
@@ -142,10 +141,21 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; spacing: Theme.spacing.medium
                     LogosButton {
-                        text: qsTr("Download keystore.yaml")
+                        text: qsTr("Back up keystore to Documents")
                         variant: LogosButton.Variant.Primary
                         enabled: root.keystoreExists
-                        onClicked: keystoreSaveDialog.open()
+                        // Write to a real, known path — NOT a native Save-As. On Wayland the
+                        // Qt file dialog goes through xdg-desktop-portal, which hands back a
+                        // /run/user/<uid>/doc/<hash>/… FUSE path: the copy reports success into
+                        // that handle but the file never appears in the real folder ("says
+                        // saved but isn't"). A direct path skips the portal entirely.
+                        onClicked: {
+                            var docs = String(StandardPaths.standardLocations(StandardPaths.DocumentsLocation)[0] || "")
+                            if (docs.indexOf("file://") === 0) docs = docs.substring(7)
+                            while (docs.length && docs[docs.length - 1] === "/") docs = docs.substring(0, docs.length - 1)
+                            var ts = Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss")
+                            root.downloadKeystoreRequested(docs + "/keystore-backup-" + ts + ".yaml")
+                        }
                     }
                     // Result / hint line: a saved path (success) or an error, else why it's disabled.
                     LogosText {
@@ -153,7 +163,7 @@ Item {
                         wrapMode: Text.WordWrap
                         visible: text.length > 0
                         text: root.keystoreBackupResult.length > 0 ? root.keystoreBackupResult
-                              : (!root.keystoreExists ? qsTr("No keystore yet — start the node once to create it.") : "")
+                              : (!root.keystoreExists ? qsTr("Configure the node first — the keystore is created on first start.") : "")
                         color: root.keystoreBackupResult.indexOf("Error") === 0 ? Theme.palette.error : Theme.palette.textTertiary
                         font.pixelSize: Theme.typography.secondaryText
                     }
@@ -245,19 +255,8 @@ Item {
         rightActions: [ DangerButton { text: qsTr("Regenerate"); onClicked: { regenDlg.close(); root.regenerateKeysRequested() } } ]
     }
 
-    // "Download keystore.yaml" → native Save-As; the host copies the real keystore
-    // to the chosen path (backend.saveKeystore) and reports back via keystoreBackupResult.
-    FileDialog {
-        id: keystoreSaveDialog
-        modality: Qt.NonModal
-        fileMode: FileDialog.SaveFile
-        nameFilters: ["YAML files (*.yaml *.yml)", "All files (*)"]
-        currentFolder: StandardPaths.standardLocations(StandardPaths.DocumentsLocation)[0]
-        selectedFile: "keystore.yaml"
-        onAccepted: {
-            var p = selectedFile.toString()
-            if (p.indexOf("file://") === 0) p = p.substring(7)
-            root.downloadKeystoreRequested(p)
-        }
-    }
+    // NB: the keystore backup deliberately writes to a fixed ~/Documents path (see the
+    // "Back up keystore to Documents" button) rather than a native Save-As dialog — on
+    // Wayland that dialog rides xdg-desktop-portal, which returns a /run/user/<uid>/doc
+    // FUSE handle the copy silently fails to land in the real folder.
 }

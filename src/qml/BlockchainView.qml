@@ -2149,9 +2149,15 @@ Rectangle {
                     keysConfigPath: (nodeConfigPath && nodeConfigPath.length && nodeConfigPath !== "—")
                         ? nodeConfigPath.replace(/[^\/]*$/, "keystore.yaml") : "—"
                     keystorePath: settingsView.keysConfigPath
-                    // The keystore is created on first node start; once the node has an
-                    // address the file exists. (saveKeystore re-checks disk regardless.)
-                    keystoreExists: root.backend && (root.backend.primaryAddress || "").length > 0
+                    // Gate the backup button on the CONFIG being loaded, not on a running
+                    // wallet. primaryAddress only fills once the node is up and its wallet
+                    // answers — so the old gate greyed out "Download keystore.yaml" whenever
+                    // the node was stopped, which is exactly when you back keys up (before a
+                    // stop / regenerate). The keystore sits beside the config and saveKeystore
+                    // re-checks the disk, returning a clear error if it's genuinely not there
+                    // yet (node never started) — an honest error at click time beats a wrong
+                    // disabled state that blocks a safety-critical action.
+                    keystoreExists: settingsView.keysConfigPath !== "—"
                     // real bootstrap peers, rewards state, live CPU/RAM
                     bootstrapPeers: root.defaultBootstrapPeers.join("\n")
                     rewardsAutoClaim: nodeSettings.rewardsAutoClaim
