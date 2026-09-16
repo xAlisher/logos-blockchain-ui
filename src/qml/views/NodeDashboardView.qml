@@ -94,6 +94,10 @@ Item {
     // (`nodeStalled`) it's the "bootstrapped but stuck — can't reach live peers" case.
     readonly property string _phase: _field("phase") !== undefined ? String(_field("phase")) : ""
     readonly property bool _prolonged: _phase === "ProlongedBootstrapPeriod"
+    // Finalization slot (last irreversible block). This — not block height — is the real
+    // sync-progress signal: a wedged node can still tick `height` by an occasional +1 while
+    // `lib_slot` stays frozen and it falls further behind the head. The stall detector keys on this.
+    readonly property var _libSlot: _field("lib_slot") !== undefined ? Number(_field("lib_slot")) : undefined
     readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
                                    : (_field("slot") !== undefined ? String(_field("slot")) : "—")
     readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
@@ -155,24 +159,30 @@ Item {
     property string bootCountdown: ""
     property bool bootOverran: false
 
-    // Stall / crash detection. Catches a DEAD node (crashed / IBD wedged) that the
-    // backend still reports as Running — those stay frozen for hours. Threshold is
-    // deliberately generous (10 min): a live bootstrap legitimately advances Height only
-    // every few minutes during peer churn, so a tight window false-fires on slow sync.
+    // Stall / crash detection. Catches a DEAD or wedged node (crashed / IBD stuck / can't
+    // keep up) that the backend still reports as Running — those stop finalizing for hours.
+    // Keyed on finalization (lib_slot), not block height: a wedged node can still tick height
+    // by an occasional +1. Threshold is deliberately generous (10 min) so slow-but-live
+    // finalization during peer churn doesn't false-fire.
     property bool nodeStalled: false
-    readonly property int _stallMs: 600000        // 10 min of ZERO height progress ⇒ actually stuck
-    property double _heightAdvancedAt: 0
-    property string _heightSeen: ""
-    onHeightStrChanged: {
-        if (heightStr !== "—" && heightStr !== _heightSeen) {
-            _heightSeen = heightStr
-            _heightAdvancedAt = Date.now()
+    readonly property int _stallMs: 600000        // 10 min of ZERO real progress ⇒ actually stuck
+    property double _progressAt: 0
+    property string _progressKey: ""
+    // Real progress = finalization (lib_slot) advancing. Prefer it; fall back to block height
+    // only if the build doesn't expose lib_slot. Keying on height alone masks a node that
+    // ticks height trivially while lib_slot is frozen and it loses ground to the head.
+    function _recordProgress() {
+        var key = (_libSlot !== undefined) ? ("lib:" + _libSlot)
+                : (heightStr !== "—" ? ("h:" + heightStr) : "")
+        if (key !== "" && key !== _progressKey) {
+            _progressKey = key
+            _progressAt = Date.now()
             nodeStalled = false
         }
     }
 
     // sync-rate + ETA engine (ported from NodeStatusCard, #57) → real bootstrapping countdown
-    onInfoJsonChanged: sync.sampleRate(sync.tipSlot)
+    onInfoJsonChanged: { sync.sampleRate(sync.tipSlot); _recordProgress() }
     QtObject {
         id: sync
         readonly property var tipSlot: root._field("slot") !== undefined ? Number(root._field("slot")) : undefined
@@ -237,10 +247,10 @@ Item {
             if (root._bootSecs < root._bootTotal + 3) root._bootSecs += 1
             // Height hasn't advanced for _stallMs while bootstrapping ⇒ the node is
             // wedged or has crashed (the backend still says Running). Surface it.
-            root.nodeStalled = root._heightAdvancedAt > 0
-                && (Date.now() - root._heightAdvancedAt > root._stallMs)
+            root.nodeStalled = root._progressAt > 0
+                && (Date.now() - root._progressAt > root._stallMs)
         }
-        onRunningChanged: if (!running) { root._bootSecs = 0; root.nodeStalled = false }
+        onRunningChanged: if (!running) { root._bootSecs = 0; root.nodeStalled = false; root._progressAt = 0; root._progressKey = "" }
     }
 
     Rectangle { anchors.fill: parent; color: Theme.palette.background }
@@ -255,7 +265,7 @@ Item {
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
       : (nodeStalled && _prolonged)
-            ? ({ label: qsTr("Bootstrap stuck"), sub: qsTr("Initial download finished but the node can't get newer blocks — it has likely lost reachable peers. If it stays stuck, restart the node; if that doesn't help, reset chain state and restart with fresh peers."), c: Theme.palette.error, copy: false, d: false })
+            ? ({ label: qsTr("Bootstrap stuck"), sub: qsTr("Initial download finished but the node isn't keeping up (no new finalized blocks) and is falling behind the chain — it has likely lost reachable peers. Restart the node; if that doesn't help, reset chain state and restart with fresh peers."), c: Theme.palette.error, copy: false, d: false })
       : nodeStalled
             ? ({ label: qsTr("Sync stalled"), sub: qsTr("No block progress — the node may have stopped or lost peers. Try stopping and starting it again."), c: Theme.palette.error, copy: false, d: false })
       : nodeRecovering

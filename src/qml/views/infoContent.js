@@ -12,7 +12,7 @@ var data = {
             { label: "Not started", meaning: "Node is off / idle." },
             { label: "Starting", meaning: "Launching and checking configuration." },
             { label: "Bootstrapping", meaning: "Running but the chain is behind the head; shows a rough countdown." },
-            { label: "Bootstrap stuck", meaning: "Initial download finished but the node can't advance past the bootstrap tip (prolonged bootstrap, height frozen) — usually lost reachable peers. Restart, or reset chain state + restart with fresh peers." },
+            { label: "Bootstrap stuck", meaning: "Prolonged bootstrap with no real progress — finalization (LIB) frozen and falling behind the chain, even if block height ticks occasionally. Usually lost reachable peers. Restart, or reset chain state + restart with fresh peers." },
             { label: "Online", meaning: "Running and synced, following the chain." },
             { label: "Error", meaning: "The node reported an error (message shown)." }
         ],
