@@ -21,11 +21,11 @@ import "infoContent.js" as InfoContent
 ColumnLayout {
     id: root
     spacing: Theme.spacing.large
-    // Breathing room from the window edge — match NodeDashboardView's content inset
-    // so the Vouchers / Claims titles aren't flush against the screen edge.
-    Layout.leftMargin: Theme.spacing.xlarge
-    Layout.rightMargin: Theme.spacing.xlarge
-    Layout.topMargin: Theme.spacing.large
+    // Uniform horizontal inset for every direct child, so the Vouchers / Claims content
+    // isn't flush to the window edge. Applied per-child (a ColumnLayout honors child
+    // Layout.*Margin; a StackLayout parent ignores margins set on THIS root, so putting
+    // them here does nothing — hence the child-level `_inset` below).
+    readonly property real _inset: Theme.spacing.xlarge
 
     // JSON from wallet_get_claimable_vouchers:
     //   { "tip": "<hex>", "vouchers": [ {commitment, nullifier}, ... ] }
@@ -317,6 +317,8 @@ ColumnLayout {
     // row: it is global state (not per-epoch), so it sits over both columns.
     // ======================= VOUCHERS =======================
         RowLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             Layout.fillHeight: false   // nested layouts default fillHeight=true; pin it so only the ledger row grows
             spacing: Theme.spacing.medium
@@ -401,6 +403,8 @@ ColumnLayout {
         // the borders. Columns are derived from the available width against a
         // minimum tile size, so tiles drop to the next line instead.
         GridLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             Layout.fillHeight: false   // nested layouts default fillHeight=true → tiles ballooned; pin it
             columnSpacing: Theme.spacing.medium
@@ -431,6 +435,8 @@ ColumnLayout {
         // Why the button is unavailable, stated rather than left to guess. Suppressed
         // in the no-vouchers case: the "Ready to claim: 0" tile already says it.
         LogosText {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             visible: !root.canClaim && root.claimBlockedReason.length > 0 && root.vouchers.length > 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -439,6 +445,8 @@ ColumnLayout {
             font.pixelSize: Theme.typography.secondaryText
         }
         LogosText {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             visible: root._lastResult.length > 0 && root._lastResult.indexOf("Error") === 0
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
@@ -450,6 +458,8 @@ ColumnLayout {
         // ======================= CLAIMS =======================
         // Full-width title (Clear + info) ABOVE the epoch rail + list.
         RowLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             LogosText {
                 text: qsTr("Claims")
@@ -478,6 +488,8 @@ ColumnLayout {
         }
         // The epoch sidebar filters the claims ledger; the page scrolls once it fills.
         RowLayout {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.spacing.large
