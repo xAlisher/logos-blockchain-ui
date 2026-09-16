@@ -31,6 +31,8 @@ Item {
     property string errorText: ""      // enable/disable failure surfaced verbatim from the node
     property string txId: ""           // declaration id returned by /blend/join
     property int coreEpoch: -1         // the epoch our declaration activates (mineActive)
+    property string faucetMsg: ""      // funded-gate faucet feedback (requesting / result / why-nothing)
+    property bool   faucetBusy: false  // a faucet request is in flight
 
     // ── real gate state (populated by the backend polls) ──
     property string sdpKey: ""
@@ -63,6 +65,8 @@ Item {
         root.errorText = ""
         root.portAttested = false
         root.txId = ""
+        root.faucetMsg = ""
+        root.faucetBusy = false
         var bs = backend ? backend.blendStatus : 0
         root.step = (bs === BlockchainBackend.Activating) ? 2 : 0
         root.phase = (bs === BlockchainBackend.Core) ? "core"
@@ -228,13 +232,24 @@ Item {
         enabled: root.backend !== null
         ignoreUnknownSignals: true
         function onFaucetResult(ok, message) {
+            root.faucetBusy = false
+            root.faucetMsg = ok ? qsTr("Funds requested — the balance updates in a moment.")
+                                : (message && message.length ? message : qsTr("Faucet request failed. You can also fund the key manually (copy it above)."))
             if (root.visible && root.phase === "gates") root._refreshFunded()
         }
     }
 
     function _gateAction(kind) {
         if (kind === "faucet") {
-            if (backend && root.sdpKey.length > 0) backend.requestFaucetFunds(root.sdpKey)
+            if (!backend) return
+            // No key yet = the click would silently no-op; tell the operator why instead.
+            if (root.sdpKey.length === 0) {
+                root.faucetMsg = qsTr("Funding key not ready yet — wait for the node to finish starting, then try again.")
+                return
+            }
+            root.faucetBusy = true
+            root.faucetMsg = qsTr("Requesting test funds…")
+            backend.requestFaucetFunds(root.sdpKey)
         } else if (kind === "attest") {
             root.portAttested = true
         }
@@ -334,6 +349,21 @@ Item {
                                 }
                                 LogosText { visible: !modelData.ok; Layout.fillWidth: true; wrapMode: Text.WordWrap
                                             text: modelData.fix; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                                // SDP funding key — shown on the funded gate so the operator can
+                                // send test LGO here from any wallet (manual alternative to the faucet).
+                                ColumnLayout {
+                                    visible: modelData.kind === "faucet" && root.sdpKey.length > 0
+                                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; spacing: 1
+                                    LogosText { text: qsTr("Funding key — send test LGO here from any wallet:")
+                                                color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                                    RowLayout {
+                                        Layout.fillWidth: true; spacing: Theme.spacing.small
+                                        LogosText { Layout.fillWidth: true; text: root.sdpKey
+                                                    color: Theme.palette.textSecondary; font.pixelSize: 11
+                                                    font.family: "monospace"; elide: Text.ElideMiddle }
+                                        LogosCopyButton { value: root.sdpKey; Layout.alignment: Qt.AlignVCenter }
+                                    }
+                                }
                                 // docs link (copies the URL, like InfoModal's DOCS link) + an action link
                                 RowLayout {
                                     visible: !modelData.ok && (modelData.docs || "").length > 0
@@ -344,6 +374,13 @@ Item {
                                 // action link (faucet / port attestation)
                                 LogosLink { visible: !modelData.ok && (modelData.action || "").length > 0
                                             text: modelData.action; font.pixelSize: 11; onActivated: root._gateAction(modelData.kind) }
+                                // faucet feedback — requesting / result / why-nothing (the click
+                                // used to no-op silently; now it always says what happened).
+                                LogosText { visible: modelData.kind === "faucet" && root.faucetMsg.length > 0
+                                            Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                            text: root.faucetMsg
+                                            color: root.faucetBusy ? Theme.palette.textSecondary : Theme.palette.text
+                                            font.pixelSize: 11 }
                             }
                         }
                     }
