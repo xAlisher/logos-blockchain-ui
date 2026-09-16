@@ -457,10 +457,22 @@ LogosNode1clickBackend::LogosNode1clickBackend(QObject* parent)
     const QString savedDeploymentConfig =
         s.value("deploymentConfigPath").toString();
 
-    if (!envConfigPath.isEmpty())
+    if (!envConfigPath.isEmpty()) {
         setUserConfig(toLocalPath(envConfigPath));
-    else if (!savedUserConfig.isEmpty())
-        setUserConfig(toLocalPath(savedUserConfig));
+    } else if (!savedUserConfig.isEmpty()) {
+        // Only resume a SAVED path if it (and the keystore beside it) still exist
+        // on disk. A stale userConfigPath — config/keys deleted but the setting
+        // left behind — otherwise routes the UI straight to the node view and
+        // auto-starts a keyless node instead of first-run onboarding (#15 regression:
+        // "no keys must always mean onboarding"). If the files are gone, clear the
+        // stale setting and fall through so userConfig stays empty → onboarding.
+        const QString p  = toLocalPath(savedUserConfig);
+        const QString ks = QFileInfo(p).absoluteDir().filePath(QStringLiteral("keystore.yaml"));
+        if (QFile::exists(p) && QFile::exists(ks))
+            setUserConfig(p);
+        else
+            s.remove(QStringLiteral("userConfigPath"));
+    }
 
     if (!savedDeploymentConfig.isEmpty())
         setDeploymentConfig(toLocalPath(savedDeploymentConfig));
