@@ -89,12 +89,14 @@ public slots:
                                     QString optionalTipHex) override;
     void clearBlocks() override;
     QVariantMap resetChainState() override;
-    // One-shot recovery for a WEDGED node: force-kill the module host directly (a stuck
-    // node never answers the graceful "stop" RPC), then wipe chain db/state/logs so the
-    // next run re-bootstraps from genesis. Runs entirely in the UI-host, so it does NOT
-    // depend on the wedged module answering. The host is dead afterward and only reopening
-    // Basecamp respawns it → the result carries needsRestart:true for the UI to surface.
-    QVariantMap recoverStuckNode() override;
+    // Last-resort stop for a WEDGED node whose graceful "stop" never lands: SIGKILL the
+    // module host bound to the node's port, then mark the node Stopped. Called by the UI's
+    // stop-confirm probe after its deadline. Runs in the UI-host (no dependency on the
+    // wedged module answering). NOTE: after this the module host is dead and only reopening
+    // Basecamp respawns it, so a subsequent in-app Start will fail until then.
+    void forceStopNow() override;
+    // The UI's stop-confirm probe saw the node's API go down → mark it Stopped (idempotent).
+    void confirmStopped() override;
     // PREVIEW (#81) config/key management workarounds (app-side file ops).
     QVariantMap backupUserConfig() override;
     QVariantMap regenerateNodeKeys() override;

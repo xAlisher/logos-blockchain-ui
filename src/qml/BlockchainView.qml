@@ -165,59 +165,30 @@ Rectangle {
         anchors.centerIn: parent
         width: 440
         title: qsTr("Recover the stuck node?")
-        property string _status: ""
-        property bool _busy: false
-        property bool _done: false
-        onOpened: { _status = ""; _busy = false; _done = false }
 
-        ColumnLayout {
-            width: recoverStuckDialog.availableWidth
-            spacing: Theme.spacing.medium
-            LogosText {
-                Layout.fillWidth: true; wrapMode: Text.WordWrap
-                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
-                text: qsTr("The node stopped making progress and is falling behind the chain, usually "
-                           + "because it has lost reachable peers. This stops the node and deletes the "
-                           + "local chain database so it re-downloads from scratch. Your wallet keys "
-                           + "and config are kept.")
-            }
-            LogosText {
-                Layout.fillWidth: true; wrapMode: Text.WordWrap; visible: recoverStuckDialog._status.length > 0
-                color: recoverStuckDialog._done ? Theme.palette.success : Theme.palette.text
-                font.pixelSize: Theme.typography.secondaryText
-                text: recoverStuckDialog._status
-            }
-        }
-
-        function _run() {
-            if (!root.backend || _busy) return
-            _busy = true; _done = false
-            _status = qsTr("Stopping the node and wiping chain state…")
-            logos.watch(root.backend.recoverStuckNode(),
-                function(r) {
-                    _busy = false
-                    if (r.success) {
-                        _done = true
-                        _status = qsTr("Chain reset. Fully quit and reopen Basecamp to re-bootstrap from scratch.")
-                        if (root.backend) root.backend.clearBlocks()
-                    } else {
-                        _status = qsTr("Error: %1").arg(r.error || _d.errorText(r))
-                    }
-                },
-                function(e) { _busy = false; _status = qsTr("Error: %1").arg(_d.errorText(e)) })
+        // LogosDialog renders its body from contentItem (a plain child renders blank).
+        contentItem: LogosText {
+            wrapMode: Text.WordWrap
+            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
+            text: qsTr("The node stopped making progress and is falling behind the chain, usually "
+                       + "because it has lost reachable peers. This stops the node, deletes the local "
+                       + "chain database, and re-starts it to re-sync from scratch. Your wallet keys "
+                       + "and config are kept. If the node is badly wedged it may need Basecamp reopened "
+                       + "to finish. Watch the status: Stopping → re-syncing.")
         }
 
         rightActions: [
             LogosButton {
-                text: recoverStuckDialog._done ? qsTr("Close") : qsTr("Cancel")
+                text: qsTr("Cancel")
                 implicitWidth: 130; implicitHeight: 40
                 onClicked: recoverStuckDialog.close()
             },
             LogosButton {
                 text: qsTr("Reset & re-bootstrap")
                 implicitWidth: 180; implicitHeight: 40
-                enabled: !recoverStuckDialog._busy && !recoverStuckDialog._done
-                onClicked: recoverStuckDialog._run()
+                // Same proven path as Settings → Reset chain state, now that stop is async +
+                // force-kill-verified: stop → wipe chain → start. Progress shows on the hero.
+                onClicked: { recoverStuckDialog.close(); root._resetChainThenRestart() }
             }
         ]
     }
@@ -472,6 +443,37 @@ Rectangle {
                         if (root.backend) root.backend.confirmStartFailed()
                     }
                 }
+            )
+        }
+    }
+
+    // While Stopping, poll :8080 (backend QRO liveness). When the node's API stops
+    // answering → confirmStopped(); if it is STILL answering after ~12s the node is wedged
+    // and won't stop gracefully → forceStopNow() (SIGKILL). This is what makes Stop /
+    // Settings-reset / the recovery button actually work: the graceful "stop" is now async,
+    // so this probe is the source of truth for the Stopped transition instead of a blocking RPC.
+    property int _stopTries: 0
+    Timer {
+        id: stopConfirmProbe
+        interval: 1500; repeat: true
+        running: root.ready && root.backend && root.backend.status === BlockchainBackend.Stopping
+        onRunningChanged: if (!running) root._stopTries = 0
+        onTriggered: {
+            if (!root.backend) return
+            root._stopTries += 1
+            var tries = root._stopTries
+            logos.watch(
+                root.backend.getCryptarchiaInfo(),
+                function(result) {
+                    if (result.success) {
+                        // Node still answering. Give the graceful stop a window, then force-kill.
+                        if (tries > 8 && root.backend) root.backend.forceStopNow()
+                    } else if (root.backend) {
+                        // API no longer answering → the node really stopped.
+                        root.backend.confirmStopped()
+                    }
+                },
+                function(error) { if (root.backend) root.backend.confirmStopped() }
             )
         }
     }

@@ -62,7 +62,8 @@ class BlockchainBackend
     SLOT(QVariantMap channelDepositWithNotes(QString channelIdHex, QStringList inputNoteIdHexes, QString metadataBase58, QString changePublicKeyHex, QStringList fundingPublicKeyHexes, QString maxTxFee, QString optionalTipHex))
     SLOT(void clearBlocks())
     SLOT(QVariantMap resetChainState())
-    SLOT(QVariantMap recoverStuckNode())
+    SLOT(void forceStopNow())
+    SLOT(void confirmStopped())
     // PREVIEW (#81): Settings actions the node has no direct API for, done app-side.
     // backupUserConfig copies the node config (+ keystore) beside itself with a
     // timestamp; regenerateNodeKeys backs up then removes the keystore so the node
