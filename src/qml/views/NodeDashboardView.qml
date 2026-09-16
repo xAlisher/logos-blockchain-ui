@@ -89,12 +89,14 @@ Item {
         if (_info.cryptarchia_info && _info.cryptarchia_info.state) return String(_info.cryptarchia_info.state)
         return ""
     }
-    // The bootstrap phase the node reports (top-level `phase` in get_cryptarchia_info):
-    // "ProlongedBootstrapPeriod" means initial download finished but the node hasn't been
-    // able to promote to Online (following the live chain). Paired with a frozen height
-    // (`nodeStalled`) it's the "bootstrapped but stuck — can't reach live peers" case.
+    // Bootstrap-vs-online signal. The node's HTTP endpoint exposes a top-level `phase`
+    // ("ProlongedBootstrapPeriod") but the MODULE's IPC get_cryptarchia_info — which is what
+    // this UI actually receives — is FLAT ({lib_slot, slot, height, mode}) and carries NO phase.
+    // So the reliable "still bootstrapping (not yet Online)" signal here is `mode`; `_phase` is
+    // read too for any build that does forward the wrapped shape.
     readonly property string _phase: _field("phase") !== undefined ? String(_field("phase")) : ""
     readonly property bool _prolonged: _phase === "ProlongedBootstrapPeriod"
+                                       || (mode.length > 0 && mode !== "Online")
     // Finalization slot (last irreversible block). This — not block height — is the real
     // sync-progress signal: a wedged node can still tick `height` by an occasional +1 while
     // `lib_slot` stays frozen and it falls further behind the head. The stall detector keys on this.
