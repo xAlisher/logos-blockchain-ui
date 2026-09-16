@@ -68,10 +68,18 @@ ColumnLayout {
         for (var i = 0; i < claims.length; i++) { var e = _cEpoch(claims[i]); if (e >= 0) m[e] = (m[e] || 0) + 1 }
         return m
     }
+    function _isLanded(c) { return c && (c.status === "settled" || c.status === "in_block") }
+    // Only LANDED claims appear as rows — every row is real earnings, so no per-row
+    // state label is needed. The not-landed count still surfaces in the summary line
+    // above the list (#46), so the "are my claims landing" signal isn't lost.
     readonly property var filteredClaims: {
-        if (rewardsEpochNav.selected === -1) return claims
         var out = []
-        for (var i = 0; i < claims.length; i++) if (_cEpoch(claims[i]) === rewardsEpochNav.selected) out.push(claims[i])
+        for (var i = 0; i < claims.length; i++) {
+            var c = claims[i]
+            if (!_isLanded(c)) continue
+            if (rewardsEpochNav.selected !== -1 && _cEpoch(c) !== rewardsEpochNav.selected) continue
+            out.push(c)
+        }
         return out
     }
 
@@ -434,6 +442,50 @@ ColumnLayout {
             font.pixelSize: Theme.typography.secondaryText
         }
 
+        // ======================= CLAIMS =======================
+        // Full-width title (Clear + info) ABOVE the epoch rail + list.
+        RowLayout {
+            Layout.fillWidth: true
+            LogosText {
+                text: qsTr("Claims")
+                font.pixelSize: Theme.typography.subtitleText
+                font.weight: Theme.typography.weightMedium
+            }
+            Item { Layout.fillWidth: true }
+            GhostButton {
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.claims.length > 0
+                text: qsTr("Clear")
+                onClicked: clearConfirm.open()
+            }
+            Button {
+                id: claimsInfoBtn
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: 28; implicitHeight: 28
+                display: AbstractButton.IconOnly
+                flat: true; padding: 4
+                background: Rectangle { color: "transparent" }
+                icon.source: Qt.resolvedUrl("../icons/info.svg")
+                icon.width: 18; icon.height: 18
+                icon.color: claimsInfoBtn.hovered ? Theme.palette.primary : Theme.palette.textMuted
+                onClicked: root._openInfo(root._rInfo.claims)
+            }
+        }
+        // Landing-rate signal (#46) — kept as one line above the list even though the
+        // list now shows only landed rows.
+        LogosText {
+            visible: root.notIncludedCount > 0
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: qsTr("%1 of %2 claims have landed. The other %3 weren't included in a block — nothing was consumed, and %4 vouchers are still ready. Claims land far more reliably a few seconds apart.")
+                      .arg(root.fmt(root.landedCount))
+                      .arg(root.fmt(root.landedCount + root.notIncludedCount))
+                      .arg(root.fmt(root.notIncludedCount))
+                      .arg(root.fmt(root.vouchers.length))
+            color: Theme.palette.textSecondary
+            font.pixelSize: Theme.typography.secondaryText
+        }
+
         // The epoch sidebar filters the claims ledger; the page scrolls once it fills.
         RowLayout {
             Layout.fillWidth: true
@@ -457,59 +509,6 @@ ColumnLayout {
             ColumnLayout {
                 width: rewardsScroll.availableWidth
                 spacing: Theme.spacing.large
-
-        // ======================= CLAIMS =======================
-        // Heading outside the block, matching Vouchers and Rewards. No outer
-        // stroke: the rows already carry their own borders, so an enclosing one
-        // just boxes a box.
-        RowLayout {
-            Layout.fillWidth: true
-            LogosText {
-                text: qsTr("Claims")
-                font.pixelSize: Theme.typography.subtitleText
-                font.weight: Theme.typography.weightMedium
-            }
-            Item { Layout.fillWidth: true }
-            // Clear = archive (#50): the list empties, the record survives, and
-            // the alarm still counts archived failures. Far-right per request.
-            GhostButton {
-                Layout.alignment: Qt.AlignVCenter
-                visible: root.claims.length > 0
-                text: qsTr("Clear")
-                onClicked: clearConfirm.open()
-            }
-            Button {
-                id: claimsInfoBtn
-                Layout.alignment: Qt.AlignVCenter
-                implicitWidth: 28; implicitHeight: 28
-                display: AbstractButton.IconOnly
-                flat: true; padding: 4
-                background: Rectangle { color: "transparent" }
-                icon.source: Qt.resolvedUrl("../icons/info.svg")
-                icon.width: 18; icon.height: 18
-                icon.color: claimsInfoBtn.hovered ? Theme.palette.primary : Theme.palette.textMuted
-                onClicked: root._openInfo(root._rInfo.claims)
-            }
-        }
-
-        // The rows say what happened; THIS says how it is going. Two different jobs,
-        // and collapsing them was a mistake: repeating "nothing was consumed" on 34
-        // rows is accurate and useless — a 41% landing rate is not a labelling
-        // problem, it is a claims-are-not-landing problem, and the user should be
-        // told so rather than soothed. So: the rate leads, the reassurance is one
-        // clause, and the action closes. See #46.
-        LogosText {
-            visible: root.notIncludedCount > 0
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: qsTr("%1 of %2 claims have landed. The other %3 weren't included in a block — nothing was consumed, and %4 vouchers are still ready. Claims land far more reliably a few seconds apart.")
-                      .arg(root.fmt(root.landedCount))
-                      .arg(root.fmt(root.landedCount + root.notIncludedCount))
-                      .arg(root.fmt(root.notIncludedCount))
-                      .arg(root.fmt(root.vouchers.length))
-            color: Theme.palette.textSecondary
-            font.pixelSize: Theme.typography.secondaryText
-        }
 
         Item {
             Layout.fillWidth: true
@@ -555,39 +554,37 @@ ColumnLayout {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing.small
-                                // No status dot: the label already carries the colour,
-                                // so the dot repeated the same information twice.
+                                // Every row is a landed claim → real earnings. Headline the
+                                // net in white; reward/fees as a gray aside. No status label,
+                                // no green — the amount is the point. Datestamp far right.
                                 LogosText {
-                                    text: root.statusLabel(claimRow.st)
-                                    color: root.statusColor(claimRow.st)
                                     Layout.alignment: Qt.AlignVCenter
+                                    text: qsTr("Earned: %1").arg(root.fmtLgo(
+                                              modelData.fee > 0 ? (modelData.reward - modelData.fee)
+                                                                : modelData.reward))
+                                    color: Theme.palette.text
                                     font.pixelSize: Theme.typography.secondaryText
                                     font.weight: Theme.typography.weightMedium
                                 }
                                 LogosText {
-                                    // ISO "2026-08-17T15:31:47" reads better without the T.
-                                    // Held back so the status and the amount lead:
-                                    // the timestamp is context, not the headline.
-                                    text: String(modelData.settledAt || modelData.submittedAt || "")
-                                              .replace("T", " ")
                                     Layout.alignment: Qt.AlignVCenter
+                                    text: modelData.fee > 0
+                                        ? qsTr("(reward %1, fees %2)")
+                                            .arg(root.fmt(modelData.reward))
+                                            .arg(root.fmt(modelData.fee))
+                                        : qsTr("(fees unknown)")
                                     color: Theme.palette.textTertiary
-                                    opacity: 0.65
                                     font.pixelSize: Theme.typography.secondaryText
                                 }
                                 Item { Layout.fillWidth: true }
                                 LogosText {
-                                    visible: claimRow.st === "settled"
-                                             || (claimRow.st === "in_block" && modelData.reward > 0)
-                                    text: modelData.fee > 0
-                                        ? qsTr("+%1 − %2 = +%3 LGO")
-                                            .arg(root.fmt(modelData.reward))
-                                            .arg(root.fmt(modelData.fee))
-                                            .arg(root.fmt(modelData.reward - modelData.fee))
-                                        : qsTr("+%1 (fee unknown)").arg(root.fmtLgo(modelData.reward))
-                                    color: Theme.palette.success
+                                    // ISO "2026-08-17T15:31:47" reads better without the T.
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: String(modelData.settledAt || modelData.submittedAt || "")
+                                              .replace("T", " ")
+                                    color: Theme.palette.textTertiary
+                                    opacity: 0.65
                                     font.pixelSize: Theme.typography.secondaryText
-                                    font.weight: Theme.typography.weightMedium
                                 }
                             }
 
