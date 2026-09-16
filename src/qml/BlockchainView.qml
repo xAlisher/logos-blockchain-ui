@@ -1663,7 +1663,7 @@ Rectangle {
                     spacing: Theme.spacing.large   // more room between the tabs
                     LogosTabButton { text: qsTr("Node") }
                     LogosTabButton { text: qsTr("Rewards") }
-                    LogosTabButton { text: qsTr("Blocks") }
+                    LogosTabButton { text: qsTr("Explorer") }
                     LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
                         text: qsTr("Wallet")
