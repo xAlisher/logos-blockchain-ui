@@ -204,14 +204,14 @@ Item {
                 heading: qsTr("Mining")
                 SwitchRow {
                     label: qsTr("Background mining")
-                    desc: qsTr("Earn stake by mining in the background until the fund target is reached, then pause.")
+                    desc: qsTr("Earn stake by mining in the background until the stake target is reached, then pause.")
                     value: root.miningEnabled
                     onUserToggled: (on) => { root.miningEnabled = on; root.miningToggled(on) }
                 }
                 RowLayout {
                     Layout.fillWidth: true; spacing: Theme.spacing.medium
                     enabled: root.miningEnabled
-                    LogosText { text: qsTr("Fund target"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90; Layout.alignment: Qt.AlignVCenter }
+                    LogosText { text: qsTr("Stake target"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90; Layout.alignment: Qt.AlignVCenter }
                     LogosTextField { id: miningTargetField; Layout.preferredWidth: 120; text: root.miningTarget }
                     LogosText { text: "LGO"; color: Theme.palette.textSecondary; Layout.alignment: Qt.AlignVCenter }
                     Item { Layout.fillWidth: true }
