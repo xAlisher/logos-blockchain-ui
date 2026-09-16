@@ -34,16 +34,14 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.26`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.26)** —
-  **Enable Blend Core + keystore backup fix.** A guided flow turns a running node into a Blend **Core**
-  provider: a gated modal checks prerequisites, declares the provider (self-signed SDP declaration),
-  activates, and lands on a Core management view with disable/withdraw — wired to the real backend
-  (verified reaching Core on testnet). The Blend tile's Core state gains a soft blurred glow and shows the
-  mix-set size ("Proposals mixed by N nodes"). Keystore backup now writes a real file: the old Save-As went
-  through the Wayland desktop portal (a `/run/user/…/doc/` handle) so the copy reported success but never
-  landed — it now writes to `~/Documents/keystore-backup-<timestamp>.yaml` and the button is enabled whenever
-  the node is configured (not only while its wallet is up). Module pin: **blockchain_module 0.2.3**.
-  Previous: **v0.2.25** unified CTA orange + onboarding refinements; **v0.2.24** earned-chart rework +
+- **[`logos_node_1click v0.2.27`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.27)** —
+  **Blend Core funding made usable.** The Enable Blend Core modal's funded gate now gives real feedback when
+  you request test funds (requesting → the actual result, or why nothing happened), and shows your SDP funding
+  key with a copy button so you can send test LGO from any wallet as a manual alternative to the faucet.
+  Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.26** Enable Blend Core end-to-end (gated modal → declare → activate → Core → disable/withdraw,
+  real backend), blurred Core glow + "Proposals mixed by N nodes", keystore-backup fix (real file, button enabled
+  when node stopped); **v0.2.25** unified CTA orange + onboarding refinements; **v0.2.24** earned-chart rework +
   copyable Slot/Height; **v0.2.23** ready-to-claim (i) + disk-cap log pruning; **v0.2.22** onboarding cleanup
   + working reset/regenerate actions; **v0.2.21** onboarding + honest dashboard (Welcome, Quick start /
   Advanced onboarding, Earned by epoch chart, honest Vouchers, Keystore backup); **v0.2.20** verified feed.
@@ -51,11 +49,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.26/logos_node_1click-0.2.26-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.27/logos_node_1click-0.2.27-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.26/logos_node_1click-0.2.26-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.27/logos_node_1click-0.2.27-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
