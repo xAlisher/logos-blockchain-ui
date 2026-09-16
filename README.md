@@ -34,14 +34,16 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.29`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.29)** —
-  **Rewards redesign + Explorer + mining tile.** The Claims list shows only *landed* claims as clean
-  `Earned: <net> (reward …, fees …)` rows (no green, no status label), with a full-width Claims title above the
-  epoch rail and content inset from the window edge; the dead 5-tile summary block is gone. The **Blocks tab is
-  renamed Explorer**, onboarding notes that config/funding values are defaults editable in the config, and the
-  **Mining tile headlines the mined amount in tokens** with "% till target stake" as the sub. Module pin:
-  **blockchain_module 0.2.3**.
-  Previous: **v0.2.28** onboarding respects on-disk config/keys (no config/keys ⇒ always onboarding);
+- **[`logos_node_1click v0.2.31`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.31)** —
+  **Node stop/reset that works on a stuck node + honest stall detection.** `Stop` is now **async** — a wedged
+  node no longer hangs the UI (which used to make Stop, Settings→Reset, and recovery all silently do nothing);
+  a **stop-confirm probe** marks the node Stopped when its API goes down and force-kills only as a last resort.
+  A genuinely stuck node surfaces a **"Bootstrap stuck"** hero with a one-click **"Recover node"** (stop → wipe
+  chain → re-start). The stall check now keys on **block height** (the real "is it following the chain" signal),
+  not `lib_slot` — finalization legitimately stays frozen through the ~1h prolonged bootstrap, so the old check
+  false-flagged fully-synced nodes. Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.29** Rewards redesign + Explorer rename + mining-tokens tile;
+  **v0.2.28** onboarding respects on-disk config/keys (no config/keys ⇒ always onboarding);
   **v0.2.27** Blend Core funding usable (faucet feedback + copyable SDP funding key);
   **v0.2.26** Enable Blend Core end-to-end (gated modal → declare → activate → Core → disable/withdraw,
   real backend), blurred Core glow + "Proposals mixed by N nodes", keystore-backup fix (real file, button enabled
@@ -53,11 +55,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.29/logos_node_1click-0.2.29-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.31/logos_node_1click-0.2.31-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.29/logos_node_1click-0.2.29-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.31/logos_node_1click-0.2.31-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
