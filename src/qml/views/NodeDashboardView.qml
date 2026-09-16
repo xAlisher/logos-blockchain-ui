@@ -268,9 +268,9 @@ Item {
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
       : (nodeStalled && _prolonged)
-            ? ({ label: qsTr("Bootstrap stuck"), sub: qsTr("Initial download finished but the node isn't keeping up (no new finalized blocks) and is falling behind the chain — it has likely lost reachable peers. Restart the node; if that doesn't help, reset chain state and restart with fresh peers."), c: Theme.palette.error, copy: false, d: false })
+            ? ({ label: qsTr("Bootstrap stuck"), sub: qsTr("Not syncing. Likely lost peers."), c: Theme.palette.error, copy: false, d: false })
       : nodeStalled
-            ? ({ label: qsTr("Sync stalled"), sub: qsTr("No block progress — the node may have stopped or lost peers. Try stopping and starting it again."), c: Theme.palette.error, copy: false, d: false })
+            ? ({ label: qsTr("Sync stalled"), sub: qsTr("No progress. Try restarting."), c: Theme.palette.error, copy: false, d: false })
       : nodeRecovering
             ? ({ label: qsTr("Replaying blocks"), sub: replayProgress, c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Starting

@@ -3168,6 +3168,22 @@ QVariantMap LogosNode1clickBackend::resetChainState()
         LogosResult{true, QVariant(removed.join(", ")), QVariant()});
 }
 
+// One-shot recovery for a WEDGED node (the dashboard "Bootstrap stuck" CTA). A stuck node
+// never answers the graceful "stop" RPC, so we do NOT attempt it — we SIGKILL the module host
+// directly (forceStopNode), then wipe chain db/state/logs. This all runs in the UI-host, so it
+// does not depend on the wedged module being responsive; it is the reliable path where the
+// normal stop→reset→start orchestration fails (its start step can't revive a killed host).
+QVariantMap LogosNode1clickBackend::recoverStuckNode()
+{
+    writeNodeIntent(QStringLiteral("stopped"));
+    const bool killed = forceStopNode();      // SIGKILL the host bound to the node's port
+    setStatus(NotStarted);                    // so resetChainState() (guarded on !Running) proceeds
+    QVariantMap res = resetChainState();      // wipe db/state/logs + stale history
+    res.insert(QStringLiteral("killed"), killed);
+    res.insert(QStringLiteral("needsRestart"), true);   // host is dead → only a Basecamp reopen respawns it
+    return res;
+}
+
 // PREVIEW (#81): copy the node config (and keystore, if present) beside itself with a
 // timestamp. A real workaround for the Settings "Back up config" action until the node
 // offers one. Returns the backup path in `value`.
