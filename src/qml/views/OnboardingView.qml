@@ -215,6 +215,12 @@ Item {
                             body: qsTr("Choose your config, network and peers, and back up your keys during setup.")
                             onPicked: root._openAdvanced()
                         }
+                        // #97 — config values (peers, funding amounts) are defaults, editable later.
+                        LogosText {
+                            Layout.fillWidth: true; wrapMode: Text.WordWrap
+                            text: qsTr("Config values (peers, funding amounts) are defaults — you can change them any time in the node's config file.")
+                            color: Theme.palette.textTertiary; font.pixelSize: 11
+                        }
                     }
 
                     // ── ADVANCED stepper ──
