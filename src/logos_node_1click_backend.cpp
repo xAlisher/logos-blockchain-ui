@@ -2848,8 +2848,13 @@ void LogosNode1clickBackend::stopBlockchain()
 
     setStatus(Stopping);
 
+    // Bound the graceful stop to 5s (default is 20s). A WEDGED node never answers this
+    // synchronous RPC, so the default froze the whole UI for 20s — the button "did
+    // nothing" — before the forceStopNode() fallback below could run. A healthy node
+    // stops in well under a second, so 5s is a generous ceiling that keeps the wedged
+    // case snappy: fail fast → force-kill. (SIGKILL is safe; the chain DB recovers.)
     const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
-        BLOCKCHAIN_MODULE_NAME, "stop"));
+        BLOCKCHAIN_MODULE_NAME, "stop", QVariantList(), Timeout(5000)));
 
     if (r.success) {
         setStatus(Stopped);
