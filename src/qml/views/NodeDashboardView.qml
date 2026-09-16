@@ -97,10 +97,6 @@ Item {
     readonly property string _phase: _field("phase") !== undefined ? String(_field("phase")) : ""
     readonly property bool _prolonged: _phase === "ProlongedBootstrapPeriod"
                                        || (mode.length > 0 && mode !== "Online")
-    // Finalization slot (last irreversible block). This — not block height — is the real
-    // sync-progress signal: a wedged node can still tick `height` by an occasional +1 while
-    // `lib_slot` stays frozen and it falls further behind the head. The stall detector keys on this.
-    readonly property var _libSlot: _field("lib_slot") !== undefined ? Number(_field("lib_slot")) : undefined
     readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
                                    : (_field("slot") !== undefined ? String(_field("slot")) : "—")
     readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
@@ -162,21 +158,22 @@ Item {
     property string bootCountdown: ""
     property bool bootOverran: false
 
-    // Stall / crash detection. Catches a DEAD or wedged node (crashed / IBD stuck / can't
-    // keep up) that the backend still reports as Running — those stop finalizing for hours.
-    // Keyed on finalization (lib_slot), not block height: a wedged node can still tick height
-    // by an occasional +1. Threshold is deliberately generous (10 min) so slow-but-live
-    // finalization during peer churn doesn't false-fire.
+    // Stall / crash detection. Catches a DEAD/wedged node (crashed, or its sync loop hung) that
+    // the backend still reports as Running — a healthy node keeps following the tip so its HEIGHT
+    // climbs; a truly stuck one freezes it for a long time. Threshold is deliberately generous
+    // (10 min) because a sparse chain advances Height only every few minutes. NB: LIB is NOT a
+    // stall signal — it stays frozen for the whole ~1h prolonged bootstrap by design.
     property bool nodeStalled: false
     readonly property int _stallMs: 600000        // 10 min of ZERO real progress ⇒ actually stuck
     property double _progressAt: 0
     property string _progressKey: ""
-    // Real progress = finalization (lib_slot) advancing. Prefer it; fall back to block height
-    // only if the build doesn't expose lib_slot. Keying on height alone masks a node that
-    // ticks height trivially while lib_slot is frozen and it loses ground to the head.
+    // Progress = block HEIGHT advancing. A healthy node — bootstrapping OR online — follows
+    // the chain tip, so its height climbs; only a genuinely dead/wedged node freezes it.
+    // Do NOT key on lib_slot: finalization (LIB) legitimately stays frozen for the entire
+    // prolonged-bootstrap window (up to prolonged_bootstrap_period, ~1h), so a lib-based
+    // check false-fires on a perfectly synced node that just hasn't promoted to Online yet.
     function _recordProgress() {
-        var key = (_libSlot !== undefined) ? ("lib:" + _libSlot)
-                : (heightStr !== "—" ? ("h:" + heightStr) : "")
+        var key = (heightStr !== "—") ? ("h:" + heightStr) : ""
         if (key !== "" && key !== _progressKey) {
             _progressKey = key
             _progressAt = Date.now()

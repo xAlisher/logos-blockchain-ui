@@ -12,7 +12,7 @@ var data = {
             { label: "Not started", meaning: "Node is off / idle." },
             { label: "Starting", meaning: "Launching and checking configuration." },
             { label: "Bootstrapping", meaning: "Running but the chain is behind the head; shows a rough countdown." },
-            { label: "Bootstrap stuck", meaning: "Prolonged bootstrap with no real progress — finalization (LIB) frozen and falling behind the chain, even if block height ticks occasionally. Usually lost reachable peers. Restart, or reset chain state + restart with fresh peers." },
+            { label: "Bootstrap stuck", meaning: "Bootstrapping but block height has stopped advancing for 10+ min — the node isn't following the chain (crashed sync or lost peers). Restart, or reset chain state. Note: LIB staying at 0 during bootstrap is normal (it finalizes once Online), not stuck." },
             { label: "Online", meaning: "Running and synced, following the chain." },
             { label: "Error", meaning: "The node reported an error (message shown)." }
         ],
