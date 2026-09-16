@@ -56,7 +56,7 @@ Item {
     readonly property bool gNetwork: netCount >= 2
     readonly property bool allGreen: gSynced && gFunded && gStakeNote && gPort && gNetwork
 
-    readonly property string docsUrl: "https://docs.logos.co/nodes/blend-port-forwarding"
+    readonly property string docsUrl: "https://docs.logos.co/blockchain/blend/join-the-blend-network-as-a-core-node"
 
     // ── open/close ──
     function open() {
