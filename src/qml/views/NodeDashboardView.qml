@@ -45,7 +45,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.30"
+    property string moduleVersion: "0.2.31"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -88,6 +88,12 @@ Item {
         if (_info.cryptarchia_info && _info.cryptarchia_info.state) return String(_info.cryptarchia_info.state)
         return ""
     }
+    // The bootstrap phase the node reports (top-level `phase` in get_cryptarchia_info):
+    // "ProlongedBootstrapPeriod" means initial download finished but the node hasn't been
+    // able to promote to Online (following the live chain). Paired with a frozen height
+    // (`nodeStalled`) it's the "bootstrapped but stuck — can't reach live peers" case.
+    readonly property string _phase: _field("phase") !== undefined ? String(_field("phase")) : ""
+    readonly property bool _prolonged: _phase === "ProlongedBootstrapPeriod"
     readonly property string slot: (_time && _time.current_slot !== undefined) ? String(_time.current_slot)
                                    : (_field("slot") !== undefined ? String(_field("slot")) : "—")
     readonly property string heightStr: _field("height") !== undefined ? String(_field("height")) : "—"
@@ -248,6 +254,8 @@ Item {
             ? ({ label: qsTr("Not connected"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
+      : (nodeStalled && _prolonged)
+            ? ({ label: qsTr("Bootstrap stuck"), sub: qsTr("Initial download finished but the node can't get newer blocks — it has likely lost reachable peers. If it stays stuck, restart the node; if that doesn't help, reset chain state and restart with fresh peers."), c: Theme.palette.error, copy: false, d: false })
       : nodeStalled
             ? ({ label: qsTr("Sync stalled"), sub: qsTr("No block progress — the node may have stopped or lost peers. Try stopping and starting it again."), c: Theme.palette.error, copy: false, d: false })
       : nodeRecovering
