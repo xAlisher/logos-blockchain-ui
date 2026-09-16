@@ -156,6 +156,42 @@ Rectangle {
         ]
     }
 
+    // "Bootstrap stuck" recovery modal — opened from the dashboard hero CTA when the node
+    // is wedged in a prolonged bootstrap (finalization frozen, falling behind). Explains the
+    // reason, then runs the full stop → reset chain state → re-bootstrap in one action.
+    LogosDialog {
+        id: recoverStuckDialog
+        anchors.centerIn: parent
+        width: 440
+        title: qsTr("Recover the stuck node?")
+
+        LogosText {
+            width: recoverStuckDialog.availableWidth
+            wrapMode: Text.WordWrap
+            color: Theme.palette.textSecondary
+            font.pixelSize: Theme.typography.secondaryText
+            text: qsTr("The node finished its initial download but stopped making progress — "
+                       + "it isn't finalizing new blocks and is falling behind the chain, usually "
+                       + "because it has lost reachable peers. This stops the node, deletes the "
+                       + "local chain database and consensus state, then starts over and "
+                       + "re-downloads the chain from scratch. Your wallet keys and config are kept. "
+                       + "Re-syncing takes a while.")
+        }
+
+        rightActions: [
+            LogosButton {
+                text: qsTr("Cancel")
+                implicitWidth: 130; implicitHeight: 40
+                onClicked: recoverStuckDialog.close()
+            },
+            LogosButton {
+                text: qsTr("Reset & re-bootstrap")
+                implicitWidth: 180; implicitHeight: 40
+                onClicked: { recoverStuckDialog.close(); root._resetChainThenRestart() }
+            }
+        ]
+    }
+
     // Honest-error recovery modal (one-click UX #16). Blocks the UI when the
     // node hits an error, shows the honest cause, explains that a wipe keeps the
     // config, and offers one "wipe + start over" that cleans the store and
@@ -1836,6 +1872,7 @@ Rectangle {
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
                         onEnableBlendRequested: enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
+                        onRecoverRequested: recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 
                 }

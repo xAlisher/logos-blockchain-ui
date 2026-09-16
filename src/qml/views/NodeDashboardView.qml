@@ -40,6 +40,7 @@ Item {
     signal clearBlocksRequested()
     signal copyText(string t)
     signal enableBlendRequested()             // open the Enable-Blend-Core flow (epic #89)
+    signal recoverRequested()                 // "Bootstrap stuck" hero CTA → host runs stop → reset chain → re-bootstrap
 
     // Version footer. This fork ships ONE module version — the /release in-UI guard
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
@@ -629,6 +630,14 @@ Item {
                     value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
                     showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                     info: root._infoData.status; onInfoRequested: root._openInfo(info)
+                }
+                // Recovery CTA — only when the node is wedged in a prolonged bootstrap
+                // (finalization frozen, falling behind). Opens the host's explain-and-confirm
+                // modal that runs stop → reset chain state → re-bootstrap from scratch.
+                RowLayout {
+                    Layout.fillWidth: true; visible: root.nodeStalled && root._prolonged
+                    LogosButton { text: qsTr("Recover node"); onClicked: root.recoverRequested() }
+                    Item { Layout.fillWidth: true }
                 }
                 GridLayout {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
