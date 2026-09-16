@@ -21,6 +21,11 @@ import "infoContent.js" as InfoContent
 ColumnLayout {
     id: root
     spacing: Theme.spacing.large
+    // Breathing room from the window edge — match NodeDashboardView's content inset
+    // so the Vouchers / Claims titles aren't flush against the screen edge.
+    Layout.leftMargin: Theme.spacing.xlarge
+    Layout.rightMargin: Theme.spacing.xlarge
+    Layout.topMargin: Theme.spacing.large
 
     // JSON from wallet_get_claimable_vouchers:
     //   { "tip": "<hex>", "vouchers": [ {commitment, nullifier}, ... ] }
@@ -471,21 +476,6 @@ ColumnLayout {
                 onClicked: root._openInfo(root._rInfo.claims)
             }
         }
-        // Landing-rate signal (#46) — kept as one line above the list even though the
-        // list now shows only landed rows.
-        LogosText {
-            visible: root.notIncludedCount > 0
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: qsTr("%1 of %2 claims have landed. The other %3 weren't included in a block — nothing was consumed, and %4 vouchers are still ready. Claims land far more reliably a few seconds apart.")
-                      .arg(root.fmt(root.landedCount))
-                      .arg(root.fmt(root.landedCount + root.notIncludedCount))
-                      .arg(root.fmt(root.notIncludedCount))
-                      .arg(root.fmt(root.vouchers.length))
-            color: Theme.palette.textSecondary
-            font.pixelSize: Theme.typography.secondaryText
-        }
-
         // The epoch sidebar filters the claims ledger; the page scrolls once it fills.
         RowLayout {
             Layout.fillWidth: true
