@@ -34,30 +34,28 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.25`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.25)** —
-  **Unified CTA orange + onboarding refinements.** All primary calls-to-action now use the shared primary
-  color (some buttons, WelcomeView "Quick start" and the Start/Stop button, previously carried a one-off
-  brighter orange). Onboarding is refined: no border on the selected option card (the checkbox tick and
-  primary radio carry the selection), "Exit setup" pinned to the top-right corner, equal-width step-progress
-  bars, and a transparent step body (the large grey panel behind the cards is gone). Module pin:
-  **blockchain_module 0.2.3**.
-  Previous: **v0.2.24** earned-chart rework + copyable Slot/Height; **v0.2.23** ready-to-claim (i) + disk-cap
-  log pruning; **v0.2.22** onboarding cleanup + working reset/regenerate actions; **v0.2.21** onboarding +
-  honest dashboard (Welcome, Quick start / Advanced onboarding, Earned by epoch chart, honest Vouchers,
-  Keystore backup); **v0.2.20** verified feed.
+- **[`logos_node_1click v0.2.26`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.26)** —
+  **Enable Blend Core + keystore backup fix.** A guided flow turns a running node into a Blend **Core**
+  provider: a gated modal checks prerequisites, declares the provider (self-signed SDP declaration),
+  activates, and lands on a Core management view with disable/withdraw — wired to the real backend
+  (verified reaching Core on testnet). The Blend tile's Core state gains a soft blurred glow and shows the
+  mix-set size ("Proposals mixed by N nodes"). Keystore backup now writes a real file: the old Save-As went
+  through the Wayland desktop portal (a `/run/user/…/doc/` handle) so the copy reported success but never
+  landed — it now writes to `~/Documents/keystore-backup-<timestamp>.yaml` and the button is enabled whenever
+  the node is configured (not only while its wallet is up). Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.25** unified CTA orange + onboarding refinements; **v0.2.24** earned-chart rework +
+  copyable Slot/Height; **v0.2.23** ready-to-claim (i) + disk-cap log pruning; **v0.2.22** onboarding cleanup
+  + working reset/regenerate actions; **v0.2.21** onboarding + honest dashboard (Welcome, Quick start /
+  Advanced onboarding, Earned by epoch chart, honest Vouchers, Keystore backup); **v0.2.20** verified feed.
 
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.25/logos_node_1click-0.2.25-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.26/logos_node_1click-0.2.26-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.25/logos_node_1click-0.2.25-darwin-arm64.lgx
-
-# arm64 Linux — signed, "✓ Signed by xAlisher"
-curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.25/logos-blockchain-ui-aarch64-linux.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.26/logos_node_1click-0.2.26-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
