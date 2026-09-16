@@ -26,6 +26,11 @@ Item {
     property string actionResult: ""              // host sets during reset/regenerate (stop→do→restart progress, or "Error: …")
     property string bootstrapPeers: ""           // real initial peers, one per line
     property bool rewardsAutoClaim: false
+    // Mining / EmPoWering (0.3): background-mine toward a fund target, shown in bare tokens.
+    property bool   miningEnabled: true
+    property string miningTarget: "1000"          // LGO; a default, editable here or in the config
+    signal miningToggled(bool on)
+    signal miningTargetApplied(string targetLgo)
     property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
     property string ramUsage: ""
     property string diskUsage: ""                 // real, node data-dir footprint
@@ -181,6 +186,41 @@ Item {
                     desc: qsTr("Claim proposing rewards automatically in the background.")
                     value: root.rewardsAutoClaim
                     onUserToggled: (on) => root.rewardsAutoClaimToggled(on)
+                }
+                // #98 — status readout. (0.3: reflects /pow/auto-claim state; the toggle
+                // above drives /pow/auto-claim/start|stop once wired to the 0.3 backend.)
+                LogosText {
+                    Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: root.rewardsAutoClaim
+                        ? qsTr("● Auto-claiming — claims fire automatically at each epoch start.")
+                        : qsTr("○ Off — claim manually from the Rewards tab.")
+                    color: root.rewardsAutoClaim ? Theme.palette.success : Theme.palette.textTertiary
+                    font.pixelSize: Theme.typography.secondaryText
+                }
+            }
+
+            // MINING (0.3) — #87: fund-target threshold in bare tokens (not a %)
+            Card {
+                heading: qsTr("Mining")
+                SwitchRow {
+                    label: qsTr("Background mining")
+                    desc: qsTr("Earn stake by mining in the background until the fund target is reached, then pause.")
+                    value: root.miningEnabled
+                    onUserToggled: (on) => { root.miningEnabled = on; root.miningToggled(on) }
+                }
+                RowLayout {
+                    Layout.fillWidth: true; spacing: Theme.spacing.medium
+                    enabled: root.miningEnabled
+                    LogosText { text: qsTr("Fund target"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; Layout.preferredWidth: 90; Layout.alignment: Qt.AlignVCenter }
+                    LogosTextField { id: miningTargetField; Layout.preferredWidth: 120; text: root.miningTarget }
+                    LogosText { text: "LGO"; color: Theme.palette.textSecondary; Layout.alignment: Qt.AlignVCenter }
+                    Item { Layout.fillWidth: true }
+                    LogosButton { text: qsTr("Apply"); onClicked: { root.miningTarget = miningTargetField.text; root.miningTargetApplied(miningTargetField.text) } }
+                }
+                LogosText {
+                    Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: qsTr("Shown in tokens, not a percentage. The target is a default — change it here or in the node's config file.")
+                    color: Theme.palette.textTertiary; font.pixelSize: 11
                 }
             }
 
