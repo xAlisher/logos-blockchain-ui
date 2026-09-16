@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Controls as QQC
 import Logos.Theme
@@ -519,10 +520,10 @@ Item {
                         target: blk
                         function onShineChanged() { if (!blk.shine) fv.color = Qt.binding(function() { return fv.restColor }) }
                     }
-                    // Golden GLOW halo — a scaled, low-opacity gold twin behind the glyphs
-                    // (negative-z child paints behind its parent). Its opacity pulses, giving a
-                    // soft animated bloom. Software-safe (no shader), so it shows in the studio;
-                    // in the GPU app it reads as a real glow.
+                    // Golden GLOW halo — a gold twin behind the glyphs (negative-z child paints
+                    // behind its parent), BLURRED via MultiEffect into a soft bloom, its opacity
+                    // pulsing. Blur is a shader → renders on the real GPU app (blank under the
+                    // software backend, where the fv color pulse above still carries the effect).
                     LogosText {
                         id: fvGlow
                         z: -1; visible: blk.shine
@@ -530,11 +531,13 @@ Item {
                         text: fv.text
                         font.pixelSize: fv.font.pixelSize; font.weight: Theme.typography.weightBold
                         color: fv._goldLight
-                        scale: 1.14; opacity: 0.0
+                        scale: 1.08; opacity: 0.0
+                        layer.enabled: true
+                        layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 40; autoPaddingEnabled: true }
                         SequentialAnimation on opacity {
                             running: blk.shine; loops: Animation.Infinite
-                            NumberAnimation { from: 0.16; to: 0.5; duration: 1500; easing.type: Easing.InOutSine }
-                            NumberAnimation { to: 0.16; duration: 1500; easing.type: Easing.InOutSine }
+                            NumberAnimation { from: 0.35; to: 0.85; duration: 1500; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 0.35; duration: 1500; easing.type: Easing.InOutSine }
                         }
                     }
                 }

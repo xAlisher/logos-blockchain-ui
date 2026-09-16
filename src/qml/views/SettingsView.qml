@@ -29,6 +29,9 @@ Item {
     // Mining / EmPoWering (0.3): background-mine toward a fund target, shown in bare tokens.
     property bool   miningEnabled: true
     property string miningTarget: "1000"          // LGO; a default, editable here or in the config
+    property real   miningMined: -1               // LGO mined so far toward the target; <0 = none yet
+    readonly property int miningProgressPct: (miningMined >= 0 && Number(miningTarget) > 0)
+        ? Math.min(100, Math.round(miningMined * 100 / Number(miningTarget))) : -1
     signal miningToggled(bool on)
     signal miningTargetApplied(string targetLgo)
     property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
@@ -216,6 +219,17 @@ Item {
                     LogosText { text: "LGO"; color: Theme.palette.textSecondary; Layout.alignment: Qt.AlignVCenter }
                     Item { Layout.fillWidth: true }
                     LogosButton { text: qsTr("Apply"); onClicked: { root.miningTarget = miningTargetField.text; root.miningTargetApplied(miningTargetField.text) } }
+                }
+                // Mined amount so far (bare tokens) + progress toward the stake target.
+                LogosText {
+                    visible: root.miningMined >= 0
+                    text: qsTr("Mined: %1 LGO").arg(root.miningMined)
+                    color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium
+                }
+                LogosText {
+                    visible: root.miningProgressPct >= 0
+                    text: qsTr("%1% till target stake").arg(root.miningProgressPct)
+                    color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
                 }
                 LogosText {
                     Layout.fillWidth: true; wrapMode: Text.WordWrap
