@@ -5,7 +5,7 @@ class BlockchainBackend
     // has NOT yet reached Core — it activates at created+2 epochs (SNAPSHOT_FINALIZATION_DELAY).
     // Detected via a local write-ahead store (declareBlendCore persists the declaration id);
     // a declaration made outside this UI reads as Edge until core_info populates.
-    ENUM BlendStatus { Off=0, WaitingForOnline=1, Edge=2, Core=3, Broadcast=4, NodeError=5, BlendError=6, Unknown=7, Activating=8, CorePaused=9 }
+    ENUM BlendStatus { Off=0, WaitingForOnline=1, Edge=2, Core=3, Broadcast=4, NodeError=5, BlendError=6, Unknown=7, Activating=8, CoreDeclaredEdge=9 }
 
     PROP(BlockchainStatus status READONLY)
     PROP(QString userConfig READWRITE)

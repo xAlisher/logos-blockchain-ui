@@ -1031,7 +1031,8 @@ void LogosNode1clickBackend::refreshBlendStatus()
                 // can't tell "still activating" from "was Core, service dropped" — both are null. So
                 // consult the ON-CHAIN declaration (active epoch + withdraw_at) vs the current epoch:
                 //   epoch < active                  → genuinely Activating (declaration pending)
-                //   active <= epoch, not withdrawn  → CorePaused (active on-chain, node not mixing now)
+                //   active <= epoch, not withdrawn  → CoreDeclaredEdge (declared on-chain, but the
+                //                                      node is running Edge — not in this epoch's Core set)
                 //   withdrawn                        → Off
                 //   not yet on-chain                → Activating (just submitted, not landed)
                 const QVariantMap dcl = onchainBlendDecl();
@@ -1046,10 +1047,10 @@ void LogosNode1clickBackend::refreshBlendStatus()
                         st = Activating;
                         evt = QStringLiteral("declaration pending — Core at epoch %1").arg(active);
                     } else {
-                        st = CorePaused;
+                        st = CoreDeclaredEdge;
                         evt = active > 0
-                            ? QStringLiteral("Core declared (active since epoch %1) — this node is not mixing right now").arg(active)
-                            : QStringLiteral("Core declared — this node is not mixing right now");
+                            ? QStringLiteral("Core declared (active since epoch %1) · not in this epoch's Core set").arg(active)
+                            : QStringLiteral("Core declared · not in this epoch's Core set");
                     }
                 } else {
                     // Declaration submitted locally but not yet visible on-chain → genuinely pending.

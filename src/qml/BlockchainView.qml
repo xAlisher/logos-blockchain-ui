@@ -1174,7 +1174,7 @@ Rectangle {
     function _dashBlend(bs) {
         if (bs === BlockchainBackend.Edge) return "edge"
         if (bs === BlockchainBackend.Activating) return "activating"
-        if (bs === BlockchainBackend.CorePaused) return "corepaused"
+        if (bs === BlockchainBackend.CoreDeclaredEdge) return "coredeclared"
         if (bs === BlockchainBackend.Core || bs === BlockchainBackend.Broadcast) return "core"
         return "none"
     }
@@ -1777,7 +1777,7 @@ Rectangle {
                         && root.backend.status === BlockchainBackend.Running
                     visible: online
                     text: bs === "core" ? qsTr("Blend Core ✓")
-                          : bs === "corepaused" ? qsTr("Blend Core: not mixing")
+                          : bs === "coredeclared" ? qsTr("Blend Core: not active")
                           : bs === "activating" ? qsTr("Blend: activating…")
                           : qsTr("Enable Blend Core")
                     enabled: online

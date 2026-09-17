@@ -279,12 +279,14 @@ Item {
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: "#d9a521" })
-                                : blendState === "corepaused" ? ({ label: qsTr("Core (paused)"), c: Theme.palette.warning })
+                                // Declared Core on-chain but running Edge this epoch: the honest live
+                                // state is Edge (that's the mode the node is in), so show the Edge pill.
+                                : blendState === "coredeclared" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : blendState === "activating" ? ({ label: qsTr("Activating…"), c: Theme.palette.warning })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "core" ? (blendPeers > 0 ? qsTr("Proposals mixed by %1 nodes").arg(blendPeers) : qsTr("Proposals mixed"))
-                                      : blendState === "corepaused" ? qsTr("Declared on-chain, not recognized in the Blend membership yet")
+                                      : blendState === "coredeclared" ? qsTr("Core declared · not mixing this epoch")
                                       : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
                                       : blendState === "edge" ? qsTr("Proposals not mixed")
                                       : qsTr("Proposals not mixed")

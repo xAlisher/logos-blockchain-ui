@@ -69,9 +69,10 @@ Item {
         root.faucetBusy = false
         var bs = backend ? backend.blendStatus : 0
         root.step = (bs === BlockchainBackend.Activating) ? 2 : 0
-        // CorePaused = declared + active on-chain but not mixing now → show the Core view (with a
-        // "not mixing" caveat), NOT the enabling/Activating view (activation is long done).
-        root.phase = (bs === BlockchainBackend.Core || bs === BlockchainBackend.CorePaused) ? "core"
+        // CoreDeclaredEdge = declared + active on-chain but running Edge this epoch → show the Core
+        // view (with a "not active this epoch" caveat), NOT the enabling/Activating view (activation
+        // is long done); the stake is locked, so re-declaring here would be a mistake.
+        root.phase = (bs === BlockchainBackend.Core || bs === BlockchainBackend.CoreDeclaredEdge) ? "core"
                    : (bs === BlockchainBackend.Activating) ? "enabling" : "gates"
         root.visible = true
         root._refreshGates()
@@ -433,20 +434,26 @@ Item {
                     contentItem: RowLayout {
                         spacing: Theme.spacing.medium
                         Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9
-                            color: (root.backend && root.backend.blendStatus === BlockchainBackend.CorePaused) ? Theme.palette.warning : "#d9a521" }
+                            color: (root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge) ? Theme.palette.info : "#d9a521" }
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 1
-                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CorePaused)
-                                            ? qsTr("Core declared — not mixing right now")
+                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
+                                            ? qsTr("Core declared — not active this epoch")
                                             : qsTr("Active — mixing your proposals")
                                         color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CorePaused)
-                                            ? qsTr("node not recognized in the Blend membership yet")
+                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
+                                            ? qsTr("running as Edge · not in this epoch's Core set")
                                             : (root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                         }
                     }
                 }
-                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                // declared-but-Edge: explain the honest state + head off a re-declare (stake is locked)
+                LogosText { visible: root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge
+                            Layout.fillWidth: true; wrapMode: Text.WordWrap
+                            text: qsTr("Your Core declaration is active on-chain and your stake is locked — you don't need to declare again. The node is running as Edge and isn't in this epoch's Core mixing set. It may rejoin at the next epoch. If it keeps missing epochs, the node reports a Blend membership issue (blend_tsi_outage) worth raising with the team.")
+                            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                LogosText { visible: !(root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
+                            Layout.fillWidth: true; wrapMode: Text.WordWrap
                             text: qsTr("Disabling withdraws your Blend declaration and unlocks the note you staked. You stop mixing and revert to Edge at the next epoch — rewards you already earned are unaffected.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 // withdrawal error (e.g. the staked note is still inside its lock period)
