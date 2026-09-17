@@ -2989,6 +2989,97 @@ bool LogosNode1clickBackend::forceStopNode()
     return true;
 }
 
+QString LogosNode1clickBackend::blendSigningKey() const
+{
+    // Same instance-dir walk as sdpFundingKey(), but the blend public key lives in the
+    // KEYSTORE (public_keys.BlendSigning), not user_config.yaml.
+    QStringList candidates;
+    const QString dataHome = QString::fromUtf8(qgetenv("XDG_DATA_HOME"));
+    const QString base = dataHome.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.local/share") : dataHome;
+    const QDir md(base + QStringLiteral("/Logos/LogosBasecamp/module_data/blockchain_module"));
+    const QFileInfoList insts =
+        md.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+    for (const QFileInfo& inst : insts)
+        candidates << inst.absoluteFilePath() + QStringLiteral("/keystore.yaml");
+
+    static const QRegularExpression hexRe(QStringLiteral("[0-9a-fA-F]{64}"));
+    for (const QString& path : candidates) {
+        QFile f(path);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
+        const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
+        f.close();
+        bool inPublic = false;
+        for (const QString& line : lines) {
+            const QString t = line.trimmed();
+            // Enter only the public_keys block; leave on any other top-level key
+            // (esp. secret_keys) so we never surface a secret.
+            if (!line.startsWith(QLatin1Char(' ')) && !line.startsWith(QLatin1Char('\t'))
+                && t.endsWith(QLatin1Char(':')))
+                inPublic = t.startsWith(QStringLiteral("public_keys:"));
+            if (inPublic && t.startsWith(QStringLiteral("BlendSigning:"))) {
+                const auto m = hexRe.match(t);
+                if (m.hasMatch()) return m.captured(0);
+            }
+        }
+    }
+    return QString();
+}
+
+QVariantList LogosNode1clickBackend::buildAccounts(const QStringList& knownAddresses,
+                                                   const QString& peerId) const
+{
+    const QString leaderPk = leaderFundingKey();
+    const QString sdpPk = sdpFundingKey();
+    const QString blendPk = blendSigningKey();
+    const QString primary = knownAddresses.isEmpty() ? QString() : knownAddresses.first();
+
+    auto mk = [](const QString& addr, const QString& label, const QString& hint,
+                 const QString& group, bool fundable) {
+        QVariantMap m;
+        m[QStringLiteral("address")] = addr;
+        m[QStringLiteral("label")] = label;
+        m[QStringLiteral("hint")] = hint;
+        m[QStringLiteral("group")] = group;
+        m[QStringLiteral("fundable")] = fundable;
+        return QVariant(m);
+    };
+
+    // ── Spendable: the wallet's known keys, labelled by their config role ──
+    QVariantList out;
+    for (const QString& addr : knownAddresses) {
+        if (!leaderPk.isEmpty() && addr == leaderPk)
+            out << mk(addr, tr("Leader funding key"),
+                      tr("Funds block proposals — fund this to earn"),
+                      QStringLiteral("spendable"), true);
+        else if (!sdpPk.isEmpty() && addr == sdpPk)
+            out << mk(addr, tr("Blend stake key"),
+                      tr("Pays your Blend Core declaration stake"),
+                      QStringLiteral("spendable"), true);
+        else if (addr == primary)
+            out << mk(addr, tr("Wallet"),
+                      tr("Your spendable balance — faucet funds land here"),
+                      QStringLiteral("spendable"), true);
+        else
+            out << mk(addr, tr("Wallet"),
+                      tr("Another spendable key in your wallet"),
+                      QStringLiteral("spendable"), true);
+    }
+
+    // ── Identity: signing keys, copy-only (no balance / no Fund) ──
+    if (!blendPk.isEmpty() && !knownAddresses.contains(blendPk))
+        out << mk(blendPk, tr("Blend public key"),
+                  tr("Your node's Blend signing identity — matches the on-chain declaration"),
+                  QStringLiteral("identity"), false);
+
+    if (!peerId.isEmpty())
+        out << mk(peerId, tr("Network key"),
+                  tr("Your node's peer identity on the network"),
+                  QStringLiteral("identity"), false);
+
+    return out;
+}
+
 void LogosNode1clickBackend::refreshAccounts()
 {
     if (!m_blockchainClient) return;
@@ -3032,7 +3123,15 @@ void LogosNode1clickBackend::refreshAccounts()
 
     qDebug() << "refreshAccounts: loaded" << list.size() << "addresses";
 
-    m_accountsModel->setAddresses(list);
+    // Enrich with per-key labels/hints/group (Spendable vs Identity) classified from the
+    // node config + keystore, so the wallet view names each key instead of showing bare hex.
+    // The network peer id (get_peer_id, derived from the node key, available even when the
+    // node is down) becomes the "Network key" identity row.
+    QString peerId;
+    const QVariantMap pidRes = getPeerId();
+    if (pidRes.value(QStringLiteral("success")).toBool())
+        peerId = pidRes.value(QStringLiteral("value")).toString();
+    m_accountsModel->setAccounts(buildAccounts(list, peerId));
 
     // Expose the node's primary public key (hex) for the faucet (issue #22).
     // NOTE: this is just the FIRST known address; the ordering carries no

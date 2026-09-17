@@ -19,50 +19,74 @@ ItemDelegate {
         color: root.hovered ? Theme.palette.backgroundSecondary : "transparent"
     }
 
-    contentItem: ColumnLayout {
-        spacing: Theme.spacing.small
+    readonly property bool _fundable: model.fundable === true
 
+    contentItem: ColumnLayout {
+        spacing: 2
+
+        // Row 1: the human LABEL (Wallet / Leader funding key / Blend public key …) + balance.
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacing.small
 
             LogosText {
                 Layout.fillWidth: true
-                text: model.address || ""
-                elide: Text.ElideMiddle
+                text: model.label || qsTr("Key")
                 font.pixelSize: Theme.typography.secondaryText
+                font.bold: true
             }
 
             LogosText {
                 Layout.preferredWidth: contentWidth
                 Layout.alignment: Qt.AlignRight
-                visible: (model.balance || "").length > 0
+                visible: root._fundable && (model.balance || "").length > 0
                 text: model.balance || ""
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textSecondary
                 elide: Text.ElideRight
             }
 
+            // balance refresh — only for spendable/fundable keys
             Button {
+                visible: root._fundable
                 Layout.alignment: Qt.AlignRight
                 Layout.leftMargin: parent.spacing
-                Layout.preferredHeight: 40
-                Layout.preferredWidth: 40
+                Layout.preferredHeight: 32
+                Layout.preferredWidth: 32
                 display: AbstractButton.IconOnly
                 flat: true
                 icon.source: Qt.resolvedUrl("../icons/refresh.svg")
                 icon.color: Theme.palette.textSecondary
-                font.pixelSize: Theme.typography.secondaryText
                 padding: 4
                 onClicked: root.getBalanceRequested(model.address || "")
             }
 
             BcCopyButton {
                 Layout.alignment: Qt.AlignRight
-                Layout.preferredHeight: 40
-                Layout.preferredWidth: 40
+                Layout.preferredHeight: 32
+                Layout.preferredWidth: 32
                 onCopyText: root.copyRequested(model.address || "")
             }
+        }
+
+        // Row 2: the address itself (mono, elided) — the value the copy button yields.
+        LogosText {
+            Layout.fillWidth: true
+            text: model.address || ""
+            elide: Text.ElideMiddle
+            font.pixelSize: 11
+            font.family: "monospace"
+            color: Theme.palette.textSecondary
+        }
+
+        // Row 3: one-line hint of what the key is FOR.
+        LogosText {
+            Layout.fillWidth: true
+            visible: (model.hint || "").length > 0
+            text: model.hint || ""
+            font.pixelSize: 11
+            color: Theme.palette.textTertiary
+            wrapMode: Text.WordWrap
         }
 
         LogosText {

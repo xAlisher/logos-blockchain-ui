@@ -143,6 +143,14 @@ private:
     // sdp.wallet.funding_pk from the node config — the key the declaration fee is
     // paid from (mirrors leaderFundingKey()'s config walk, different sub-block).
     QString sdpFundingKey() const;
+    // public_keys.BlendSigning from the node keystore — the node's Blend public key (64 hex),
+    // identical to the on-chain SDP declaration provider_id. This is the value an operator pastes
+    // into the Referral app to link the node. Read from keystore.yaml, not user_config.yaml.
+    QString blendSigningKey() const;
+    // Build the enriched accounts list (address+label+hint+group+fundable) for the wallet view:
+    // classify each known wallet key by its config role, then append the identity keys
+    // (Blend public key from the keystore, and the network peer id passed in).
+    QVariantList buildAccounts(const QStringList& knownAddresses, const QString& peerId) const;
     // blend listening port from the config (blend_port / a udp/<port> in the blend
     // listening_address). Falls back to 3400 (the testnet default) if not found.
     int blendPortFromConfig() const;
