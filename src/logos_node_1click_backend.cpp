@@ -441,6 +441,7 @@ static QByteArray decodeBase58(const QString& input, bool* ok)
 LogosNode1clickBackend::LogosNode1clickBackend(QObject* parent)
     : BlockchainBackendSimpleSource(parent)
     , m_accountsModel(new AccountsModel(this))
+    , m_spendableModel(new AccountsModel(this))
     , m_blockModel(new BlockModel(this))
 {
     setStatus(NotStarted);
@@ -3131,7 +3132,14 @@ void LogosNode1clickBackend::refreshAccounts()
     const QVariantMap pidRes = getPeerId();
     if (pidRes.value(QStringLiteral("success")).toBool())
         peerId = pidRes.value(QStringLiteral("value")).toString();
-    m_accountsModel->setAccounts(buildAccounts(list, peerId));
+    const QVariantList all = buildAccounts(list, peerId);
+    m_accountsModel->setAccounts(all);
+    // Transfer / Channel-Deposit pickers see only spendable keys — never a signing key.
+    QVariantList spendable;
+    for (const QVariant& a : all)
+        if (a.toMap().value(QStringLiteral("group")).toString() == QStringLiteral("spendable"))
+            spendable << a;
+    m_spendableModel->setAccounts(spendable);
 
     // Expose the node's primary public key (hex) for the faucet (issue #22).
     // NOTE: this is just the FIRST known address; the ordering carries no

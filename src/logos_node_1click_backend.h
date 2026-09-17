@@ -30,6 +30,10 @@ class LogosNode1clickBackend : public BlockchainBackendSimpleSource, public Logo
 {
     Q_OBJECT
     Q_PROPERTY(AccountsModel* accounts READ accounts CONSTANT)
+    // Same rows as `accounts` but SPENDABLE keys only (no signing/identity keys). The
+    // Transfer / Channel-Deposit "from account" pickers bind to this so a signing key can
+    // never be picked as a transfer source. The Accounts view uses the full `accounts`.
+    Q_PROPERTY(AccountsModel* spendableAccounts READ spendableAccounts CONSTANT)
     Q_PROPERTY(BlockModel* blocks READ blocks CONSTANT)
 
 public:
@@ -37,6 +41,7 @@ public:
     ~LogosNode1clickBackend() override;
 
     AccountsModel* accounts() const { return m_accountsModel; }
+    AccountsModel* spendableAccounts() const { return m_spendableModel; }
     BlockModel* blocks() const { return m_blockModel; }
 
 public slots:
@@ -225,6 +230,7 @@ private:
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;
+    AccountsModel* m_spendableModel = nullptr;   // spendable-only view for the transfer pickers
     BlockModel* m_blockModel = nullptr;
 
     static const QString BLOCKCHAIN_MODULE_NAME;

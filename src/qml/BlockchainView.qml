@@ -87,6 +87,8 @@ Rectangle {
     // Models live on the C++ backend and are auto-remoted by ui-host as
     // "<module>/<propertyName>". QML acquires them via logos.model(...).
     readonly property var accountsModel: logos.model("logos_node_1click", "accounts")
+    // Spendable-only accounts for the transfer pickers (excludes signing/identity keys).
+    readonly property var spendableAccountsModel: logos.model("logos_node_1click", "spendableAccounts")
     readonly property var blockModel: logos.model("logos_node_1click", "blocks")
 
     // Clipboard must be handled here in the UI-host (GUI) process. The backend
@@ -2146,7 +2148,7 @@ Rectangle {
 
                         TransferView {
                             id: transferView
-                            accountsModel: root.accountsModel
+                            accountsModel: root.spendableAccountsModel
 
                             onTransferRequested: function(fromKeyHex, toKeyHex, amount) {
                                 if (!root.backend) return
@@ -2169,7 +2171,7 @@ Rectangle {
 
                         ChannelDepositView {
                             id: channelDepositView
-                            accountsModel: root.accountsModel
+                            accountsModel: root.spendableAccountsModel
                             nodeRunning: opPage.nodeRunning
 
                             onGetNotesRequested: function(addressHex, optionalTipHex) {
