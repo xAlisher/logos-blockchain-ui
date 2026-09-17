@@ -69,7 +69,9 @@ Item {
         root.faucetBusy = false
         var bs = backend ? backend.blendStatus : 0
         root.step = (bs === BlockchainBackend.Activating) ? 2 : 0
-        root.phase = (bs === BlockchainBackend.Core) ? "core"
+        // CorePaused = declared + active on-chain but not mixing now → show the Core view (with a
+        // "not mixing" caveat), NOT the enabling/Activating view (activation is long done).
+        root.phase = (bs === BlockchainBackend.Core || bs === BlockchainBackend.CorePaused) ? "core"
                    : (bs === BlockchainBackend.Activating) ? "enabling" : "gates"
         root.visible = true
         root._refreshGates()
@@ -430,10 +432,14 @@ Item {
                     backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
                     contentItem: RowLayout {
                         spacing: Theme.spacing.medium
-                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9; color: "#d9a521" }
+                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9
+                            color: (root.backend && root.backend.blendStatus === BlockchainBackend.CorePaused) ? Theme.palette.warning : "#d9a521" }
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 1
-                            LogosText { text: qsTr("Active — mixing your proposals"); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
+                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CorePaused)
+                                            ? qsTr("Core declared — not mixing right now")
+                                            : qsTr("Active — mixing your proposals")
+                                        color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
                             LogosText { text: (root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                         }
                     }

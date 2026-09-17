@@ -943,6 +943,56 @@ QString LogosNode1clickBackend::nodeMode() const
     return o.value(QStringLiteral("state")).toString();
 }
 
+// On-chain SDP state for OUR declaration, matched by locked_note_id (from the local write-ahead
+// store). Returns { found, active(epoch), withdrawAt(epoch or -1 if null) }. The on-chain record is
+// authoritative: it tells us the declaration is active and not withdrawn even when the local blend
+// service isn't currently mixing (core_info null).
+QVariantMap LogosNode1clickBackend::onchainBlendDecl() const
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("found"), false);
+    const QString lockedNote = loadBlendDecl().value(QStringLiteral("locked_note_id")).toString();
+    if (lockedNote.isEmpty())
+        return out;
+    QProcess p;
+    p.setProcessEnvironment(curlEnv());
+    p.start(resolveCurl(),
+            {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("4"),
+             QStringLiteral("http://127.0.0.1:8080/mantle/sdp/declarations")});
+    if (!p.waitForFinished(5000)) { p.kill(); return out; }
+    const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
+    if (!doc.isObject())
+        return out;
+    const QJsonObject o = doc.object();
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        const QJsonObject rec = it.value().toObject();
+        if (rec.value(QStringLiteral("locked_note_id")).toString() == lockedNote) {
+            out.insert(QStringLiteral("found"), true);
+            out.insert(QStringLiteral("active"), rec.value(QStringLiteral("active")).toVariant());
+            const QJsonValue w = rec.value(QStringLiteral("withdraw_at"));
+            out.insert(QStringLiteral("withdrawAt"), w.isNull() ? -1 : w.toVariant().toInt());
+            return out;
+        }
+    }
+    return out;
+}
+
+// Current epoch from the node's /time/info (-1 if unavailable). Same curl path as getBlendInfo.
+int LogosNode1clickBackend::currentEpochOnchain() const
+{
+    QProcess p;
+    p.setProcessEnvironment(curlEnv());
+    p.start(resolveCurl(),
+            {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
+             QStringLiteral("http://127.0.0.1:8080/time/info")});
+    if (!p.waitForFinished(4000)) { p.kill(); return -1; }
+    const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
+    if (!doc.isObject())
+        return -1;
+    const QJsonValue e = doc.object().value(QStringLiteral("current_epoch"));
+    return e.isDouble() ? e.toInt() : -1;
+}
+
 // Recompute blendStatus + lastBlendEvent from the node state, the blend log, and
 // (once past bootstrap) the live /blend/info. Called on the dashboard's refresh
 // timer while the node is Running. Cheap: one log-tail read + at most one curl.
@@ -977,14 +1027,35 @@ void LogosNode1clickBackend::refreshBlendStatus()
                           ? QStringLiteral("%1 mix peers this epoch").arg(mp)
                           : QStringLiteral("mixing for the network");
             } else if (!loadBlendDecl().value(QStringLiteral("declaration_id")).toString().isEmpty()) {
-                // We submitted a Blend declaration (write-ahead store) but core_info is
-                // not populated yet — the declaration activates at created+2 epochs
-                // (SNAPSHOT_FINALIZATION_DELAY). Report Activating so the header/tile
-                // read "activating…" rather than a bare Edge. Clears to Core above once
-                // core_info populates. A declaration made outside this UI has no store
-                // row, so it correctly reads as Edge here (honest — we can't claim it).
-                st = Activating;
-                evt = QStringLiteral("declaration pending — Core in ~2 epochs");
+                // We submitted a Blend declaration but core_info is not populated. core_info alone
+                // can't tell "still activating" from "was Core, service dropped" — both are null. So
+                // consult the ON-CHAIN declaration (active epoch + withdraw_at) vs the current epoch:
+                //   epoch < active                  → genuinely Activating (declaration pending)
+                //   active <= epoch, not withdrawn  → CorePaused (active on-chain, node not mixing now)
+                //   withdrawn                        → Off
+                //   not yet on-chain                → Activating (just submitted, not landed)
+                const QVariantMap dcl = onchainBlendDecl();
+                const int ep = currentEpochOnchain();
+                if (dcl.value(QStringLiteral("found")).toBool()) {
+                    const int active = dcl.value(QStringLiteral("active")).toInt();
+                    const int wat = dcl.value(QStringLiteral("withdrawAt")).toInt();   // -1 = null
+                    if (wat >= 0 && ep >= 0 && ep >= wat) {
+                        st = Off;
+                        evt = QStringLiteral("Blend declaration withdrawn");
+                    } else if (ep >= 0 && ep < active) {
+                        st = Activating;
+                        evt = QStringLiteral("declaration pending — Core at epoch %1").arg(active);
+                    } else {
+                        st = CorePaused;
+                        evt = active > 0
+                            ? QStringLiteral("Core declared (active since epoch %1) — this node is not mixing right now").arg(active)
+                            : QStringLiteral("Core declared — this node is not mixing right now");
+                    }
+                } else {
+                    // Declaration submitted locally but not yet visible on-chain → genuinely pending.
+                    st = Activating;
+                    evt = QStringLiteral("declaration pending — Core in ~2 epochs");
+                }
             } else {
                 // Online and not core → edge by default, unless this epoch fell back
                 // to broadcast or blend errored (both leave a log line we can find).

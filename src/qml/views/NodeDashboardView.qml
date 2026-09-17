@@ -46,7 +46,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.31"
+    property string moduleVersion: "0.2.32"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -279,10 +279,12 @@ Item {
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: "#d9a521" })
+                                : blendState === "corepaused" ? ({ label: qsTr("Core (paused)"), c: Theme.palette.warning })
                                 : blendState === "activating" ? ({ label: qsTr("Activating…"), c: Theme.palette.warning })
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "core" ? (blendPeers > 0 ? qsTr("Proposals mixed by %1 nodes").arg(blendPeers) : qsTr("Proposals mixed"))
+                                      : blendState === "corepaused" ? qsTr("Declared on-chain, not mixing now — restart to resume")
                                       : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
                                       : blendState === "edge" ? qsTr("Proposals not mixed")
                                       : qsTr("Proposals not mixed")

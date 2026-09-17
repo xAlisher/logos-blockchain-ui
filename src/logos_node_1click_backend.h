@@ -134,6 +134,11 @@ private:
     // blendStateFromLog(): map the blend::service log tail → BlendStatus + *outEvent.
     QVariantMap getBlendInfo() const;
     BlendStatus blendStateFromLog(QString* outEvent) const;
+    // On-chain state of OUR SDP declaration (matched by locked_note_id): { found, active, withdrawAt }.
+    QVariantMap onchainBlendDecl() const;
+    // Current epoch from the node's /time/info (-1 if unavailable). Distinguishes a genuinely
+    // pending declaration (epoch < active) from an active-but-not-mixing one (epoch >= active).
+    int currentEpochOnchain() const;
     // ---- Blend Core provider lifecycle helpers (epic #89) ----
     // sdp.wallet.funding_pk from the node config — the key the declaration fee is
     // paid from (mirrors leaderFundingKey()'s config walk, different sub-block).
