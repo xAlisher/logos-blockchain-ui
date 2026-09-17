@@ -71,6 +71,20 @@ ColumnLayout {
                 model: root.accountsModel
                 spacing: Theme.spacing.small
 
+                // Group into "Spendable" (wallet + funding keys, with balances) and
+                // "Identity" (signing keys, copy-only). The backend emits them contiguously.
+                section.property: "group"
+                section.criteria: ViewSection.FullString
+                section.delegate: LogosText {
+                    required property string section
+                    width: ListView.view ? ListView.view.width : implicitWidth
+                    topPadding: Theme.spacing.small
+                    text: section === "identity" ? qsTr("Identity keys") : qsTr("Spendable")
+                    font.pixelSize: 11
+                    font.bold: true
+                    color: Theme.palette.textTertiary
+                }
+
                 delegate: AccountDelegate {
                     balanceError: root.lastBalanceErrorAddress === model.address ?
                                       root.lastBalanceError : ""
