@@ -440,7 +440,9 @@ Item {
                                             ? qsTr("Core declared — not mixing right now")
                                             : qsTr("Active — mixing your proposals")
                                         color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            LogosText { text: (root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CorePaused)
+                                            ? qsTr("node not recognized in the Blend membership yet")
+                                            : (root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                         }
                     }
                 }

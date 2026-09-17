@@ -284,7 +284,7 @@ Item {
                                 : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
     readonly property string _blendSub: blendState === "core" ? (blendPeers > 0 ? qsTr("Proposals mixed by %1 nodes").arg(blendPeers) : qsTr("Proposals mixed"))
-                                      : blendState === "corepaused" ? qsTr("Declared on-chain, not mixing now — restart to resume")
+                                      : blendState === "corepaused" ? qsTr("Declared on-chain, not recognized in the Blend membership yet")
                                       : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
                                       : blendState === "edge" ? qsTr("Proposals not mixed")
                                       : qsTr("Proposals not mixed")
