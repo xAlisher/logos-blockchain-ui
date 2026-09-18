@@ -16,11 +16,14 @@ LogosFrame {
     property var info: null
     signal infoRequested(var info)
 
+    readonly property string _gold: "#d9a521"
     function _color(mode) {
         switch (mode) {
-        case "core":         return "#d9a521"                     // mixing as Core (gold)
-        case "coredeclared": return Theme.palette.info            // declared on-chain, running Edge
-        case "edge":         return Qt.rgba(Theme.palette.info.r, Theme.palette.info.g, Theme.palette.info.b, 0.35)
+        case "core":         return root._gold                    // mixing as Core (gold)
+        // declared-on-chain but running Edge → the SAME normal edge blue, distinguished by a
+        // gold underline drawn on top (see onPaint / the legend swatch), not a darker shade.
+        case "coredeclared": return Theme.palette.info
+        case "edge":         return Theme.palette.info            // normal edge blue
         case "activating":   return Theme.palette.warning         // declaration pending
         case "broadcast":    return "#9b7bd4"
         case "off":          return Theme.palette.textMuted
@@ -57,7 +60,11 @@ LogosFrame {
                 model: [ { m: "core" }, { m: "coredeclared" }, { m: "edge" }, { m: "off" } ]
                 delegate: RowLayout {
                     spacing: 4; Layout.leftMargin: 10
-                    Rectangle { width: 8; height: 8; radius: 2; color: root._color(modelData.m); Layout.alignment: Qt.AlignVCenter }
+                    Rectangle {
+                        width: 8; height: 8; radius: 2; color: root._color(modelData.m); Layout.alignment: Qt.AlignVCenter
+                        // mirror the strip: declared-but-edge = blue swatch + gold underline
+                        Rectangle { visible: modelData.m === "coredeclared"; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 2; color: root._gold }
+                    }
                     LogosText { text: root._label(modelData.m); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                 }
             }
@@ -108,6 +115,12 @@ LogosFrame {
                         ctx.fillStyle = root._color(d[j].mode)
                         ctx.globalAlpha = (j === hoverIdx) ? 1.0 : 0.9
                         ctx.fillRect(slot * j, 0, cw, H)
+                        // declared-but-edge: a 2px gold underline over the normal edge blue
+                        if (d[j].mode === "coredeclared") {
+                            ctx.globalAlpha = 1
+                            ctx.fillStyle = root._gold
+                            ctx.fillRect(slot * j, H - 2, cw, 2)
+                        }
                     }
                     ctx.globalAlpha = 1
                 }
