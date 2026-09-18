@@ -719,10 +719,12 @@ Item {
                     info: root._infoData.syncGap
                     onInfoRequested: (i) => root._openInfo(i)
                 }
-                // ---- Earned by epoch (experimental) — full-width chart below the grid ----
-                // Shown only once there's a first earning to plot (empty until then).
-                LogosFrame {
+                // ---- Earned / Proposed / Claimed — three per-epoch charts, one row of cards ----
+                RowLayout {
                     Layout.fillWidth: true
+                    spacing: Theme.spacing.large
+                LogosFrame {
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop
                     visible: root.earnedByEpoch && root.earnedByEpoch.length > 0
                     backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
                     radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
@@ -832,6 +834,7 @@ Item {
                 }
                 // ---- Blocks proposed by epoch (count) — empty bars for no-proposal epochs ----
                 EpochBarChart {
+                    Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop
                     title: qsTr("Blocks proposed by epoch")
                     unit: qsTr("blocks"); decimals: 0
                     series: root.proposedByEpoch
@@ -841,6 +844,7 @@ Item {
                 }
                 // ---- Vouchers claimed by epoch (count) ----
                 EpochBarChart {
+                    Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop
                     title: qsTr("Vouchers claimed by epoch")
                     unit: qsTr("vouchers"); decimals: 0
                     series: root.vouchersByEpoch
@@ -848,6 +852,7 @@ Item {
                     info: root._infoData.vouchersByEpoch
                     onInfoRequested: (i) => root._openInfo(i)
                 }
+                }   // end Earned/Proposed/Claimed row
                 // ---- Blend type by epoch (persisted categorical strip) ----
                 BlendEpochStrip {
                     series: root.blendModeByEpoch
