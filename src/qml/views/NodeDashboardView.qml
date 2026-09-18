@@ -157,6 +157,7 @@ Item {
     property var vouchersByEpoch: []                         // [{epoch, value}] vouchers claimed per epoch
     property var peersSeries: []                             // rolling in-session peers line
     property var hwSeries: []                                // rolling in-session CPU/RAM/Disk lines
+    property var blendModeByEpoch: []                        // [{epoch, mode}] persisted blend-type strip
     property string feePct: ""
     property string uptime: ""
     property string replayProgress: ""
@@ -800,6 +801,12 @@ Item {
                     series: root.vouchersByEpoch
                     emptyText: qsTr("No vouchers claimed yet.")
                     info: root._infoData.vouchersByEpoch
+                    onInfoRequested: (i) => root._openInfo(i)
+                }
+                // ---- Blend type by epoch (persisted categorical strip) ----
+                BlendEpochStrip {
+                    series: root.blendModeByEpoch
+                    info: root._infoData.blendModeByEpoch
                     onInfoRequested: (i) => root._openInfo(i)
                 }
                 // ---- Peers (rolling ~10 min in-session) ----

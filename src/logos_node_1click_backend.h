@@ -115,6 +115,8 @@ public slots:
     // Blend Core provider lifecycle (epic #89). See the .rep for the API contract.
     QVariantMap declareBlendCore(QString locator, QString lockedNoteId) override;
     QVariantMap getBlendDeclarations() override;
+    // Per-epoch blend-mode history (write-ahead store) for the dashboard "Blend type" strip.
+    QVariantMap getBlendModeHistory() override;
     QVariantMap withdrawBlendCore() override;
     QVariantMap getSdpFundingKey() override;
     QVariantMap checkBlendPortReachable() override;
@@ -169,6 +171,10 @@ private:
     // locator, created_at}). declareBlendCore writes it so withdrawBlendCore can find the
     // declaration id and refreshBlendStatus can report Activating; withdraw deletes it.
     QString blendDeclStorePath() const;
+    // Per-epoch blend-mode history store (blend-mode-history.json beside the node config):
+    // recordBlendMode upserts {epoch: mode} (last-seen wins) from refreshBlendStatus.
+    QString blendModeStorePath() const;
+    void    recordBlendMode(int epoch, const QString& mode) const;
     QJsonObject loadBlendDecl() const;
     void        saveBlendDecl(const QJsonObject& obj) const;
     void        clearBlendDecl() const;

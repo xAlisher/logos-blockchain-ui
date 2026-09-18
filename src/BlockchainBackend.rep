@@ -97,6 +97,8 @@ class BlockchainBackend
     // "network size ≥ 2" gate; the mine* fields (matched via the persisted declaration
     // id / our locator) drive the Activating→Core polling.
     SLOT(QVariantMap getBlendDeclarations())
+    // Per-epoch blend-mode history (write-ahead store) → {success, value: JSON [{epoch,mode}]}.
+    SLOT(QVariantMap getBlendModeHistory())
     // POST /sdp/withdrawal <declarationId> → leaves the Blend Network and unlocks the
     // staked note (sets Declaration.withdraw_at). Resolves this node's declaration id
     // from the write-ahead store, falling back to matching /mantle/sdp/declarations by

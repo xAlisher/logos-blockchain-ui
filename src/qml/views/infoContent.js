@@ -75,6 +75,11 @@ var data = {
         what: "How many leader vouchers this app claimed (settled or in-block) in each epoch — one bar per epoch, its height the count.",
         calc: "Built from this app's claims ledger, the same source as the Earned chart, but counting claims rather than summing their LGO. Each settled/in-block claim is grouped into its epoch (epoch = floor(slot / 36000)); the series is filled continuously to the current epoch so a no-claim epoch shows as an empty slot. Hover to see 'Epoch N: X vouchers'."
     },
+    blendModeByEpoch: {
+        title: "Blend type by epoch",
+        what: "The Blend mode this node was in each epoch — Core (mixing), Declared (edge) (an on-chain Core declaration but running edge), Edge, Activating, or Off — one coloured cell per epoch.",
+        calc: "Recorded by the app into a small write-ahead store (blend-mode-history.json) each time it refreshes the Blend status: the current epoch's cell is set to the resolved mode (last-seen wins within an epoch). This is why it survives even though the node's own log — the only other source — rotates after ~10h. A blank/faint cell means the node was down or the mode was unknown that epoch. History begins the first time you run this app version; older epochs it never observed won't appear."
+    },
     peersSeries: {
         title: "Peers",
         what: "Connected-peer count over the last ~10 minutes — a live trend line, not per-epoch.",

@@ -952,6 +952,7 @@ Rectangle {
             // Recompute the Blend status/event (log tail + at most one curl) on the
             // same cadence as the peer counts; it drives the Blend line on the dashboard.
             root.backend.refreshBlendStatus()
+            root.refreshBlendModeHistory()   // read back the per-epoch mode history it just recorded
             logos.watch(
                 root.backend.getNetworkInfo(),
                 function(result) {
@@ -1482,6 +1483,34 @@ Rectangle {
         }
         return _fillEpochSeries(m)
     }
+    // Per-epoch blend mode from the persisted history store (backend getBlendModeHistory),
+    // gap-filled to the current epoch (missing epoch = "none" = node down / unknown that epoch).
+    property var _blendModeByEpoch: []
+    function _fillBlendModes(arr) {
+        var m = ({})
+        for (var i = 0; i < arr.length; ++i) m[Number(arr[i].epoch)] = arr[i].mode
+        var keys = []
+        for (var k in m) keys.push(Number(k))
+        if (keys.length === 0) return []
+        keys.sort(function(a, b){ return a - b })
+        var lo = keys[0], hi = keys[keys.length - 1]
+        var cur = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+        if (!isNaN(cur) && cur > hi) hi = cur
+        var out = []
+        for (var e = lo; e <= hi; ++e) out.push({ epoch: e, mode: (m[e] || "none") })
+        return out
+    }
+    function refreshBlendModeHistory() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running) return
+        logos.watch(
+            root.backend.getBlendModeHistory(),
+            function(result) {
+                if (!result || !result.success) return
+                try { root._blendModeByEpoch = root._fillBlendModes(JSON.parse(result.value)) } catch (e) {}
+            },
+            function(error) { /* keep last known */ }
+        )
+    }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
@@ -1989,6 +2018,7 @@ Rectangle {
                         vouchersByEpoch: opPage.nodeRunning ? root._vouchersByEpoch : []
                         peersSeries: opPage.nodeRunning ? root._peersSeries : []
                         hwSeries: opPage.nodeRunning ? root._hwSeries : []
+                        blendModeByEpoch: opPage.nodeRunning ? root._blendModeByEpoch : []
 
                         // version footer defaults to Module v<moduleVersion> (0.2.23)
 

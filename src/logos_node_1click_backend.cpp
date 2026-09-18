@@ -1073,6 +1073,84 @@ void LogosNode1clickBackend::refreshBlendStatus()
     }
     setBlendStatus(st);
     setLastBlendEvent(evt);
+
+    // Persist the blend mode for the CURRENT epoch (write-ahead, last-seen wins) so the
+    // dashboard can draw a per-epoch "Blend type" strip with real history — the mode is not
+    // otherwise recoverable once the node's log rotates (~10h). Only record a resolved,
+    // node-up mode (skip WaitingForOnline / Unknown / errors, and skip when epoch is unknown).
+    const int ep = currentEpochOnchain();
+    if (ep >= 0) {
+        QString mode;
+        switch (st) {
+        case Core:             mode = QStringLiteral("core"); break;
+        case Broadcast:        mode = QStringLiteral("broadcast"); break;
+        case CoreDeclaredEdge: mode = QStringLiteral("coredeclared"); break;
+        case Edge:             mode = QStringLiteral("edge"); break;
+        case Activating:       mode = QStringLiteral("activating"); break;
+        case Off:              mode = QStringLiteral("off"); break;
+        default:               mode = QString(); break;   // transient/unknown → don't record
+        }
+        if (!mode.isEmpty())
+            recordBlendMode(ep, mode);
+    }
+}
+
+QString LogosNode1clickBackend::blendModeStorePath() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return {};
+    return QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("blend-mode-history.json"));
+}
+
+void LogosNode1clickBackend::recordBlendMode(int epoch, const QString& mode) const
+{
+    const QString path = blendModeStorePath();
+    if (path.isEmpty()) return;
+    QJsonObject obj;
+    QFile f(path);
+    if (f.exists() && f.open(QIODevice::ReadOnly)) {
+        obj = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+    }
+    const QString key = QString::number(epoch);
+    if (obj.value(key).toString() == mode) return;   // unchanged → no rewrite
+    obj[key] = mode;
+    // Cap the store so it can't grow unbounded: keep the most recent ~200 epochs.
+    if (obj.size() > 200) {
+        QList<int> epochs;
+        for (auto it = obj.begin(); it != obj.end(); ++it) epochs << it.key().toInt();
+        std::sort(epochs.begin(), epochs.end());
+        for (int i = 0; i < epochs.size() - 200; ++i) obj.remove(QString::number(epochs[i]));
+    }
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        f.close();
+    }
+}
+
+QVariantMap LogosNode1clickBackend::getBlendModeHistory()
+{
+    QVariantList out;
+    const QString path = blendModeStorePath();
+    QFile f(path);
+    if (!path.isEmpty() && f.exists() && f.open(QIODevice::ReadOnly)) {
+        const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+        QList<int> epochs;
+        for (auto it = obj.begin(); it != obj.end(); ++it) epochs << it.key().toInt();
+        std::sort(epochs.begin(), epochs.end());
+        for (int e : epochs) {
+            QVariantMap row;
+            row[QStringLiteral("epoch")] = e;
+            row[QStringLiteral("mode")] = obj.value(QString::number(e)).toString();
+            out << row;
+        }
+    }
+    QVariantMap res;
+    res[QStringLiteral("success")] = true;
+    res[QStringLiteral("value")] = QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(out)).toJson(QJsonDocument::Compact));
+    return res;
 }
 
 // ── Blend Core provider lifecycle (epic #89, #90-#96) ────────────────────────
