@@ -117,6 +117,9 @@ public slots:
     QVariantMap getBlendDeclarations() override;
     // Per-epoch blend-mode history (write-ahead store) for the dashboard "Blend type" strip.
     QVariantMap getBlendModeHistory() override;
+    // Per-epoch max block height (write-ahead) → blocks-per-epoch (Δheight) chart.
+    void        recordEpochHeight(int epoch, int height) override;
+    QVariantMap getEpochHeights() override;
     QVariantMap withdrawBlendCore() override;
     QVariantMap getSdpFundingKey() override;
     QVariantMap checkBlendPortReachable() override;
@@ -175,6 +178,8 @@ private:
     // recordBlendMode upserts {epoch: mode} (last-seen wins) from refreshBlendStatus.
     QString blendModeStorePath() const;
     void    recordBlendMode(int epoch, const QString& mode) const;
+    // Per-epoch max-height store (epoch-height.json) backing the blocks-per-epoch chart.
+    QString epochHeightStorePath() const;
     QJsonObject loadBlendDecl() const;
     void        saveBlendDecl(const QJsonObject& obj) const;
     void        clearBlendDecl() const;

@@ -68,11 +68,16 @@ LogosFrame {
                 readonly property int padR: 6
                 readonly property int padT: 8
                 readonly property int padB: 8
+                property int hoverIdx: -1     // index into the shared time axis (0…maxLen-1)
                 onSChanged: requestPaint()
                 onWidthChanged: requestPaint()
                 onHeightChanged: requestPaint()
+                onHoverIdxChanged: requestPaint()
                 onAvailableChanged: if (available) requestPaint()
                 Component.onCompleted: requestPaint()
+                function _fmt(line, v) {
+                    return (typeof line.fmt === "function") ? line.fmt(v) : String(Math.round(v))
+                }
                 onPaint: {
                     var ctx = getContext("2d"); ctx.reset()
                     var W = width, H = height
@@ -81,6 +86,8 @@ LogosFrame {
                     ctx.strokeStyle = Theme.palette.border; ctx.globalAlpha = 0.4; ctx.lineWidth = 1
                     ctx.beginPath(); ctx.moveTo(padL, baseY); ctx.lineTo(W - padR, baseY); ctx.stroke(); ctx.globalAlpha = 1
                     var lines = s || []
+                    var n = root._maxLen
+                    var xAt = function(j, len) { return padL + (len <= 1 ? 0 : (j / (len - 1)) * pw) }
                     for (var li = 0; li < lines.length; li++) {
                         var vals = lines[li].values || []
                         if (vals.length < 2) continue
@@ -90,12 +97,59 @@ LogosFrame {
                         ctx.strokeStyle = lines[li].color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9
                         ctx.beginPath()
                         for (var j = 0; j < vals.length; j++) {
-                            var x = padL + (vals.length === 1 ? 0 : (j / (vals.length - 1)) * pw)
                             var y = baseY - (Math.max(0, Number(vals[j]) || 0) / mx) * ph
-                            if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                            if (j === 0) ctx.moveTo(xAt(j, vals.length), y); else ctx.lineTo(xAt(j, vals.length), y)
                         }
                         ctx.stroke(); ctx.globalAlpha = 1
                     }
+                    // ── hover: vertical tracking line + a dot per series + a value tooltip ──
+                    if (hoverIdx >= 0 && n > 1) {
+                        var hx = xAt(hoverIdx, n)
+                        ctx.strokeStyle = Theme.palette.textTertiary; ctx.globalAlpha = 0.55; ctx.lineWidth = 1
+                        ctx.beginPath(); ctx.moveTo(hx, padT); ctx.lineTo(hx, baseY); ctx.stroke(); ctx.globalAlpha = 1
+                        var rows = []
+                        for (var m = 0; m < lines.length; m++) {
+                            var lv = lines[m].values || []
+                            if (hoverIdx >= lv.length) continue
+                            var mmx = 0
+                            for (var q = 0; q < lv.length; q++) mmx = Math.max(mmx, Number(lv[q]) || 0)
+                            if (mmx <= 0) mmx = 1
+                            var vy = baseY - (Math.max(0, Number(lv[hoverIdx]) || 0) / mmx) * ph
+                            ctx.fillStyle = lines[m].color
+                            ctx.beginPath(); ctx.arc(hx, vy, 2.5, 0, 2 * Math.PI); ctx.fill()
+                            rows.push({ color: lines[m].color, text: (lines[m].label || "") + "  " + _fmt(lines[m], Number(lv[hoverIdx])) })
+                        }
+                        // tooltip box, flipped to whichever side of the line has room
+                        ctx.font = "11px sans-serif"
+                        var tw = 0
+                        for (var r = 0; r < rows.length; r++) tw = Math.max(tw, ctx.measureText(rows[r].text).width)
+                        var boxW = tw + 22, boxH = rows.length * 15 + 8
+                        var bx = (hx + 10 + boxW < W - padR) ? hx + 8 : hx - 8 - boxW
+                        var by = padT + 2
+                        ctx.fillStyle = Theme.palette.background; ctx.globalAlpha = 0.9
+                        ctx.fillRect(bx, by, boxW, boxH); ctx.globalAlpha = 1
+                        ctx.strokeStyle = Theme.palette.border; ctx.lineWidth = 1; ctx.strokeRect(bx, by, boxW, boxH)
+                        ctx.textBaseline = "middle"
+                        for (var t = 0; t < rows.length; t++) {
+                            var ry = by + 12 + t * 15
+                            ctx.fillStyle = rows[t].color
+                            ctx.beginPath(); ctx.arc(bx + 8, ry, 3, 0, 2 * Math.PI); ctx.fill()
+                            ctx.fillStyle = Theme.palette.text; ctx.textAlign = "left"
+                            ctx.fillText(rows[t].text, bx + 15, ry)
+                        }
+                    }
+                }
+                MouseArea {
+                    anchors.fill: parent; hoverEnabled: true
+                    onPositionChanged: {
+                        var n = root._maxLen
+                        if (n < 2) { chart.hoverIdx = -1; return }
+                        var pw = Math.max(1, chart.width - chart.padL - chart.padR)
+                        var frac = (mouseX - chart.padL) / pw
+                        var idx = Math.round(frac * (n - 1))
+                        chart.hoverIdx = (idx >= 0 && idx < n) ? idx : -1
+                    }
+                    onExited: chart.hoverIdx = -1
                 }
             }
         }

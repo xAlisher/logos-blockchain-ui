@@ -75,6 +75,21 @@ var data = {
         what: "How many leader vouchers this app claimed (settled or in-block) in each epoch — one bar per epoch, its height the count.",
         calc: "Built from this app's claims ledger, the same source as the Earned chart, but counting claims rather than summing their LGO. Each settled/in-block claim is grouped into its epoch (epoch = floor(slot / 36000)); the series is filled continuously to the current epoch so a no-claim epoch shows as an empty slot. Hover to see 'Epoch N: X vouchers'."
     },
+    chainPosition: {
+        title: "Chain position",
+        what: "Slot and Height in one picture: a slot axis with three markers — lib (finalized), tip (your latest block), and now (the clock / current_slot) — plus the block count.",
+        calc: "Slot is the clock (it ticks every slot whether or not a block is produced); Height is the chain (it only climbs when a block lands). The solid segment lib→tip is built-but-not-yet-finalized; the faint segment tip→now is the gap you're catching up to the clock. When synced, tip≈now and the faint part disappears. During a prolonged bootstrap the finalized edge (lib) freezes far behind — visible here as a large 'slots to finality'. Point-in-time (current values), not a history."
+    },
+    blocksByEpoch: {
+        title: "Blocks per epoch",
+        what: "How many blocks the NETWORK added each epoch (the rise in chain Height), one bar per epoch.",
+        calc: "The app records the max block Height it saw in each epoch into a small store (epoch-height.json); blocks-per-epoch is the difference between consecutive epochs' heights. This is total network block production (not just yours), so it reads the chain's liveness — steady bars = healthy, falling = trouble; your bootstrap epochs show as tall catch-up bars. History starts the first time you run this build; the current epoch's bar is partial until it ends."
+    },
+    syncGap: {
+        title: "Sync gap",
+        what: "How many slots your node's tip is behind the clock (current_slot − tip), over the last ~10 minutes.",
+        calc: "Sampled every ~4 seconds into a rolling in-session buffer. A large, falling line means you're bootstrapping and catching up; near-zero and flat means you're synced and following the tip. Recent view only — it resets when the node stops."
+    },
     blendModeByEpoch: {
         title: "Blend type by epoch",
         what: "The Blend mode this node was in each epoch — Core (mixing), Declared (edge) (an on-chain Core declaration but running edge), Edge, Activating, or Off — one coloured cell per epoch.",

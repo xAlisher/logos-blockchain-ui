@@ -923,24 +923,29 @@ Rectangle {
     property var _diskBuf: []
     function _pushTimeSeries() {
         var cpu = root._numOf(root.backend ? root.backend.cpuUsage : "")
-        var ram = root._numOf(root.backend ? root.backend.ramUsage : "")
+        var ram = root._diskGb(root.backend ? root.backend.ramUsage : "")   // "180 MB / .." → GB (handles MB/GB)
         var disk = root._diskGb(root.backend ? root.backend.diskUsage : "")
         if (root.nodePeers >= 0) _peersBuf = _peersBuf.concat([root.nodePeers]).slice(-_tsCap)
         if (!isNaN(cpu))  _cpuBuf  = _cpuBuf.concat([cpu]).slice(-_tsCap)
         if (!isNaN(ram))  _ramBuf  = _ramBuf.concat([ram]).slice(-_tsCap)
         if (!isNaN(disk)) _diskBuf = _diskBuf.concat([disk]).slice(-_tsCap)
     }
+    function _fmtGb(v) { return v < 1 ? (v * 1024).toFixed(0) + " MB" : v.toFixed(1) + " GB" }
     readonly property var _peersSeries: [
         { label: qsTr("Peers"), color: Theme.palette.info, values: _peersBuf,
+          fmt: function(v) { return String(Math.round(v)) },
           latest: _peersBuf.length ? String(_peersBuf[_peersBuf.length - 1]) : "" }
     ]
     readonly property var _hwSeries: [
         { label: qsTr("CPU"),  color: Theme.palette.info,    values: _cpuBuf,
+          fmt: function(v) { return v.toFixed(0) + "%" },
           latest: _cpuBuf.length  ? (_cpuBuf[_cpuBuf.length - 1].toFixed(0) + "%")   : "" },
         { label: qsTr("RAM"),  color: "#d9a521",             values: _ramBuf,
-          latest: _ramBuf.length  ? (_ramBuf[_ramBuf.length - 1].toFixed(1) + " GB") : "" },
+          fmt: function(v) { return root._fmtGb(v) },
+          latest: _ramBuf.length  ? root._fmtGb(_ramBuf[_ramBuf.length - 1]) : "" },
         { label: qsTr("Disk"), color: Theme.palette.success, values: _diskBuf,
-          latest: _diskBuf.length ? (_diskBuf[_diskBuf.length - 1].toFixed(1) + " GB") : "" }
+          fmt: function(v) { return root._fmtGb(v) },
+          latest: _diskBuf.length ? root._fmtGb(_diskBuf[_diskBuf.length - 1]) : "" }
     ]
     Timer {
         interval: 4000; repeat: true; triggeredOnStart: true
@@ -953,6 +958,7 @@ Rectangle {
             // same cadence as the peer counts; it drives the Blend line on the dashboard.
             root.backend.refreshBlendStatus()
             root.refreshBlendModeHistory()   // read back the per-epoch mode history it just recorded
+            root.recordAndRefreshEpochHeights()   // ② record max height/epoch → blocks-per-epoch
             logos.watch(
                 root.backend.getNetworkInfo(),
                 function(result) {
@@ -1511,6 +1517,41 @@ Rectangle {
             function(error) { /* keep last known */ }
         )
     }
+    // ② blocks-per-epoch: persist max height per epoch, read it back, diff consecutive epochs.
+    function _chainHeightNow() {
+        try {
+            var o = root.cryptarchiaInfoJson && root.cryptarchiaInfoJson.length ? JSON.parse(root.cryptarchiaInfoJson) : null
+            if (!o) return -1
+            var h = (o.cryptarchia_info && o.cryptarchia_info.height !== undefined) ? o.cryptarchia_info.height : o.height
+            return (h === undefined) ? -1 : Number(h)
+        } catch (e) { return -1 }
+    }
+    property var _epochHeights: []          // [{epoch, height}] from the persisted store
+    function recordAndRefreshEpochHeights() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running) return
+        var ep = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+        var h = _chainHeightNow()
+        if (!isNaN(ep) && ep >= 0 && h >= 0) root.backend.recordEpochHeight(ep, h)
+        logos.watch(
+            root.backend.getEpochHeights(),
+            function(result) {
+                if (!result || !result.success) return
+                try { root._epochHeights = JSON.parse(result.value) } catch (e) {}
+            },
+            function(error) { /* keep last known */ }
+        )
+    }
+    readonly property var _blocksByEpoch: {
+        var arr = root._epochHeights || []
+        if (arr.length < 2) return []
+        var m = ({})
+        for (var i = 1; i < arr.length; ++i) {
+            // Only diff CONSECUTIVE epochs (a gap means an epoch we never observed → unknown, skip).
+            if (Number(arr[i].epoch) === Number(arr[i - 1].epoch) + 1)
+                m[Number(arr[i].epoch)] = Math.max(0, Number(arr[i].height) - Number(arr[i - 1].height))
+        }
+        return root._fillEpochSeries(m)
+    }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
@@ -2019,6 +2060,7 @@ Rectangle {
                         peersSeries: opPage.nodeRunning ? root._peersSeries : []
                         hwSeries: opPage.nodeRunning ? root._hwSeries : []
                         blendModeByEpoch: opPage.nodeRunning ? root._blendModeByEpoch : []
+                        blocksByEpoch: opPage.nodeRunning ? root._blocksByEpoch : []
 
                         // version footer defaults to Module v<moduleVersion> (0.2.23)
 

@@ -1129,6 +1129,66 @@ void LogosNode1clickBackend::recordBlendMode(int epoch, const QString& mode) con
     }
 }
 
+QString LogosNode1clickBackend::epochHeightStorePath() const
+{
+    const QString cfg = userConfig();
+    if (cfg.isEmpty())
+        return {};
+    return QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("epoch-height.json"));
+}
+
+void LogosNode1clickBackend::recordEpochHeight(int epoch, int height)
+{
+    // Persist the MAX height reached in each epoch (write-ahead) so the dashboard can draw
+    // blocks-per-epoch (Δheight) — total network blocks aren't otherwise recoverable per epoch.
+    const QString path = epochHeightStorePath();
+    if (path.isEmpty() || epoch < 0 || height < 0) return;
+    QJsonObject obj;
+    QFile f(path);
+    if (f.exists() && f.open(QIODevice::ReadOnly)) {
+        obj = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+    }
+    const QString key = QString::number(epoch);
+    if (height <= obj.value(key).toInt())   // only grow (height climbs within an epoch)
+        return;
+    obj[key] = height;
+    if (obj.size() > 400) {
+        QList<int> epochs;
+        for (auto it = obj.begin(); it != obj.end(); ++it) epochs << it.key().toInt();
+        std::sort(epochs.begin(), epochs.end());
+        for (int i = 0; i < epochs.size() - 400; ++i) obj.remove(QString::number(epochs[i]));
+    }
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        f.close();
+    }
+}
+
+QVariantMap LogosNode1clickBackend::getEpochHeights()
+{
+    QVariantList out;
+    const QString path = epochHeightStorePath();
+    QFile f(path);
+    if (!path.isEmpty() && f.exists() && f.open(QIODevice::ReadOnly)) {
+        const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+        QList<int> epochs;
+        for (auto it = obj.begin(); it != obj.end(); ++it) epochs << it.key().toInt();
+        std::sort(epochs.begin(), epochs.end());
+        for (int e : epochs) {
+            QVariantMap row;
+            row[QStringLiteral("epoch")] = e;
+            row[QStringLiteral("height")] = obj.value(QString::number(e)).toInt();
+            out << row;
+        }
+    }
+    QVariantMap res;
+    res[QStringLiteral("success")] = true;
+    res[QStringLiteral("value")] = QString::fromUtf8(QJsonDocument(QJsonArray::fromVariantList(out)).toJson(QJsonDocument::Compact));
+    return res;
+}
+
 QVariantMap LogosNode1clickBackend::getBlendModeHistory()
 {
     QVariantList out;

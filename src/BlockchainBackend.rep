@@ -99,6 +99,9 @@ class BlockchainBackend
     SLOT(QVariantMap getBlendDeclarations())
     // Per-epoch blend-mode history (write-ahead store) → {success, value: JSON [{epoch,mode}]}.
     SLOT(QVariantMap getBlendModeHistory())
+    // Per-epoch max block height (write-ahead) for the blocks-per-epoch chart.
+    SLOT(void recordEpochHeight(int epoch, int height))
+    SLOT(QVariantMap getEpochHeights())
     // POST /sdp/withdrawal <declarationId> → leaves the Blend Network and unlocks the
     // staked note (sets Declaration.withdraw_at). Resolves this node's declaration id
     // from the write-ahead store, falling back to matching /mantle/sdp/declarations by

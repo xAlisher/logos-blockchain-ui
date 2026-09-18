@@ -105,6 +105,27 @@ Item {
     readonly property string tip: _field("tip") ? _short(String(_field("tip"))) : "—"
     readonly property string _libFull: _field("lib") ? String(_field("lib")) : ""
     readonly property string _tipFull: _field("tip") ? String(_field("tip")) : ""
+    // Numeric slot/height for the "Chain position" bar + sync-gap chart.
+    readonly property int _nowSlot: (_time && _time.current_slot !== undefined) ? Number(_time.current_slot)
+                                    : (_field("slot") !== undefined ? Number(_field("slot")) : -1)
+    readonly property int _tipSlot: _field("slot") !== undefined ? Number(_field("slot")) : -1
+    readonly property int _libSlot: _field("lib_slot") !== undefined ? Number(_field("lib_slot")) : -1
+    readonly property int _heightNum: _field("height") !== undefined ? Number(_field("height")) : -1
+    // ③ sync-gap (now − tip) rolling buffer — the "am I caught up?" line.
+    property var _syncGapBuf: []
+    Timer {
+        interval: 4000; repeat: true
+        running: root.status === BlockchainBackend.Running
+        onRunningChanged: if (!running) root._syncGapBuf = []
+        onTriggered: {
+            if (root._nowSlot >= 0 && root._tipSlot >= 0)
+                root._syncGapBuf = root._syncGapBuf.concat([Math.max(0, root._nowSlot - root._tipSlot)]).slice(-150)
+        }
+    }
+    readonly property var _syncGapSeries: [
+        { label: qsTr("Slots behind"), color: Theme.palette.warning, values: _syncGapBuf,
+          latest: _syncGapBuf.length ? String(_syncGapBuf[_syncGapBuf.length - 1]) : "" }
+    ]
     readonly property string peerIdShort: (peerId && peerId.length) ? _short(peerId) : "—"
     // Epoch progress (prototype calc): epoch = floor(slot / epochLen); slot-in-epoch × slot
     // duration gives elapsed. PREVIEW: epochLen is a testnet-measured const (~36000 slots ≈ 10h)
@@ -158,6 +179,7 @@ Item {
     property var peersSeries: []                             // rolling in-session peers line
     property var hwSeries: []                                // rolling in-session CPU/RAM/Disk lines
     property var blendModeByEpoch: []                        // [{epoch, mode}] persisted blend-type strip
+    property var blocksByEpoch: []                           // [{epoch, value}] blocks (Δheight) per epoch
     property string feePct: ""
     property string uptime: ""
     property string replayProgress: ""
@@ -673,6 +695,29 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Height"); value: root.heightStr; copyValue: root.heightStr !== "—" ? root.heightStr : ""; onCopyRequested: (t) => root.copyText(t); info: root._infoData.height; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
+                }
+                // ═══ Slot & Height experiments (① chain-position · ② blocks/epoch · ③ sync-gap) ═══
+                // ① Chain position: lib / tip / now on one slot axis + height.
+                ChainPositionBar {
+                    libSlot: root._libSlot; tipSlot: root._tipSlot; nowSlot: root._nowSlot; blockHeight: root._heightNum
+                    info: root._infoData.chainPosition
+                    onInfoRequested: (i) => root._openInfo(i)
+                }
+                // ② Blocks per epoch (Δheight) — network block production.
+                EpochBarChart {
+                    title: qsTr("Blocks per epoch")
+                    unit: qsTr("blocks"); decimals: 0
+                    series: root.blocksByEpoch
+                    emptyText: qsTr("Recording — blocks-per-epoch fills in as epochs pass.")
+                    info: root._infoData.blocksByEpoch
+                    onInfoRequested: (i) => root._openInfo(i)
+                }
+                // ③ Sync gap (now − tip) over time — the "am I caught up?" line.
+                TimeSeriesChart {
+                    title: qsTr("Sync gap (slots behind)")
+                    series: root._syncGapSeries
+                    info: root._infoData.syncGap
+                    onInfoRequested: (i) => root._openInfo(i)
                 }
                 // ---- Earned by epoch (experimental) — full-width chart below the grid ----
                 // Shown only once there's a first earning to plot (empty until then).
