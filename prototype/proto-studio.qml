@@ -5,6 +5,7 @@ import QtQuick.Controls as QQC
 import Logos.Theme
 import Logos.Controls
 import "../src/qml/views" as V
+import "../src/qml/controls" as C
 import "../src/qml/amounts.js" as Amounts
 
 // Blockchain-node dashboard PROTOTYPE STUDIO.
@@ -20,6 +21,9 @@ Window {
 
     property bool _onboarding: false      // onboarding flow overlay (launched from the control panel)
     property bool _keysBackedUp: false    // false ⇒ show the "back up your keys" banner (Quick start leaves it false)
+    property bool _dragExp: false         // drag-to-reorder tiles experiment overlay
+    property bool _blendModal: false      // Enable-Blend-Core modal overlay (epic #89)
+    property bool _blendPortOpen: false   // the hard gate (UDP 3400) — flip to demo green → Enable
 
     // number formatting helpers
     function fmtK(n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") }
@@ -30,12 +34,17 @@ Window {
         id: st
         property int status: -1            // -1 not connected · 0 NotStarted · 1 Starting · 2 Running · 4 Stopped · 5 Error
         property bool recovering: false
+        property bool autoPaused: false    // node stopped by a resource-cap breach → "Node auto-paused" hero
+        property string autoPauseReason: ""
+        property bool stalled: false       // no real progress → "Sync stalled" / (with prolonged phase) "Bootstrap stuck"
+        property string phase: ""          // cryptarchia phase; "ProlongedBootstrapPeriod" ⇒ prolonged bootstrap
         property string err: ""
         property string mode: ""           // "Online" once the node reports
         property real tip: 0               // node chain tip (slot)
         property real head: 0              // network head (current_slot); head-tip>3 ⇒ bootstrapping
         property string peerId: ""
         property string blend: "none"
+        property int blendWithdrawEpoch: -1    // >=0 ⇒ our declaration is withdrawing, clears at this epoch (blocks re-declare)
         property string validation: ""
         property int epochsToActivate: 0
         property int eligibleNoteCount: -1     // 0.3 /leader/aged-notes count; -1 unknown, 0 aging, >0 eligible
@@ -75,7 +84,7 @@ Window {
         readonly property string uptime: upSecs >= 0 ? win.fmtHMS(upSecs) : ""
 
         readonly property string infoJson: mode.length
-            ? JSON.stringify({ mode: mode, slot: Math.round(tip), height: Math.round(tip),
+            ? JSON.stringify({ mode: mode, slot: Math.round(tip), height: Math.round(tip), phase: phase,
                                lib: "0x71bd39c4f0a17e2b8c4d5e6f9a0b1c2d3e4f5a6b9e4a", tip: "0x8a3f10d2e5c7b9a0f1e2d3c4b5a6978877665544c012" })
             : ""
         readonly property string timeInfoJson: mode.length
@@ -84,16 +93,70 @@ Window {
         readonly property bool synced: running && mode === "Online" && (head - tip) <= 3
     }
 
+    // ── mock data for the ported operator pages (Rewards / Blocks / Proposals / Wallet) ──
+    // Static snapshots so the real fork views render representative content in the studio.
+    readonly property string mockProposalsJson: JSON.stringify([
+        { id: "0x8a3f10d2e5c7b9a0f1e2d3c4b5a6978877665544c012", txs: 3, time: 1789480200, removed: false },
+        { id: "0x71bd39c4f0a17e2b8c4d5e6f9a0b1c2d3e4f5a6b9e4a", txs: 1, time: 1789476600, removed: false },
+        { id: "0x5c2e91a0b3d4f5061728394a5b6c7d8e9f0a1b2c3d4e", txs: 0, time: 1789473000, removed: false }
+    ])
+    readonly property string mockClaimsJson: JSON.stringify({
+        claims: [
+            { status: "settled", slot: 411500, reward: 5814, fee: 4173, tx: "6da7dc3948e976c3f1ee2e2616bb3dee1bfc63c1c2fbadb3f37796eab9a126af", voucherNf: "7d19c05c2ff04c4c9f5d159a9b1753abbc4b1d99819f005ea5a0abcbdedf1f04", settledAt: "2026-09-15T10:31:45", submittedAt: "2026-09-15T10:31:40" },
+            { status: "settled", slot: 411180, reward: 5814, fee: 4173, tx: "e590c916644fb51cc7517db88cdab8d62d3ad6d0c39005320b4f0677339bf209", voucherNf: "606ee4daff2ffabbc2204fe07e1523c57bd11023da1def88975a99f543a4cc0a", settledAt: "2026-09-15T10:30:15", submittedAt: "2026-09-15T10:30:10" },
+            { status: "settled", slot: 410900, reward: 5814, fee: 4173, tx: "ac67f25aee2db4413c048efeacc0c513d7bdb0b0b6805446d85454e7b3cdc406", voucherNf: "439f24635ed005129bb4f6937c6046085d8b709ee215e7e53e621c0ff77eee02", settledAt: "2026-09-15T10:30:45", submittedAt: "2026-09-15T10:30:40" },
+            { status: "settled", slot: 396500, reward: 5720, fee: 4173, tx: "18973b6e76be6b6eefddaaf7ebf3107389b258f0590ddc39902ff9959034def3", voucherNf: "ad32c8e61b082d30183fc7fde8eb86c09edd158fe14adcc629c42da74a865930", settledAt: "2026-09-15T09:58:15", submittedAt: "2026-09-15T09:58:10" },
+            { status: "settled", slot: 380000, reward: 5680, fee: 4102, tx: "b21c7fe0a4d9c8375e162b4c0d5a6978877665544c0129e3f4a5b6c7d8e9f0a1", voucherNf: "f0e1d2c3b4a5968778695a4b3c2d1e0fa9b8c7d6b5a4938271605f4e3d2c1b0a", settledAt: "2026-09-15T05:12:00", submittedAt: "2026-09-15T05:11:55" },
+            { status: "in_block", slot: 412000, reward: 5814, fee: 4173, tx: "c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2", voucherNf: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90", submittedAt: "2026-09-15T10:33:00" },
+            { status: "failed", slot: 399000, submittedAt: "2026-09-15T10:05:00" },
+            { status: "failed", slot: 378000, submittedAt: "2026-09-15T04:40:00" }
+        ],
+        summary: { claimed: 8215, settled: 5, inFlight: 0, feesComplete: true, scanCaughtUp: true }
+    })
+    readonly property string mockVouchersJson: JSON.stringify({
+        vouchers: [
+            { voucherNf: "0xa1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4", slot: 411700 },
+            { voucherNf: "0xf0e1d2c3b4a5968778695a4b3c2d1e0fa9b8c7d6", slot: 411660 }
+        ]
+    })
+    ListModel {
+        id: mockBlockModel
+        ListElement { height: 148905; epoch: 172; leader: "0x8a3f10d2e5c7b9a0f1"; slot: 411702; hash: "0x8a3f10d2e5c7b9a0f1e2d3c4b5a6978877665544c012"; txs: 3 }
+        ListElement { height: 148904; epoch: 172; leader: "0x0000000000000000"; slot: 411701; hash: "0x71bd39c4f0a17e2b8c4d5e6f9a0b1c2d3e4f5a6b9e4a"; txs: 1 }
+        ListElement { height: 148903; epoch: 172; leader: "0x0000000000000000"; slot: 411700; hash: "0x5c2e91a0b3d4f5061728394a5b6c7d8e9f0a1b2c3d4e"; txs: 0 }
+    }
+    ListModel {
+        id: mockAccountsModel
+        ListElement { address: "0x8a3f10d2e5c7b9a0f1e2d3c4b5a6978877665544c012"; balance: "5000000000" }
+        ListElement { address: "0x71bd39c4f0a17e2b8c4d5e6f9a0b1c2d3e4f5a6b9e4a"; balance: "1200000000" }
+    }
+    // Wallet Accounts view = labelled keys grouped Spendable/Identity. Kept SEPARATE from
+    // mockAccountsModel because Transfer/ChannelDeposit pickers must NOT list the identity
+    // (signing) keys — only spendable keys can be a transfer source.
+    ListModel {
+        id: mockWalletAccounts
+        ListElement { address: "3dbbbeed6cf8a8fac00d57edd1746034fa6ab6311fa78778dc07ddd4011dc726"; balance: "1,250.0 LGO"; label: "Wallet"; hint: "Your spendable balance — faucet funds land here"; group: "spendable"; fundable: true }
+        ListElement { address: "5da62d70bdc0230b8a552d3f4e730658b2aef07c694eaed859f4e24aa4ccca0e"; balance: "3,000.0 LGO"; label: "Leader funding key"; hint: "Funds block proposals — fund this to earn"; group: "spendable"; fundable: true }
+        ListElement { address: "6c4665db63dc20197a32e3b063e45f5281f794db707dbfb5364640522438901b"; balance: "500.0 LGO"; label: "Blend stake key"; hint: "Pays your Blend Core declaration stake"; group: "spendable"; fundable: true }
+        ListElement { address: "601dcb79ef4986b5a7b786ac7d965562a065f1acc9dfa42ea8ecfd3e850802b5"; balance: ""; label: "Blend public key"; hint: "Your node's Blend signing identity — matches the on-chain declaration"; group: "identity"; fundable: false }
+        ListElement { address: "12D3KooWK6oQMAMZYFne1Mwtc1C7vvNfqLg42WDa8rQuDgR9uXRj"; balance: ""; label: "Network key"; hint: "Your node's peer identity on the network"; group: "identity"; fundable: false }
+    }
+
     // ── scenario presets (numeric) ────────────────────────────────────────────
     function _reset(p) {
         st.status = ("status" in p) ? p.status : -1
         st.recovering = p.recovering || false
+        st.autoPaused = p.autoPaused || false
+        st.autoPauseReason = p.autoPauseReason || ""
+        st.stalled = p.stalled || false
+        st.phase = p.phase || ""
         st.err = p.err || ""
         st.mode = p.mode || ""
         st.tip = p.tip || 0
         st.head = p.head || 0
         st.peerId = p.peerId || ""
         st.blend = p.blend || "none"
+        st.blendWithdrawEpoch = ("blendWithdrawEpoch" in p) ? p.blendWithdrawEpoch : -1
         st.validation = p.validation || ""
         st.epochsToActivate = p.epochsToActivate || 0
         st.eligibleNoteCount = ("eligibleNoteCount" in p) ? p.eligibleNoteCount : -1
@@ -114,7 +177,12 @@ Window {
         st.earnedN = ("earned" in p) ? p.earned : -1
         st.feeN = ("fee" in p) ? p.fee : -1
         st.upSecs = ("upSecs" in p) ? p.upSecs : -1
+        stallReassert.restart()   // re-apply the stall flag after the view's _recordProgress resets it
     }
+    // The view zeroes nodeStalled on load; infoJson is static here, so re-assert the preset's
+    // value once the load settles. Covers both the stalled presets (→ true) and clearing it (→ false).
+    Timer { id: stallReassert; interval: 220; repeat: false
+            onTriggered: if (typeof nodeDash !== "undefined") nodeDash.nodeStalled = st.stalled }
     readonly property var _peer: "12D3KooWQ8s...abkEwLz"
     readonly property var scenarios: [
         { key: "Fresh (not started)",     val: { status: 0 } },
@@ -135,6 +203,26 @@ Window {
                                                   blend: "core", epoch: 174, epochElapsed: 372, proposed: 234, validation: "active", eligibleNoteCount: 5, peers: 83, conn: 87,
                                                   empowering: true, empoweringMined: 2500, empoweringTarget: 5000, cpu: 12, cpuCap: 30, ram: 1.4, ramCapSet: false,
                                                   stake: 5000000000000, addr: "0x71bd…9e4a", earned: 1530000234000, fee: 56 } },
+        // ── Blend spectrum (Online node, varying blend role) ────────────────────
+        { key: "Blend — Edge",            val: { status: 2, mode: "Online", tip: 151600, head: 151600, upSecs: 40 * 3600, peerId: win._peer, funded: true,
+                                                  blend: "edge", epoch: 175, epochElapsed: 240, proposed: 12, eligibleNoteCount: 3, peers: 60, conn: 66,
+                                                  cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
+        { key: "Blend — Core (mixing)",   val: { status: 2, mode: "Online", tip: 151640, head: 151640, upSecs: 60 * 3600, peerId: win._peer, funded: true,
+                                                  blend: "core", epoch: 176, epochElapsed: 150, proposed: 40, eligibleNoteCount: 4, peers: 61, conn: 67,
+                                                  cpu: 10, cpuCap: 30, ram: 1.3, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
+        { key: "Blend — declared, not mixing", val: { status: 2, mode: "Online", tip: 151700, head: 151700, upSecs: 60 * 3600, peerId: win._peer, funded: true,
+                                                  blend: "coredeclared", epoch: 176, epochElapsed: 150, proposed: 40, eligibleNoteCount: 4, peers: 62, conn: 68,
+                                                  cpu: 11, cpuCap: 30, ram: 1.4, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
+        // Declaration withdrawing → the modal's "Declaration slot free" gate blocks re-declare until it
+        // clears (blend TYPE is honestly Edge meanwhile — a stale/withdrawing declaration doesn't mix).
+        { key: "Blend — withdrawing",     val: { status: 2, mode: "Online", tip: 151720, head: 151720, upSecs: 60 * 3600, peerId: win._peer, funded: true,
+                                                  blend: "edge", blendWithdrawEpoch: 35, epoch: 33, epochElapsed: 150, proposed: 40, eligibleNoteCount: 4, peers: 62, conn: 68,
+                                                  cpu: 11, cpuCap: 30, ram: 1.4, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
+        // ── recovery / trouble heroes ───────────────────────────────────────────
+        { key: "Replaying blocks",        val: { status: 2, mode: "Online", recovering: true, tip: 149000, head: 151000, peerId: win._peer, peers: 30, conn: 35 } },
+        { key: "Bootstrap stuck",         val: { status: 2, mode: "Online", stalled: true, phase: "ProlongedBootstrapPeriod", tip: 148600, head: 152000, peerId: win._peer, peers: 3, conn: 4 } },
+        { key: "Sync stalled",            val: { status: 2, mode: "Online", stalled: true, tip: 148600, head: 152000, peerId: win._peer, peers: 6, conn: 8 } },
+        { key: "Node auto-paused",        val: { status: 4, autoPaused: true, autoPauseReason: "CPU cap of 30%" } },
         { key: "Error",                   val: { status: 5, err: "Node error: connection refused (rpc :3000)" } }
     ]
 
@@ -145,6 +233,10 @@ Window {
     Timer {
         id: live; interval: 1200; repeat: true; running: st.running
         onTriggered: {
+            // A stalled/stuck node's HEIGHT is frozen (that's the whole signal): let the network
+            // head climb (so it visibly falls behind) but never advance tip — otherwise the view's
+            // _recordProgress() sees height move and clears nodeStalled, hiding the hero.
+            if (st.stalled) { st.head += 1; return }
             st.head += 1
             var behind = st.head - st.tip
             if (behind > 3) {
@@ -210,6 +302,12 @@ Window {
     Component.onCompleted: {
         win._reset(win.scenarios[_grabMode ? _grabScenario : 3].val)
         if (_grabMode) studioTabs.currentIndex = _grabTab
+        if (Qt.application.arguments.indexOf("--dragexp") >= 0) win._dragExp = true
+        // Render the Enable-Blend-Core modal open (over the chosen scenario); --port opens UDP 3400.
+        if (Qt.application.arguments.indexOf("--blendmodal") >= 0) {
+            if (Qt.application.arguments.indexOf("--port") >= 0) win._blendPortOpen = true
+            win._blendModal = true
+        }
         if (_grabOnboarding) {
             win._onboarding = true
             if (_grabObStep >= 0) {
@@ -258,18 +356,37 @@ Window {
                 }
                 LogosText { text: "Blockchain Node"; color: Theme.palette.text; font.pixelSize: 28; font.weight: Theme.typography.weightBold; Layout.alignment: Qt.AlignVCenter }
                 Item { Layout.fillWidth: true }
-                LogosButton {
-                    // Fund opens the modal; once running it becomes a hard Stop (resets progress) — start again re-opens the modal
-                    text: st.empoweringActive ? qsTr("Stop funding") : qsTr("Fund")
+                // Small header buttons (mirror the fork): Fund = small gray, Start/Stop = small orange.
+                C.GhostButton {
+                    // Fund/Pause toggle — starts/pauses background mining directly (no modal).
+                    // The stake target is set in Settings → Mining. Pause keeps progress.
+                    text: st.empoweringActive ? qsTr("Pause mining") : qsTr("Fund")
                     enabled: st.running; Layout.alignment: Qt.AlignVCenter
                     onClicked: {
-                        if (st.empoweringActive) { st.empoweringActive = false; st.empoweringMined = -1; st.empoweringTarget = -1 }
-                        else empoweringModal.open()
+                        if (st.empoweringActive) {
+                            st.empoweringActive = false          // pause — keep mined progress
+                        } else {
+                            st.empoweringActive = true
+                            if (st.empoweringTarget <= 0) st.empoweringTarget = 1000   // LGO default (editable in Settings)
+                            if (st.empoweringMined < 0) st.empoweringMined = 330        // demo: 33% toward target
+                        }
                     }
                 }
-                LogosButton {
-                    text: st.running ? qsTr("Stop Node") : qsTr("Start Node")
-                    variant: LogosButton.Variant.Primary; Layout.alignment: Qt.AlignVCenter
+                // Blend header action — matrix mirrors the fork: core → "Blend Core active" ·
+                // declared (coredeclared) → "Blend Core declared" · edge → "Enable Core" · else Enable.
+                C.GhostButton {
+                    visible: st.running
+                    text: st.blend === "core" ? qsTr("Blend Core active")
+                          : st.blend === "coredeclared" ? qsTr("Blend Core declared")
+                          : st.blend === "edge" ? qsTr("Enable Core")
+                          : qsTr("Enable Blend Core")
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: win._blendModal = true
+                }
+                C.CtaButton {
+                    compact: true
+                    text: st.running ? qsTr("Stop") : qsTr("Start")
+                    Layout.alignment: Qt.AlignVCenter
                     onClicked: st.running ? win._reset({ status: 4 }) : win.playStart()
                 }
             }
@@ -279,20 +396,30 @@ Window {
                 id: studioTabs
                 Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large
                 currentIndex: 0
-                LogosTabButton { text: qsTr("Dashboard") }
-                LogosTabButton { text: qsTr("Blocks") }
+                // Mirrors the fork nav (Explorer folded into Blocks; Rewards promoted).
+                LogosTabButton { text: qsTr("Node") }
                 LogosTabButton { text: qsTr("Rewards") }
                 LogosTabButton { text: qsTr("Explorer") }
+                LogosTabButton { text: qsTr("Proposals") }
                 LogosTabButton { text: qsTr("Wallet") }        // groups Accounts · Transfer · Channel Deposit (pages TBD)
                 LogosTabButton { text: qsTr("Settings") }
             }
 
             StackLayout {
                 Layout.fillWidth: true; Layout.fillHeight: true
-                currentIndex: studioTabs.currentIndex     // tab-aligned: 0 Dashboard … 5 Settings
+                Layout.topMargin: Theme.spacing.large     // breathing room between the tab bar and the page title
+                currentIndex: studioTabs.currentIndex     // tab-aligned: 0 Node … 5 Settings
                 V.NodeDashboardView {
+                id: nodeDash
+                onEnableBlendRequested: win._blendModal = true   // Blend tile CTA → open the modal
                 status: st.status
                 nodeRecovering: st.recovering
+                autoPaused: st.autoPaused
+                autoPauseReason: st.autoPauseReason
+                // nodeStalled is LIVE-computed in the view (a 10-min height-freeze timer) and its
+                // _recordProgress() resets it to false on load, so we can't just bind it. infoJson
+                // is static in the studio, so we re-assert the preset's stall flag once after load
+                // settles (win.stallReassert) and it sticks.
                 lastErrorMessage: st.err
                 infoJson: st.infoJson
                 timeInfoJson: st.timeInfoJson
@@ -316,13 +443,107 @@ Window {
                 stakeStr: st.stakeLepta >= 0 ? Amounts.short(st.stakeLepta) : "—"; foundingAddr: st.addr
                 earnedStr: st.earned; feePct: st.fee
                 uptime: st.uptime
+                // Mock earnings so the (now gated) "Earned by epoch" chart renders in the studio.
+                earnedByEpoch: st.running ? (function(){ var a=[]; for (var e=20; e<50; e++) a.push({ epoch: e, lepta: Math.round((0.5 + 0.45*Math.sin(e*0.7)) * 900000000) }); return a })() : []
                 }
-                // placeholders for tabs without a prototype page (index-aligned)
-                LogosText { text: qsTr("Blocks — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                LogosText { text: qsTr("Rewards — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                LogosText { text: qsTr("Explorer — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                LogosText { text: qsTr("Wallet — not in this prototype"); color: Theme.palette.textTertiary; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                V.SettingsView { onCopyText: (t) => {}; onKeysBackedUp: win._keysBackedUp = true }
+                // Real fork views driven with mock data (#99–#103), index-aligned to the tabs
+                // Rewards (tab 1)
+                V.LeaderRewardsView {
+                    vouchersJson: win.mockVouchersJson
+                    claimsJson: win.mockClaimsJson
+                    proposalsJson: win.mockProposalsJson
+                    balance: 5000000000
+                    currentEpoch: 11
+                    autoClaim: true
+                    slotNow: 411800
+                    claimInFlight: false
+                    onClaimLeaderRewardsRequested: {}
+                    onClearClaimsRequested: {}
+                    onCopyToClipboard: (t) => {}
+                }
+                // Blocks (tab 2) — Explorer folded in
+                V.BlocksView {
+                    blockModel: mockBlockModel
+                    myKey: "0x8a3f10d2e5c7b9a0f1"
+                    currentEpoch: 11
+                    nodeRunning: st.running
+                    bootstrapping: false
+                    onClearRequested: {}
+                    onCopyToClipboard: (t) => {}
+                    onSearchRequested: (id) => {}
+                }
+                // Proposals (tab 3)
+                V.ProposalsView {
+                    proposalsJson: win.mockProposalsJson
+                    voucherCount: 2
+                    currentEpoch: 11
+                    onCopyToClipboard: (t) => {}
+                    onOpenLeaderRewardsRequested: studioTabs.currentIndex = 1
+                    onClearRequested: {}
+                }
+                // Wallet (tab 4) — left SIDEBAR (Accounts · Transfer · Channel Deposit) + content,
+                // matching the fork's Wallet operations layout (anchor-based, not horizontal tabs).
+                Item {
+                    id: walletPage
+                    property int walletNav: 0
+                    ColumnLayout {
+                        id: walletSidebar
+                        anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                        width: 180; spacing: Theme.spacing.tiny
+                        Repeater {
+                            model: [qsTr("Accounts"), qsTr("Transfer"), qsTr("Channel Deposit")]
+                            delegate: Rectangle {
+                                required property int index
+                                required property string modelData
+                                Layout.fillWidth: true; implicitHeight: 40
+                                radius: Theme.spacing.radiusMedium
+                                color: walletPage.walletNav === index ? Theme.palette.backgroundTertiary : "transparent"
+                                LogosText {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left; anchors.leftMargin: Theme.spacing.medium
+                                    text: modelData
+                                    color: walletPage.walletNav === index ? Theme.palette.text : Theme.palette.textSecondary
+                                    font.pixelSize: Theme.typography.secondaryText
+                                    font.weight: walletPage.walletNav === index ? Theme.typography.weightMedium : Theme.typography.weightRegular
+                                }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: walletPage.walletNav = index }
+                            }
+                        }
+                        Item { Layout.fillHeight: true }
+                    }
+                    Rectangle {
+                        id: walletDivider
+                        anchors.left: walletSidebar.right; anchors.leftMargin: Theme.spacing.large
+                        anchors.top: parent.top; anchors.bottom: parent.bottom
+                        width: 1; color: Theme.palette.borderSecondary
+                    }
+                    StackLayout {
+                        anchors.left: walletDivider.right; anchors.leftMargin: Theme.spacing.large
+                        anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
+                        currentIndex: walletPage.walletNav
+                        V.AccountsView { accountsModel: mockWalletAccounts; onGetBalanceRequested: (a) => {}; onRefreshAccountsRequested: () => {}; onCopyToClipboard: (t) => {} }
+                        V.TransferView { accountsModel: mockAccountsModel; onTransferRequested: (f, to, a) => {}; onCopyToClipboard: (t) => {} }
+                        V.ChannelDepositView { accountsModel: mockAccountsModel; nodeRunning: st.running; onGetNotesRequested: (a, b) => {}; onSubmitRequested: () => {}; onCopyToClipboard: (t) => {} }
+                    }
+                }
+                V.SettingsView {
+                    onCopyText: (t) => {}
+                    onKeysBackedUp: win._keysBackedUp = true
+                    // Mining card ↔ shared mock state (Fund/Pause button drives the same st)
+                    miningEnabled: st.empoweringActive
+                    miningTarget: st.empoweringTarget > 0 ? String(st.empoweringTarget) : "1000"
+                    // Always show representative mined/progress in the studio (330 of 1000 = 33%),
+                    // even before Fund is pressed, so the card demonstrates the states.
+                    miningMined: st.empoweringMined >= 0 ? st.empoweringMined : 330
+                    onMiningToggled: (on) => {
+                        st.empoweringActive = on
+                        if (on) {
+                            if (st.empoweringTarget <= 0) st.empoweringTarget = 1000
+                            if (st.empoweringMined < 0) st.empoweringMined = 330
+                        }
+                    }
+                    onMiningTargetApplied: (t) => st.empoweringTarget = Number(t) || 1000
+                }
             }
         }
 
@@ -358,6 +579,8 @@ Window {
                     ColumnLayout {
                         Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; spacing: Theme.spacing.small
                         LogosButton { Layout.fillWidth: true; text: "▶ Start onboarding"; variant: LogosButton.Variant.Primary; onClicked: win._onboarding = true }
+                        LogosButton { Layout.fillWidth: true; text: "▶ Enable Blend Core (modal)"; onClicked: win._blendModal = true }
+                        LogosButton { Layout.fillWidth: true; text: "▶ Drag-reorder tiles (experiment)"; onClicked: win._dragExp = true }
                     }
 
                     // live actions
@@ -365,8 +588,10 @@ Window {
                     ColumnLayout {
                         Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; spacing: Theme.spacing.small
                         LogosButton { Layout.fillWidth: true; text: "▶ Play Start → Online"; variant: LogosButton.Variant.Primary; onClicked: win.playStart() }
-                        LogosButton { Layout.fillWidth: true; text: "Toggle Blend: " + st.blend
-                            onClicked: st.blend = st.blend === "none" ? "edge" : st.blend === "edge" ? "core" : "none" }
+                        LogosButton { Layout.fillWidth: true; text: "Cycle Blend: " + st.blend
+                            onClicked: st.blend = st.blend === "none" ? "edge" : st.blend === "edge" ? "coredeclared" : st.blend === "coredeclared" ? "core" : "none" }
+                        LogosButton { Layout.fillWidth: true; text: "Blend modal: UDP 3400 " + (win._blendPortOpen ? "open ✓" : "closed ✕")
+                            onClicked: win._blendPortOpen = !win._blendPortOpen }
                     }
 
                     LogosText {
@@ -393,6 +618,48 @@ Window {
         }
     }
 
+    // Enable-Blend-Core modal (epic #89) — gated checklist → Enable → Enabling stages → Core.
+    // The port gate (UDP 3400) starts red; flip it via the control panel to demo green → Enable.
+    EnableBlendCoreProto {
+        anchors.fill: parent; visible: win._blendModal; z: 200
+        gPort: win._blendPortOpen
+        blendState: st.blend
+        withdrawEpoch: st.blendWithdrawEpoch
+        onClosed: win._blendModal = false
+        onDeclared: st.blend = "coredeclared"  // declaration submitted → declared, maturing (Edge meanwhile)
+        onReachedCore: st.blend = "core"     // activated → Core
+        onDisabled: st.blend = "edge"        // withdrawal → back to Edge
+    }
+
+    // Drag-reorder experiment — fixed Status hero on top, draggable metric tiles below.
+    Rectangle {
+        anchors.fill: parent; visible: win._dragExp; z: 100
+        color: Theme.palette.background
+        ColumnLayout {
+            anchors.fill: parent; anchors.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
+            RowLayout {
+                Layout.fillWidth: true
+                ColumnLayout {
+                    Layout.fillWidth: true; spacing: 2
+                    LogosText { text: "Drag-reorder tiles"; color: Theme.palette.text; font.pixelSize: Theme.typography.titleText; font.weight: Theme.typography.weightBold }
+                    LogosText { text: "Hover a lower card, grab the grip in its corner, drag it to a gap. The Status hero stays put."; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                }
+                LogosButton { text: "Exit"; onClicked: win._dragExp = false }
+            }
+            // fixed Status hero (NOT draggable — the contrast the experiment is testing)
+            LogosFrame {
+                Layout.fillWidth: true; Layout.preferredHeight: 96
+                backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
+                contentItem: ColumnLayout {
+                    spacing: 2
+                    LogosText { text: "Online"; color: Theme.palette.success; font.pixelSize: 32; font.weight: Theme.typography.weightBold }
+                    LogosText { text: "Status — fixed"; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                }
+            }
+            DragGridExperiment { Layout.fillWidth: true; Layout.fillHeight: true }
+        }
+    }
+
     // Start Empowering modal — set a target, then mining climbs toward it
     V.EmpoweringModal {
         id: empoweringModal
@@ -401,8 +668,11 @@ Window {
 
     // offscreen proof: grab a frame + quit (only with --grab; interactive runs stay open)
     readonly property int _grabDelay: { var i = Qt.application.arguments.indexOf("--grabdelay"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? parseInt(Qt.application.arguments[i + 1]) : 1800 }
+    // Save target: --grabout <path> if given, else "proto.png" beside the run cwd (gitignored). Portable —
+    // no machine-specific path, so a render works from any checkout of the fork.
+    readonly property string _grabOut: { var i = Qt.application.arguments.indexOf("--grabout"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? Qt.application.arguments[i + 1] : "proto.png" }
     Timer {
         interval: win._grabDelay; repeat: false; running: win._grabMode
-        onTriggered: win.contentItem.grabToImage(function(r){ r.saveToFile("/extra/tmp/bcui-iter/proto.png"); Qt.callLater(Qt.quit) })
+        onTriggered: win.contentItem.grabToImage(function(r){ r.saveToFile(win._grabOut); Qt.callLater(Qt.quit) })
     }
 }

@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls as QQC
 import Logos.Theme
 import Logos.Controls
+import "file:///extra/tmp/bcui-0.3-base/src/qml/views" as V
 
 // ── NODE ONBOARDING — prototype (studio only) ──────────────────────────────
 // A first-run flow for a fresh Logos node, prototyped ahead of the real UI.
@@ -25,6 +26,7 @@ Item {
     property string mode: ""                     // "generate" | "existing"
     property string deployment: "default"        // "default" | "custom"
     property bool   keysSaved: false             // ticked the backup box in the Keys step
+    property bool   miningEnabled: true          // 0.3: one toggle, on by default — background-mine to self-fund up to 1000 LGO
     property bool   funded: false
     property string fundBalance: ""
 
@@ -68,7 +70,7 @@ Item {
         signal picked()
         Layout.fillWidth: true
         backgroundColor: Theme.palette.surfaceRaised
-        borderColor: selected ? Theme.palette.primary : Theme.palette.border
+        borderColor: Theme.palette.border   // no selected highlight — the checkbox tick carries selection
         radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         contentItem: RowLayout {
             spacing: Theme.spacing.medium
@@ -96,8 +98,30 @@ Item {
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: cc.picked() }
     }
 
-    // ── layout: header (progress) · body (screens) · footer (nav) ──
+    // ── Welcome splash (the fork's WelcomeView) — the onboarding entry, full-bleed
+    //    before the advanced stepper. Quick start → defaults; Advanced → the stepper. ──
+    V.WelcomeView {
+        anchors.fill: parent
+        visible: !root.advanced
+        versionText: qsTr("UI 0.3.0 preview, core 0.3.0")
+        onQuickStartRequested: root._startDefault()
+        onAdvancedRequested: root._openAdvanced()
+        onCopyToClipboard: (t) => {}
+    }
+
+    // Exit setup — pinned to the far top-right corner of the onboarding view (overlay,
+    // out of the header flow), advanced flow only.
+    LogosButton {
+        visible: root.advanced
+        anchors.top: parent.top; anchors.right: parent.right
+        anchors.topMargin: Theme.spacing.large; anchors.rightMargin: Theme.spacing.large
+        z: 10
+        text: qsTr("Exit setup"); onClicked: { root.advanced = false; root.step = 0 }   // back to the welcome screen
+    }
+
+    // ── advanced stepper chrome: header (progress) · body (screens) · footer (nav) ──
     ColumnLayout {
+        visible: root.advanced
         anchors.fill: parent; anchors.margins: Theme.spacing.xlarge; spacing: Theme.spacing.large
 
         // header: title + exit + step rail
@@ -112,7 +136,6 @@ Item {
                     color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
                 }
             }
-            LogosButton { visible: root.advanced; text: qsTr("Exit setup"); onClicked: root.exitRequested() }
         }
 
         // step rail — only in the advanced flow
@@ -124,12 +147,15 @@ Item {
                 delegate: ColumnLayout {
                     required property int index
                     required property string modelData
-                    Layout.fillWidth: true; spacing: 4
+                    // fillWidth + equal preferredWidth ⇒ every column (and its bar) is the
+                    // same width regardless of label length; the label elides if it can't fit.
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; spacing: 4
                     Rectangle {
                         Layout.fillWidth: true; height: 4; radius: 2
                         color: index <= root.step ? Theme.palette.primary : Theme.palette.border
                     }
                     LogosText {
+                        Layout.fillWidth: true; elide: Text.ElideRight
                         text: (index + 1) + ". " + modelData
                         color: index === root.step ? Theme.palette.text : Theme.palette.textTertiary
                         font.pixelSize: 11; font.weight: index === root.step ? Theme.typography.weightBold : Theme.typography.weightRegular
@@ -138,37 +164,18 @@ Item {
             }
         }
 
-        // body
+        // body — transparent: the cards carry the surface; no big grey panel behind them
         LogosFrame {
             Layout.fillWidth: true; Layout.fillHeight: true
-            backgroundColor: Theme.palette.surface; borderColor: "transparent"
-            radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
+            backgroundColor: "transparent"; borderColor: "transparent"
+            radius: Theme.spacing.radiusLarge; padding: 0
             contentItem: QQC.ScrollView {
                 contentWidth: availableWidth; clip: true
+                // Welcome now handles the landing (Quick start / Advanced); the body is
+                // just the advanced stepper (only shown when root.advanced is true).
                 StackLayout {
                     width: parent.width
-                    currentIndex: root.advanced ? 1 : 0
-
-                    // ── LANDING (one click) — options route on click, no radios ──
-                    ColumnLayout {
-                        spacing: Theme.spacing.medium
-                        LogosText { text: qsTr("How do you want to start?"); color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightBold }
-                        ChoiceCard {
-                            heading: qsTr("Quick start"); recommended: true; arrow: true
-                            body: qsTr("Generate a default testnet config and start the node. Back up your keys right after.")
-                            onPicked: root._startDefault()
-                        }
-                        ChoiceCard {
-                            heading: qsTr("Advanced setup"); arrow: true
-                            body: qsTr("Choose your config, network and peers, and back up your keys during setup.")
-                            onPicked: root._openAdvanced()
-                        }
-                    }
-
-                    // ── ADVANCED (the stepper) ──
-                    StackLayout {
-                        width: parent.width
-                        currentIndex: root.step
+                    currentIndex: root.step
 
                     // 0 · SETUP ────────────────────────────────────────────
                     ColumnLayout {
@@ -270,46 +277,42 @@ Item {
                     }
 
                     // 3 · FUND ─────────────────────────────────────────────
+                    // 0.3: no faucet step — one toggle, on by default. The node
+                    // background-mines to self-fund its own stake up to 1000 LGO.
                     ColumnLayout {
                         spacing: Theme.spacing.medium
                         LogosText { text: qsTr("Fund your node"); color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightBold }
                         LogosText {
                             Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
-                            text: qsTr("A node needs stake before it can propose blocks. On testnet you request test funds for your funding key.")
+                            text: qsTr("A node needs stake before it can propose blocks. Your node can earn that stake itself by mining in the background — no faucet, no manual funding.")
                         }
                         LogosFrame {
                             Layout.fillWidth: true
-                            backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                            backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.large
                             contentItem: RowLayout {
                                 spacing: Theme.spacing.medium
                                 ColumnLayout {
-                                    Layout.fillWidth: true; spacing: 0
-                                    LogosText { text: qsTr("LeaderFunding key"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                                    LogosText { text: "zk:9d17…be55"; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace" }
+                                    Layout.fillWidth: true; spacing: 2
+                                    LogosText { text: qsTr("Enable background mining"); color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
+                                    LogosText {
+                                        Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                        text: qsTr("Fund your node up to 1000 LGO. Mining stops automatically once it reaches the target.")
+                                        color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
+                                    }
                                 }
-                                LogosCopyButton { value: "zk:9d17be55" }
+                                LogosSwitch {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    checked: root.miningEnabled
+                                    onToggled: root.miningEnabled = checked
+                                }
                             }
                         }
-                        RowLayout {
-                            Layout.fillWidth: true; spacing: Theme.spacing.medium
-                            LogosButton {
-                                text: root.funded ? qsTr("Funds received") : qsTr("Request test funds")
-                                variant: LogosButton.Variant.Primary; enabled: !root.funded
-                                onClicked: fundSeq.restart()
-                            }
-                            LogosText { visible: root.funded; text: qsTr("Balance: %1").arg(root.fundBalance); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            Item { Layout.fillWidth: true }
-                        }
+                        // #97 — amounts are defaults, editable in the config.
                         LogosText {
-                            Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.palette.textTertiary; font.pixelSize: 11
-                            text: qsTr("Optional: you can skip and fund later from the dashboard.")
+                            Layout.fillWidth: true; wrapMode: Text.WordWrap
+                            text: qsTr("The 1000 LGO target and other funding amounts are defaults — you can change them any time in the node's config file.")
+                            color: Theme.palette.textTertiary; font.pixelSize: 11
                         }
-                        LogosNotice {
-                            Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small; severity: LogosNotice.Info
-                            title: qsTr("What happens after Start")
-                            message: qsTr("Starting hands off to the dashboard. The node syncs, then your stake ages ~2 epochs before it can propose — automatic on testnet. The lifecycle lane tracks it.")
-                        }
-                    }
                     }
                 }
             }
