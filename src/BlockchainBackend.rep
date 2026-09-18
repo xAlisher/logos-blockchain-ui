@@ -102,6 +102,8 @@ class BlockchainBackend
     // Per-epoch max block height (write-ahead) for the blocks-per-epoch chart.
     SLOT(void recordEpochHeight(int epoch, int height))
     SLOT(QVariantMap getEpochHeights())
+    // Transactions per recent block → {success, value: JSON [{slot, txCount}]} for the TX heatmap.
+    SLOT(QVariantMap getBlockTx())
     // POST /sdp/withdrawal <declarationId> → leaves the Blend Network and unlocks the
     // staked note (sets Declaration.withdraw_at). Resolves this node's declaration id
     // from the write-ahead store, falling back to matching /mantle/sdp/declarations by

@@ -75,10 +75,10 @@ var data = {
         what: "How many leader vouchers this app claimed (settled or in-block) in each epoch — one bar per epoch, its height the count.",
         calc: "Built from this app's claims ledger, the same source as the Earned chart, but counting claims rather than summing their LGO. Each settled/in-block claim is grouped into its epoch (epoch = floor(slot / 36000)); the series is filled continuously to the current epoch so a no-claim epoch shows as an empty slot. Hover to see 'Epoch N: X vouchers'."
     },
-    chainPosition: {
-        title: "Chain position",
-        what: "Slot and Height in one picture: a slot axis with three markers — lib (finalized), tip (your latest block), and now (the clock / current_slot) — plus the block count.",
-        calc: "Slot is the clock (it ticks every slot whether or not a block is produced); Height is the chain (it only climbs when a block lands). The solid segment lib→tip is built-but-not-yet-finalized; the faint segment tip→now is the gap you're catching up to the clock. When synced, tip≈now and the faint part disappears. During a prolonged bootstrap the finalized edge (lib) freezes far behind — visible here as a large 'finality lag'. Point-in-time (current values), not a history."
+    blockTx: {
+        title: "TX on blocks",
+        what: "Transactions per recent block — one rounded square per block, GitHub-contribution style: the block with the most transactions in the shown window is full green, an empty block is grey, and everything in between is a shade of green scaled to that maximum.",
+        calc: "One square per block from the recent-blocks list (newest on the right), coloured by that block's transaction count. The green intensity is relative to the busiest block currently shown, so the scale re-normalises as the window scrolls — it reads how busy blocks are relative to each other, not an absolute tx rate. Hover a square for its slot and exact count. Bounded by how many recent blocks the app holds."
     },
     blocksByEpoch: {
         title: "Blocks per epoch",

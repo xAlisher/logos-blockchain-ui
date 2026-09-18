@@ -76,6 +76,20 @@ QHash<int, QByteArray> BlockModel::roleNames() const
     return names;
 }
 
+QVariantList BlockModel::txSeries() const
+{
+    // m_entries is newest-first (row 0 = newest); emit oldest→newest for a left→right heatmap.
+    QVariantList out;
+    for (int i = m_entries.size() - 1; i >= 0; --i) {
+        const Entry& e = m_entries.at(i);
+        QVariantMap m;
+        m[QStringLiteral("slot")] = e.slot;
+        m[QStringLiteral("txCount")] = e.txCount;
+        out << m;
+    }
+    return out;
+}
+
 void BlockModel::appendRaw(const QString& timestamp, const QString& rawJson)
 {
     Entry e;

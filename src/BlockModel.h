@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QString>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
 
@@ -43,6 +44,10 @@ public:
     // Parse a raw `newBlock` payload and insert it as the newest block (row 0),
     // evicting the oldest once kMaxBlocks is exceeded.
     Q_INVOKABLE void appendRaw(const QString& timestamp, const QString& rawJson);
+
+    // Oldest→newest [{ slot, txCount }] for the TX-on-blocks heatmap. Read backend-side (the
+    // remoted replica in QML can't call this), surfaced to the UI via getBlockTx().
+    QVariantList txSeries() const;
     Q_INVOKABLE void clear();
 
     // Search the retained blocks for a transaction whose `id` matches `txId`

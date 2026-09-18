@@ -960,6 +960,7 @@ Rectangle {
             root.backend.refreshBlendStatus()
             root.refreshBlendModeHistory()   // read back the per-epoch mode history it just recorded
             root.recordAndRefreshEpochHeights()   // ② record max height/epoch → blocks-per-epoch
+            root.refreshBlockTx()                 // tx-per-block for the heatmap
             logos.watch(
                 root.backend.getNetworkInfo(),
                 function(result) {
@@ -1553,6 +1554,19 @@ Rectangle {
         }
         return root._fillEpochSeries(m)
     }
+    // TX-on-blocks heatmap: tx count per recent block, from the backend (reads m_blockModel).
+    property var _blockTxSeries: []
+    function refreshBlockTx() {
+        if (!root.backend || root.backend.status !== BlockchainBackend.Running) return
+        logos.watch(
+            root.backend.getBlockTx(),
+            function(result) {
+                if (!result || !result.success) return
+                try { root._blockTxSeries = JSON.parse(result.value) } catch (e) {}
+            },
+            function(error) { /* keep last known */ }
+        )
+    }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
@@ -2062,6 +2076,7 @@ Rectangle {
                         hwSeries: opPage.nodeRunning ? root._hwSeries : []
                         blendModeByEpoch: opPage.nodeRunning ? root._blendModeByEpoch : []
                         blocksByEpoch: opPage.nodeRunning ? root._blocksByEpoch : []
+                        blockTxSeries: opPage.nodeRunning ? root._blockTxSeries : []
 
                         // version footer defaults to Module v<moduleVersion> (0.2.23)
 

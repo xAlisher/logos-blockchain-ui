@@ -109,8 +109,6 @@ Item {
     readonly property int _nowSlot: (_time && _time.current_slot !== undefined) ? Number(_time.current_slot)
                                     : (_field("slot") !== undefined ? Number(_field("slot")) : -1)
     readonly property int _tipSlot: _field("slot") !== undefined ? Number(_field("slot")) : -1
-    readonly property int _libSlot: _field("lib_slot") !== undefined ? Number(_field("lib_slot")) : -1
-    readonly property int _heightNum: _field("height") !== undefined ? Number(_field("height")) : -1
     // ③ sync-gap (now − tip) rolling buffer — the "am I caught up?" line.
     property var _syncGapBuf: []
     Timer {
@@ -180,6 +178,7 @@ Item {
     property var hwSeries: []                                // rolling in-session CPU/RAM/Disk lines
     property var blendModeByEpoch: []                        // [{epoch, mode}] persisted blend-type strip
     property var blocksByEpoch: []                           // [{epoch, value}] blocks (Δheight) per epoch
+    property var blockTxSeries: []                           // [{slot, txCount}] tx per recent block (heatmap)
     property string feePct: ""
     property string uptime: ""
     property string replayProgress: ""
@@ -696,14 +695,14 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("LiB"); value: root.lib; copyValue: root._libFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.lib; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("TiP"); value: root.tip; copyValue: root._tipFull; onCopyRequested: (t) => root.copyText(t); info: root._infoData.tip; onInfoRequested: root._openInfo(info) }
                 }
-                // ═══ Slot & Height experiments (① chain-position · ② blocks/epoch · ③ sync-gap) ═══
-                // ① Chain position: lib / tip / now on one slot axis + height.
-                ChainPositionBar {
-                    libSlot: root._libSlot; tipSlot: root._tipSlot; nowSlot: root._nowSlot; blockHeight: root._heightNum
-                    info: root._infoData.chainPosition
+                // ═══ Slot & Height / block visualisations ═══
+                // TX on blocks — a GitHub-contribution-style heatmap of transactions per recent block.
+                TxHeatmap {
+                    series: root.blockTxSeries
+                    info: root._infoData.blockTx
                     onInfoRequested: (i) => root._openInfo(i)
                 }
-                // ② Blocks per epoch (Δheight) — network block production.
+                // Blocks per epoch (Δheight) — network block production.
                 EpochBarChart {
                     title: qsTr("Blocks per epoch")
                     unit: qsTr("blocks"); decimals: 0

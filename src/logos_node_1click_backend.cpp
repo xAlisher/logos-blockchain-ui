@@ -1165,6 +1165,16 @@ void LogosNode1clickBackend::recordEpochHeight(int epoch, int height)
     }
 }
 
+QVariantMap LogosNode1clickBackend::getBlockTx()
+{
+    const QVariantList series = m_blockModel ? m_blockModel->txSeries() : QVariantList();
+    QVariantMap res;
+    res[QStringLiteral("success")] = true;
+    res[QStringLiteral("value")] = QString::fromUtf8(
+        QJsonDocument(QJsonArray::fromVariantList(series)).toJson(QJsonDocument::Compact));
+    return res;
+}
+
 QVariantMap LogosNode1clickBackend::getEpochHeights()
 {
     QVariantList out;

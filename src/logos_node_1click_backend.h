@@ -120,6 +120,8 @@ public slots:
     // Per-epoch max block height (write-ahead) → blocks-per-epoch (Δheight) chart.
     void        recordEpochHeight(int epoch, int height) override;
     QVariantMap getEpochHeights() override;
+    // Transactions per recent block (from m_blockModel) → the TX-on-blocks heatmap.
+    QVariantMap getBlockTx() override;
     QVariantMap withdrawBlendCore() override;
     QVariantMap getSdpFundingKey() override;
     QVariantMap checkBlendPortReachable() override;
