@@ -715,6 +715,7 @@ Item {
                 TimeSeriesChart {
                     title: qsTr("Sync gap (slots behind)")
                     series: root._syncGapSeries
+                    smoothLine: true              // softer, rounded corners for the spiky gap line
                     info: root._infoData.syncGap
                     onInfoRequested: (i) => root._openInfo(i)
                 }

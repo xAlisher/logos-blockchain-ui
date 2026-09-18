@@ -15,6 +15,7 @@ LogosFrame {
     property var series: []        // [{label, color, values:[num], latest:string}]
     property string title: ""
     property var info: null
+    property bool smoothLine: false    // round the corners (quadratic through midpoints) vs sharp polyline
     signal infoRequested(var info)
 
     readonly property int _maxLen: {
@@ -95,10 +96,18 @@ LogosFrame {
                         for (var k = 0; k < vals.length; k++) mx = Math.max(mx, Number(vals[k]) || 0)
                         if (mx <= 0) mx = 1
                         ctx.strokeStyle = lines[li].color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9
-                        ctx.beginPath()
-                        for (var j = 0; j < vals.length; j++) {
-                            var y = baseY - (Math.max(0, Number(vals[j]) || 0) / mx) * ph
-                            if (j === 0) ctx.moveTo(xAt(j, vals.length), y); else ctx.lineTo(xAt(j, vals.length), y)
+                        ctx.lineJoin = "round"; ctx.lineCap = "round"
+                        var pts = []
+                        for (var j = 0; j < vals.length; j++)
+                            pts.push({ x: xAt(j, vals.length), y: baseY - (Math.max(0, Number(vals[j]) || 0) / mx) * ph })
+                        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y)
+                        if (root.smoothLine && pts.length > 2) {
+                            // quadratic through the midpoints — rounds the corners without overshooting
+                            for (var p = 1; p < pts.length - 1; p++)
+                                ctx.quadraticCurveTo(pts[p].x, pts[p].y, (pts[p].x + pts[p + 1].x) / 2, (pts[p].y + pts[p + 1].y) / 2)
+                            ctx.quadraticCurveTo(pts[pts.length - 1].x, pts[pts.length - 1].y, pts[pts.length - 1].x, pts[pts.length - 1].y)
+                        } else {
+                            for (var q = 1; q < pts.length; q++) ctx.lineTo(pts[q].x, pts[q].y)
                         }
                         ctx.stroke(); ctx.globalAlpha = 1
                     }
