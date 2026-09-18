@@ -913,8 +913,38 @@ Rectangle {
     // unreliable here, so the dashboard can't poll :8080 directly (issue #21).
     property int nodePeers: -1
     property int nodeConnections: -1
+    // ── rolling in-session time-series (peers + hardware), sampled on the 4s poll below ──
+    // Reset when the node stops (these are a "recent" view, not persisted history). Arrays are
+    // REASSIGNED (concat+slice) so QML bindings see the change — do not .push() in place.
+    readonly property int _tsCap: 150            // ~10 min at the 4s cadence
+    property var _peersBuf: []
+    property var _cpuBuf: []
+    property var _ramBuf: []
+    property var _diskBuf: []
+    function _pushTimeSeries() {
+        var cpu = root._numOf(root.backend ? root.backend.cpuUsage : "")
+        var ram = root._numOf(root.backend ? root.backend.ramUsage : "")
+        var disk = root._diskGb(root.backend ? root.backend.diskUsage : "")
+        if (root.nodePeers >= 0) _peersBuf = _peersBuf.concat([root.nodePeers]).slice(-_tsCap)
+        if (!isNaN(cpu))  _cpuBuf  = _cpuBuf.concat([cpu]).slice(-_tsCap)
+        if (!isNaN(ram))  _ramBuf  = _ramBuf.concat([ram]).slice(-_tsCap)
+        if (!isNaN(disk)) _diskBuf = _diskBuf.concat([disk]).slice(-_tsCap)
+    }
+    readonly property var _peersSeries: [
+        { label: qsTr("Peers"), color: Theme.palette.info, values: _peersBuf,
+          latest: _peersBuf.length ? String(_peersBuf[_peersBuf.length - 1]) : "" }
+    ]
+    readonly property var _hwSeries: [
+        { label: qsTr("CPU"),  color: Theme.palette.info,    values: _cpuBuf,
+          latest: _cpuBuf.length  ? (_cpuBuf[_cpuBuf.length - 1].toFixed(0) + "%")   : "" },
+        { label: qsTr("RAM"),  color: "#d9a521",             values: _ramBuf,
+          latest: _ramBuf.length  ? (_ramBuf[_ramBuf.length - 1].toFixed(1) + " GB") : "" },
+        { label: qsTr("Disk"), color: Theme.palette.success, values: _diskBuf,
+          latest: _diskBuf.length ? (_diskBuf[_diskBuf.length - 1].toFixed(1) + " GB") : "" }
+    ]
     Timer {
         interval: 4000; repeat: true; triggeredOnStart: true
+        onRunningChanged: if (!running) { _peersBuf = []; _cpuBuf = []; _ramBuf = []; _diskBuf = [] }
         running: root.ready && root.backend
                  && root.backend.status === BlockchainBackend.Running
         onTriggered: {
@@ -929,6 +959,7 @@ Rectangle {
                         root.nodePeers = result.peers
                         root.nodeConnections = result.connections
                     }
+                    root._pushTimeSeries()   // capture peers + hardware into the rolling buffers
                 },
                 function(error) { /* keep last known */ }
             )
@@ -1956,6 +1987,8 @@ Rectangle {
                         earnedByEpoch: opPage.nodeRunning ? root._earnedByEpoch : []
                         proposedByEpoch: opPage.nodeRunning ? root._proposedByEpoch : []
                         vouchersByEpoch: opPage.nodeRunning ? root._vouchersByEpoch : []
+                        peersSeries: opPage.nodeRunning ? root._peersSeries : []
+                        hwSeries: opPage.nodeRunning ? root._hwSeries : []
 
                         // version footer defaults to Module v<moduleVersion> (0.2.23)
 

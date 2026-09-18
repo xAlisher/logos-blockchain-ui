@@ -75,6 +75,16 @@ var data = {
         what: "How many leader vouchers this app claimed (settled or in-block) in each epoch — one bar per epoch, its height the count.",
         calc: "Built from this app's claims ledger, the same source as the Earned chart, but counting claims rather than summing their LGO. Each settled/in-block claim is grouped into its epoch (epoch = floor(slot / 36000)); the series is filled continuously to the current epoch so a no-claim epoch shows as an empty slot. Hover to see 'Epoch N: X vouchers'."
     },
+    peersSeries: {
+        title: "Peers",
+        what: "Connected-peer count over the last ~10 minutes — a live trend line, not per-epoch.",
+        calc: "Sampled every ~4 seconds while the node runs (the same poll that refreshes the peer/connection tiles) into a rolling in-session buffer of the most recent ~150 samples (~10 minutes). This is a RECENT view, not persisted history: it starts empty and resets whenever the node is stopped. The legend shows the latest value; the line is scaled to its own recent max."
+    },
+    hwSeries: {
+        title: "Hardware",
+        what: "CPU, RAM and Disk usage of the node process over the last ~10 minutes, on one chart.",
+        calc: "The three metrics come from sampling the blockchain_module process (CPU %, RAM in GB, node data-dir size in GB), captured every ~4 seconds into a rolling in-session buffer (~150 samples ≈ 10 minutes). Because the units differ, EACH line is scaled to its own recent max so the three trends are comparable on one axis — the legend shows each metric's actual latest value (e.g. CPU 13%, RAM 1.5 GB, Disk 42 GB). Recent view only: it resets when the node stops. These come from /proc while the node exposes no resource API (PREVIEW)."
+    },
     proposed: {
         title: "Proposed in current epoch",
         what: "How many blocks this node has proposed (won the leader lottery for) this epoch, and whether it's currently eligible to propose at all.",

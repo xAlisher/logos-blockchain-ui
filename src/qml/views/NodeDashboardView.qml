@@ -155,6 +155,8 @@ Item {
     property var earnedByEpoch: []                           // [{epoch, lepta}] net earned per epoch (chart)
     property var proposedByEpoch: []                         // [{epoch, value}] blocks proposed per epoch
     property var vouchersByEpoch: []                         // [{epoch, value}] vouchers claimed per epoch
+    property var peersSeries: []                             // rolling in-session peers line
+    property var hwSeries: []                                // rolling in-session CPU/RAM/Disk lines
     property string feePct: ""
     property string uptime: ""
     property string replayProgress: ""
@@ -798,6 +800,20 @@ Item {
                     series: root.vouchersByEpoch
                     emptyText: qsTr("No vouchers claimed yet.")
                     info: root._infoData.vouchersByEpoch
+                    onInfoRequested: (i) => root._openInfo(i)
+                }
+                // ---- Peers (rolling ~10 min in-session) ----
+                TimeSeriesChart {
+                    title: qsTr("Peers")
+                    series: root.peersSeries
+                    info: root._infoData.peersSeries
+                    onInfoRequested: (i) => root._openInfo(i)
+                }
+                // ---- Hardware: CPU / RAM / Disk (rolling ~10 min in-session) ----
+                TimeSeriesChart {
+                    title: qsTr("Hardware")
+                    series: root.hwSeries
+                    info: root._infoData.hwSeries
                     onInfoRequested: (i) => root._openInfo(i)
                 }
 
