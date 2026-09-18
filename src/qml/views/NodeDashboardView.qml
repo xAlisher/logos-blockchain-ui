@@ -277,17 +277,15 @@ Item {
             ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Following the chain")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
+    // Blend TYPE is only ever Edge or Core — "Activating" is not a distinct mode (the node mixes as
+    // Edge while a declaration matures), so it never appears here. Declared-but-not-in-this-epoch's-set
+    // (coredeclared) reads as Edge in the card too — that's the node's honest live mode; the "declared"
+    // nuance shows on the header button ("Blend Core declared") and the per-epoch strip (gold underline).
     readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: "#d9a521" })
-                                : blendState === "activating" ? ({ label: qsTr("Activating…"), c: Theme.palette.warning })
-                                // Declared Core on-chain but running Edge this epoch: the honest live
-                                // state is Edge (that's the mode the node is in), so show the Edge pill.
-                                : blendState === "coredeclared" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
-                                : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
+                                : (blendState === "edge" || blendState === "coredeclared") ? ({ label: qsTr("Edge"), c: Theme.palette.info })
                                 : ({ label: qsTr("Not active"), c: Theme.palette.text })
-    readonly property string _blendSub: blendState === "core" ? qsTr("Proposals mixed")
-                                      : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
-                                      : blendState === "coredeclared" ? qsTr("Core declared · not mixing this epoch")
-                                      : blendState === "edge" ? qsTr("Proposals not mixed")
+    readonly property string _blendSub: blendState === "core" ? qsTr("Mixing your proposals")
+                                      : (blendState === "edge" || blendState === "coredeclared") ? qsTr("Mixed by the core network")
                                       : qsTr("Proposals not mixed")
     // Blend state is only meaningful once the node is Online (following the chain).
     // While stopped / starting / replaying / bootstrapping, show "—" and no sub
