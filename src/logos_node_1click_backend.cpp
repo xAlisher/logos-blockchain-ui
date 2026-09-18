@@ -1073,6 +1073,7 @@ void LogosNode1clickBackend::refreshBlendStatus()
     }
     setBlendStatus(st);
     setLastBlendEvent(evt);
+    setBlendCoreNodes(blendMembershipCount());   // "N core nodes" for the dashboard copy
 
     // Persist the blend mode for the CURRENT epoch (write-ahead, last-seen wins) so the
     // dashboard can draw a per-epoch "Blend type" strip with real history — the mode is not
@@ -1093,6 +1094,28 @@ void LogosNode1clickBackend::refreshBlendStatus()
         if (!mode.isEmpty())
             recordBlendMode(ep, mode);
     }
+}
+
+int LogosNode1clickBackend::blendMembershipCount() const
+{
+    const QString dataHome = QString::fromUtf8(qgetenv("XDG_DATA_HOME"));
+    const QString base = dataHome.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/.local/share") : dataHome;
+    const QDir ld(base + QStringLiteral("/Logos/LogosBasecamp/logs"));
+    const QFileInfoList logs = ld.entryInfoList({QStringLiteral("*.log")}, QDir::Files, QDir::Time);
+    static const QRegularExpression re(QStringLiteral("membership_count=([0-9]+)"));
+    for (const QFileInfo& fi : logs) {                       // newest file first
+        QFile f(fi.absoluteFilePath());
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        if (f.size() > 400000) f.seek(f.size() - 400000);    // tail only
+        const QString tail = QString::fromUtf8(f.readAll());
+        f.close();
+        int last = -1;
+        auto it = re.globalMatch(tail);
+        while (it.hasNext()) last = it.next().captured(1).toInt();
+        if (last >= 0) return last;
+    }
+    return -1;
 }
 
 QString LogosNode1clickBackend::blendModeStorePath() const

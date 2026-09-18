@@ -146,6 +146,9 @@ private:
     // blendStateFromLog(): map the blend::service log tail → BlendStatus + *outEvent.
     QVariantMap getBlendInfo() const;
     BlendStatus blendStateFromLog(QString* outEvent) const;
+    // Latest `membership_count=N` from the blend service log = the epoch's Blend CORE set size
+    // (the "N core nodes" shown on the dashboard). -1 if not found (log rotated / not written).
+    int blendMembershipCount() const;
     // On-chain state of OUR SDP declaration (matched by locked_note_id): { found, active, withdrawAt }.
     QVariantMap onchainBlendDecl() const;
     // Current epoch from the node's /time/info (-1 if unavailable). Distinguishes a genuinely

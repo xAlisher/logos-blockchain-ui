@@ -1946,11 +1946,13 @@ Rectangle {
                     readonly property bool online: root.backend
                         && root.backend.status === BlockchainBackend.Running
                     visible: online
-                    text: bs === "core" ? qsTr("Blend Core ✓")
-                          : bs === "coredeclared" ? qsTr("Blend Core: not active")
-                          : bs === "activating" ? qsTr("Blend: activating…")
+                    // Button matrix: bootstrapping (bs "none") → Enable, DISABLED · edge → Enable Core ·
+                    // declared (coredeclared/activating) → Blend Core declared · core → Blend Core active.
+                    text: bs === "core" ? qsTr("Blend Core active")
+                          : (bs === "coredeclared" || bs === "activating") ? qsTr("Blend Core declared")
+                          : bs === "edge" ? qsTr("Enable Core")
                           : qsTr("Enable Blend Core")
-                    enabled: online
+                    enabled: online && bs !== "none"      // disabled while bootstrapping / not synced
                     onClicked: enableBlendModal.open()
                 }
 
@@ -2023,6 +2025,7 @@ Rectangle {
                         epochProgress: ""                                  // no epoch_length from the node yet (#61)
                         blendState: opPage.nodeRunning ? root._dashBlend(root.backend ? root.backend.blendStatus : 0) : "none"
                         blendPeers: opPage.nodeRunning ? root._blendPeers : -1
+                        blendCoreNodes: (opPage.nodeRunning && root.backend) ? root.backend.blendCoreNodes : -1
 
                         // --- peers / connections (#62, real via curl bridge) ---
                         peers: opPage.nodeRunning && root.nodePeers >= 0 ? String(root.nodePeers) : "—"

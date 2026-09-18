@@ -20,6 +20,9 @@ class BlockchainBackend
     PROP(QString leaderKey READONLY)
     PROP(BlendStatus blendStatus READONLY)
     PROP(QString lastBlendEvent READONLY)
+    // Size of the epoch's Blend CORE set (membership_count from the blend log) — the "N core
+    // nodes" the dashboard shows for Edge/Core. <0 = unknown (log rotated / not yet written).
+    PROP(int blendCoreNodes READONLY)
     // PREVIEW (#65/#66): the node exposes no resource API yet, so the UI backend
     // samples the blockchain_module process in /proc (Linux). "" when unknown.
     // Remove when the node returns CPU/RAM itself.

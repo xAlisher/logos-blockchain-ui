@@ -146,6 +146,7 @@ Item {
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
     property int blendPeers: -1                               // Blend core mix-set size (getBlendInfo.mixPeers); <0 = unknown
+    property int blendCoreNodes: -1                           // epoch Blend CORE set size (log membership_count); <0 = unknown
     property string epoch: "—"
     property string epochProgress: ""                        // e.g. "6h of 10h" — needs epoch length + slot-in-epoch from the node
     property string proposed: "—"                            // #61
@@ -308,18 +309,31 @@ Item {
             ? ({ label: qsTr("Online"), sub: (uptime.length ? qsTr("Uptime: ") + uptime : qsTr("Following the chain")), c: Theme.palette.success, copy: uptime.length > 0, d: false })
       : ({ label: qsTr("Not started"), sub: "", c: Theme.palette.textSecondary, copy: false, d: false })
     readonly property bool nodeConnected: status >= 0
-    readonly property var _blend: blendState === "core" ? ({ label: qsTr("Core"), c: "#d9a521" })
-                                // Declared Core on-chain but running Edge this epoch: the honest live
-                                // state is Edge (that's the mode the node is in), so show the Edge pill.
-                                : blendState === "coredeclared" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
-                                : blendState === "activating" ? ({ label: qsTr("Activating…"), c: Theme.palette.warning })
-                                : blendState === "edge" ? ({ label: qsTr("Edge"), c: Theme.palette.info })
-                                : ({ label: qsTr("Not active"), c: Theme.palette.text })
-    readonly property string _blendSub: blendState === "core" ? (blendPeers > 0 ? qsTr("Proposals mixed by %1 nodes").arg(blendPeers) : qsTr("Proposals mixed"))
-                                      : blendState === "coredeclared" ? qsTr("Core declared · not mixing this epoch")
-                                      : blendState === "activating" ? qsTr("Declaration pending (~2 epochs)")
-                                      : blendState === "edge" ? qsTr("Proposals not mixed")
-                                      : qsTr("Proposals not mixed")
+    // Blend card state matrix. Phase folds node-lifecycle + blend role into 5 states:
+    //   notstarted · bootstrapping · edge · coredeclared(=Edge, declared) · core
+    readonly property string _blendPhase:
+          status !== BlockchainBackend.Running ? "notstarted"
+        : !sync.synced                          ? "bootstrapping"
+        : blendState === "core"                 ? "core"
+        : (blendState === "coredeclared" || blendState === "activating") ? "coredeclared"
+        : "edge"
+    // { value, sub, c } for the Blend metric card.
+    readonly property var _blendUi: {
+        var n = blendCoreNodes
+        if (_blendPhase === "notstarted")   return ({ value: "—", sub: "", c: Theme.palette.text })
+        if (_blendPhase === "bootstrapping") return ({ value: qsTr("Not Active"), sub: qsTr("Proposals not mixed"), c: Theme.palette.text })
+        if (_blendPhase === "core") {
+            var cn = blendPeers > 0 ? blendPeers : n
+            return ({ value: qsTr("Core"),
+                      sub: cn > 0 ? qsTr("You are mixing proposals with %1 nodes").arg(cn) : qsTr("You are mixing proposals"),
+                      c: "#d9a521" })
+        }
+        // edge or coredeclared → both honestly read as Edge (the node's live mode)
+        return ({ value: qsTr("Edge"),
+                  sub: n > 0 ? qsTr("Your proposals mixed by %1 core nodes").arg(n)
+                             : qsTr("Your proposals are mixed by the Blend core network"),
+                  c: Theme.palette.info })
+    }
     // Blend state is only meaningful once the node is Online (following the chain).
     // While stopped / starting / replaying / bootstrapping, show "—" and no sub
     // rather than a misleading "Not active · Proposals not mixed".
@@ -692,7 +706,7 @@ Item {
                     Layout.fillWidth: true; columns: Math.max(1, Math.min(4, Math.floor(width / (root._minCard + Theme.spacing.large)))); columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Last claim fee: %1% of reward").arg(root.feePct) : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendKnown ? root._blend.label : "—"; sub: root._blendKnown ? root._blendSub : ""; accent: root._blendKnown ? root._blend.c : Theme.palette.text; shine: root._blendKnown && root.blendState === "core"
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendUi.value; sub: root._blendUi.sub; accent: root._blendUi.c; shine: root._blendPhase === "core"
                             // No tile CTA — the header "Enable Blend Core" action is the single entry point (epic #89).
                             info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; progress: root._epochFrac; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }

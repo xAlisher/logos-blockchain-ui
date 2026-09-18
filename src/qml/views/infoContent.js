@@ -23,9 +23,10 @@ var data = {
         what: "Whether this node uses the Blend Network — the mixnet that hides which node proposed a block, strengthening proposer privacy for the whole network.",
         calc: "A node opts in as a Blend core node via the Service Declaration Protocol (proving ownership of a min-stake note); the declaration activates two epochs later. Not exposed by the 0.3 node API yet — the tile shows 'Not active' until a Blend health signal is wired.",
         states: [
-            { label: "Not active", meaning: "Proposals not mixed — node is not on Blend." },
-            { label: "Edge", meaning: "Proposals mixed — node relays its own proposals through Blend." },
-            { label: "Core", meaning: "Proposals mixed — a declared Blend node that mixes traffic for others and earns rewards." }
+            { label: "Not Active", meaning: "Node still bootstrapping — proposals not mixed yet." },
+            { label: "Edge", meaning: "Your proposals are mixed through the Blend core network (N core nodes)." },
+            { label: "Edge (Core declared)", meaning: "You declared Core on-chain but the node is running Edge this epoch — button reads 'Blend Core declared'." },
+            { label: "Core", meaning: "You are a Blend core node, mixing proposals for others (with N nodes) and earning rewards." }
         ],
         docs: "https://docs.logos.co/blockchain/concepts/about-the-blend-network"
     },
