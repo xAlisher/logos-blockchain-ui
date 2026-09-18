@@ -931,6 +931,7 @@ Rectangle {
         if (!isNaN(disk)) _diskBuf = _diskBuf.concat([disk]).slice(-_tsCap)
     }
     function _fmtGb(v) { return v < 1 ? (v * 1024).toFixed(0) + " MB" : v.toFixed(1) + " GB" }
+    function _fmtPct(v) { return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "%" }   // keep a decimal for low CPU
     readonly property var _peersSeries: [
         { label: qsTr("Peers"), color: Theme.palette.info, values: _peersBuf,
           fmt: function(v) { return String(Math.round(v)) },
@@ -938,8 +939,8 @@ Rectangle {
     ]
     readonly property var _hwSeries: [
         { label: qsTr("CPU"),  color: Theme.palette.info,    values: _cpuBuf,
-          fmt: function(v) { return v.toFixed(0) + "%" },
-          latest: _cpuBuf.length  ? (_cpuBuf[_cpuBuf.length - 1].toFixed(0) + "%")   : "" },
+          fmt: function(v) { return root._fmtPct(v) },
+          latest: _cpuBuf.length  ? root._fmtPct(_cpuBuf[_cpuBuf.length - 1]) : "" },
         { label: qsTr("RAM"),  color: "#d9a521",             values: _ramBuf,
           fmt: function(v) { return root._fmtGb(v) },
           latest: _ramBuf.length  ? root._fmtGb(_ramBuf[_ramBuf.length - 1]) : "" },
