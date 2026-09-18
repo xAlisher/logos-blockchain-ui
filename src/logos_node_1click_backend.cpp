@@ -952,8 +952,16 @@ QVariantMap LogosNode1clickBackend::onchainBlendDecl() const
 {
     QVariantMap out;
     out.insert(QStringLiteral("found"), false);
-    const QString lockedNote = loadBlendDecl().value(QStringLiteral("locked_note_id")).toString();
-    if (lockedNote.isEmpty())
+    // Match OUR declaration robustly: declaration_id first, then locked_note, then locator.
+    // (Note-only matching breaks after a no-op re-declare, which rewrites the local
+    // locked_note to a note that never landed on-chain while the real declaration_id and
+    // its on-chain note are unchanged — that miss is what mislabelled us "Activating".)
+    const QJsonObject store = QJsonDocument::fromJson(
+        QJsonDocument::fromVariant(loadBlendDecl()).toJson()).object();
+    const QString myId   = store.value(QStringLiteral("declaration_id")).toString();
+    const QString myNote = store.value(QStringLiteral("locked_note_id")).toString();
+    const QString myLoc  = store.value(QStringLiteral("locator")).toString();
+    if (myId.isEmpty() && myNote.isEmpty() && myLoc.isEmpty())
         return out;
     QProcess p;
     p.setProcessEnvironment(curlEnv());
@@ -966,14 +974,25 @@ QVariantMap LogosNode1clickBackend::onchainBlendDecl() const
         return out;
     const QJsonObject o = doc.object();
     for (auto it = o.begin(); it != o.end(); ++it) {
+        const QString id = it.key();
         const QJsonObject rec = it.value().toObject();
-        if (rec.value(QStringLiteral("locked_note_id")).toString() == lockedNote) {
-            out.insert(QStringLiteral("found"), true);
-            out.insert(QStringLiteral("active"), rec.value(QStringLiteral("active")).toVariant());
-            const QJsonValue w = rec.value(QStringLiteral("withdraw_at"));
-            out.insert(QStringLiteral("withdrawAt"), w.isNull() ? -1 : w.toVariant().toInt());
-            return out;
-        }
+        bool mine = false;
+        if (!myId.isEmpty() && id.compare(myId, Qt::CaseInsensitive) == 0)
+            mine = true;
+        else if (!myNote.isEmpty()
+                 && rec.value(QStringLiteral("locked_note_id")).toString().compare(myNote, Qt::CaseInsensitive) == 0)
+            mine = true;
+        else if (!myLoc.isEmpty()
+                 && QString::fromUtf8(QJsonDocument(rec).toJson(QJsonDocument::Compact)).contains(myLoc))
+            mine = true;
+        if (!mine)
+            continue;
+        out.insert(QStringLiteral("found"), true);
+        out.insert(QStringLiteral("active"), rec.value(QStringLiteral("active")).toVariant());
+        out.insert(QStringLiteral("created"), rec.value(QStringLiteral("created")).toVariant());
+        const QJsonValue w = rec.value(QStringLiteral("withdraw_at"));
+        out.insert(QStringLiteral("withdrawAt"), w.isNull() ? -1 : w.toVariant().toInt());
+        return out;
     }
     return out;
 }
@@ -1028,35 +1047,53 @@ void LogosNode1clickBackend::refreshBlendStatus()
                           ? QStringLiteral("%1 mix peers this epoch").arg(mp)
                           : QStringLiteral("mixing for the network");
             } else if (!loadBlendDecl().value(QStringLiteral("declaration_id")).toString().isEmpty()) {
-                // We submitted a Blend declaration but core_info is not populated. core_info alone
-                // can't tell "still activating" from "was Core, service dropped" — both are null. So
-                // consult the ON-CHAIN declaration (active epoch + withdraw_at) vs the current epoch:
-                //   epoch < active                  → genuinely Activating (declaration pending)
-                //   active <= epoch, not withdrawn  → CoreDeclaredEdge (declared on-chain, but the
-                //                                      node is running Edge — not in this epoch's Core set)
-                //   withdrawn                        → Off
-                //   not yet on-chain                → Activating (just submitted, not landed)
+                // We submitted a Blend declaration but core_info is not populated. The node's real
+                // blend TYPE this epoch is only ever Edge or Core — "Activating" is not a distinct
+                // mode, just Edge-while-a-declaration-matures, so we never surface it. Classify by the
+                // ledger's is_active rule (active + inactivity_period ≥ epoch AND withdraw_at null/future):
+                //   withdrawn (epoch ≥ withdraw_at)  → Off
+                //   is_active, core_info absent      → CoreDeclaredEdge (declared+live on-chain, but
+                //                                       running Edge this epoch — incl. the pre-active
+                //                                       "maturing to Core" window; shown edge + gold)
+                //   declaration aged out / not found → Edge (the declaration is stale/gone; we just mix
+                //                                       as edge — the modal/gate explains why)
+                static const int kInactivity = 2;
                 const QVariantMap dcl = onchainBlendDecl();
                 const int ep = currentEpochOnchain();
                 if (dcl.value(QStringLiteral("found")).toBool()) {
                     const int active = dcl.value(QStringLiteral("active")).toInt();
                     const int wat = dcl.value(QStringLiteral("withdrawAt")).toInt();   // -1 = null
+                    const bool live = ep >= 0 && active >= 0
+                                   && active + kInactivity >= ep && (wat < 0 || wat > ep);
                     if (wat >= 0 && ep >= 0 && ep >= wat) {
                         st = Off;
                         evt = QStringLiteral("Blend declaration withdrawn");
-                    } else if (ep >= 0 && ep < active) {
-                        st = Activating;
-                        evt = QStringLiteral("declaration pending — Core at epoch %1").arg(active);
-                    } else {
+                    } else if (live) {
                         st = CoreDeclaredEdge;
-                        evt = active > 0
-                            ? QStringLiteral("Core declared (active since epoch %1) · not in this epoch's Core set").arg(active)
-                            : QStringLiteral("Core declared · not in this epoch's Core set");
+                        evt = (ep >= 0 && ep < active)
+                            ? QStringLiteral("declaration maturing — Core at epoch %1").arg(active)
+                            : (active > 0
+                                ? QStringLiteral("Core declared (active since epoch %1) · not in this epoch's Core set").arg(active)
+                                : QStringLiteral("Core declared · not in this epoch's Core set"));
+                    } else {
+                        // Aged out (active + inactivity < epoch): the declaration is inactive, so we run
+                        // as a plain Edge node until it's re-declared. Note when it went inactive (and,
+                        // if withdrawing, when it clears) so the operator knows re-declare is the fix.
+                        st = Edge;
+                        if (active >= 0) {
+                            evt = QStringLiteral("declaration inactive since epoch %1").arg(active + kInactivity);
+                            if (wat >= 0)
+                                evt += QStringLiteral(" · withdrawing (clears epoch %1)").arg(wat);
+                            evt += QStringLiteral(" — re-declare to rejoin Core");
+                        } else {
+                            evt = QStringLiteral("your proposals are being mixed");
+                        }
                     }
                 } else {
-                    // Declaration submitted locally but not yet visible on-chain → genuinely pending.
-                    st = Activating;
-                    evt = QStringLiteral("declaration pending — Core in ~2 epochs");
+                    // Declared locally but no matching on-chain declaration (just submitted, not landed,
+                    // or fully cleared) → we mix as Edge meanwhile; the enable modal tracks the submit.
+                    st = Edge;
+                    evt = QStringLiteral("your proposals are being mixed");
                 }
             } else {
                 // Online and not core → edge by default, unless this epoch fell back
@@ -1087,7 +1124,9 @@ void LogosNode1clickBackend::refreshBlendStatus()
         case Broadcast:        mode = QStringLiteral("broadcast"); break;
         case CoreDeclaredEdge: mode = QStringLiteral("coredeclared"); break;
         case Edge:             mode = QStringLiteral("edge"); break;
-        case Activating:       mode = QStringLiteral("activating"); break;
+        // Activating is not a persisted blend type — the node mixes as Edge while a declaration
+        // matures (that window is CoreDeclaredEdge once live on-chain, Edge before), so it never
+        // reaches here; kept out of the strip deliberately.
         case Off:              mode = QStringLiteral("off"); break;
         default:               mode = QString(); break;   // transient/unknown → don't record
         }
@@ -1575,6 +1614,7 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
     }
     // Show the live count when we know the epoch; else fall back to the raw total (never 0).
     out.insert(QStringLiteral("count"), nowEpoch >= 0 ? activeCount : o.size());
+    out.insert(QStringLiteral("nowEpoch"), nowEpoch);   // for the modal's declaration-health gate
 
     // Identify ours: the persisted declaration id first, else match by locked note / locator.
     const QJsonObject mineStore = loadBlendDecl();
@@ -1599,12 +1639,18 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
                 mine = true;
         }
         if (mine) {
+            const int mActive = (int) d.value(QStringLiteral("active")).toDouble(-1);
+            const QJsonValue mw = d.value(QStringLiteral("withdraw_at"));
+            const int mWat = mw.isDouble() ? (int) mw.toDouble() : -1;
             out.insert(QStringLiteral("mineId"), id);
             out.insert(QStringLiteral("mineCreated"), (int) d.value(QStringLiteral("created")).toDouble(-1));
-            out.insert(QStringLiteral("mineActive"), (int) d.value(QStringLiteral("active")).toDouble(-1));
-            out.insert(QStringLiteral("mineWithdrawAt"),
-                       d.value(QStringLiteral("withdraw_at")).isDouble()
-                           ? (int) d.value(QStringLiteral("withdraw_at")).toDouble() : -1);
+            out.insert(QStringLiteral("mineActive"), mActive);
+            out.insert(QStringLiteral("mineWithdrawAt"), mWat);
+            // is_active + when it goes/went inactive, for the modal's "declaration slot free" gate.
+            out.insert(QStringLiteral("mineInactiveSince"), mActive >= 0 ? mActive + kInactivityPeriod : -1);
+            out.insert(QStringLiteral("mineLive"),
+                       mActive >= 0 && nowEpoch >= 0
+                           && mActive + kInactivityPeriod >= nowEpoch && (mWat < 0 || mWat > nowEpoch));
             break;
         }
     }

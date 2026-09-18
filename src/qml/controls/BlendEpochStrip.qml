@@ -5,7 +5,7 @@ import Logos.Theme
 import Logos.Controls
 
 // Per-epoch "Blend type" strip: one coloured cell per epoch, colour = the blend mode the node
-// was in that epoch (core / declared-but-edge / edge / activating / off). `series` is a CONTINUOUS
+// was in that epoch (core / declared-but-edge / edge / off). `series` is a CONTINUOUS
 // list [{ epoch, mode }] (fill gaps with mode "none" upstream — a "none" cell means the node was
 // down / mode unknown that epoch). Fed by the persisted blend-mode history store.
 LogosFrame {
@@ -24,7 +24,6 @@ LogosFrame {
         // gold underline drawn on top (see onPaint / the legend swatch), not a darker shade.
         case "coredeclared": return Theme.palette.info
         case "edge":         return Theme.palette.info            // normal edge blue
-        case "activating":   return Theme.palette.warning         // declaration pending
         case "broadcast":    return "#9b7bd4"
         case "off":          return Theme.palette.textMuted
         default:             return Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.18)
@@ -35,7 +34,6 @@ LogosFrame {
         case "core": return qsTr("Core")
         case "coredeclared": return qsTr("Declared (edge)")
         case "edge": return qsTr("Edge")
-        case "activating": return qsTr("Activating")
         case "broadcast": return qsTr("Broadcast")
         case "off": return qsTr("Off")
         default: return qsTr("—")

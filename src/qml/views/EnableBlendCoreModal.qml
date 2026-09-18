@@ -46,6 +46,11 @@ Item {
     property bool   portListening: false   // a local listener holds udp/<blendPort>
     property bool   portAttested: false    // operator confirmed the router port-forward
     property int    netCount: -1          // active BN declarations on the network
+    // our existing on-chain declaration, for the "declaration slot free" gate
+    property string mineId: ""             // our declaration id on-chain ("" = none)
+    property bool   mineLive: false        // our declaration is is_active this epoch
+    property int    mineInactiveSince: -1  // epoch our declaration went/goes inactive (active + 2)
+    property int    nowEpoch: -1           // current epoch (from the declarations poll)
 
     // ── derived gates ──
     readonly property bool gSynced: backend
@@ -57,7 +62,14 @@ Item {
     readonly property bool gStakeNote: noteCount > 0 && lockNoteId.length > 0
     readonly property bool gPort: portListening || portAttested
     readonly property bool gNetwork: netCount >= 2
-    readonly property bool allGreen: gSynced && gFunded && gStakeNote && gPort && gNetwork
+    // Declaration slot: a fresh declare only TAKES when no on-chain declaration for our key is still
+    // present — /blend/join returns the EXISTING id otherwise, so re-declaring is a silent no-op. A
+    // stale declaration blocks either because it's withdrawing (wait for it to clear) or aged-out and
+    // never withdrawn (withdraw it first). A LIVE declaration means we're already declared (the modal
+    // is in its "core" phase then, not gates), so it doesn't block here.
+    readonly property bool _declBlocks: mineId.length > 0 && !mineLive
+    readonly property bool gSlotFree: !_declBlocks
+    readonly property bool allGreen: gSynced && gFunded && gStakeNote && gPort && gNetwork && gSlotFree
 
     readonly property string docsUrl: "https://docs.logos.co/blockchain/blend/join-the-blend-network-as-a-core-node"
 
@@ -182,6 +194,10 @@ Item {
                 root.netCount = (r.count !== undefined) ? r.count : -1
                 if (r.mineActive !== undefined && r.mineActive >= 0) root.coreEpoch = r.mineActive
                 root.withdrawEpoch = (r.mineWithdrawAt !== undefined && r.mineWithdrawAt >= 0) ? r.mineWithdrawAt : -1
+                root.mineId = (r.mineId !== undefined) ? String(r.mineId) : ""
+                root.mineLive = (r.mineLive === true)
+                root.mineInactiveSince = (r.mineInactiveSince !== undefined) ? r.mineInactiveSince : -1
+                root.nowEpoch = (r.nowEpoch !== undefined) ? r.nowEpoch : -1
             },
             function(e) {}
         )
@@ -258,7 +274,26 @@ Item {
             backend.requestFaucetFunds(root.sdpKey)
         } else if (kind === "attest") {
             root.portAttested = true
+        } else if (kind === "withdraw") {
+            root._withdrawStale()
         }
+    }
+
+    // Withdraw a stale (aged-out, never-withdrawn) declaration from the gates phase so the operator
+    // can clear the slot and re-declare. Stays in gates and re-polls; withdraw_at then appears and the
+    // gate switches to the "wait until it clears" message.
+    function _withdrawStale() {
+        if (!backend || root.mineId.length === 0) return
+        root.errorText = ""
+        logos.watch(
+            backend.withdrawBlendCore(),
+            function(r) {
+                if (!(r && r.ok))
+                    root.errorText = (r && r.error) ? r.error : qsTr("The withdrawal was rejected.")
+                root._refreshGates()
+            },
+            function(e) { root.errorText = qsTr("Couldn't submit the withdrawal — %1").arg(String(e)) }
+        )
     }
 
     // Human-readable LGO from raw lepta (decimals = 9), for the funded gate value.
@@ -268,7 +303,8 @@ Item {
     }
 
     // ── gate model (rebuilt from the real state) ──
-    readonly property var gates: [
+    readonly property var gates: {
+        var g = [
         { ok: gSynced,    label: qsTr("Node synced"),
           val: gSynced ? qsTr("Online") : qsTr("Bootstrapping"),
           fix: qsTr("Wait for the node to finish syncing before declaring."), action: "", docs: "", kind: "" },
@@ -286,7 +322,23 @@ Item {
         { ok: gNetwork,   label: qsTr("Blend network size"),
           val: netCount >= 0 ? qsTr("%1 provider(s)").arg(netCount) : qsTr("checking…"),
           fix: qsTr("Needs at least 2 active providers on the network."), action: "", docs: "", kind: "" }
-    ]
+        ]
+        // Only surfaced when a stale declaration actually blocks a fresh declare — no noise on a
+        // first-time enable. Two honest sub-states: withdrawing (wait for it to clear) vs aged-out
+        // and never withdrawn (withdraw it first). Both make /blend/join a no-op until cleared.
+        if (_declBlocks) {
+            g.push({ ok: false, label: qsTr("Declaration slot free"),
+              val: withdrawEpoch >= 0
+                    ? qsTr("withdrawing → clears epoch %1").arg(withdrawEpoch)
+                    : (mineInactiveSince >= 0 ? qsTr("inactive since epoch %1").arg(mineInactiveSince) : qsTr("stale declaration on-chain")),
+              fix: withdrawEpoch >= 0
+                    ? qsTr("Your previous declaration is being withdrawn. A new one can't take until it clears at epoch %1 and the staked note unlocks — re-declare after that. Re-declaring now is a no-op.").arg(withdrawEpoch)
+                    : qsTr("A stale declaration is still on-chain and makes a fresh declare a no-op. Withdraw it first, then re-declare once it clears (~2 epochs)."),
+              action: withdrawEpoch >= 0 ? "" : qsTr("Withdraw stale declaration"),
+              docs: "", kind: withdrawEpoch >= 0 ? "" : "withdraw" })
+        }
+        return g
+    }
 
     // ── backdrop ──
     Rectangle {
@@ -492,7 +544,9 @@ Item {
                 LogosButton { visible: root.phase === "enabling" || root.phase === "disabling"; text: qsTr("Close"); onClicked: root.close() }
                 LogosButton { visible: root.phase === "activated" || root.phase === "disabled"; text: qsTr("Done"); onClicked: root._done() }
                 // Enable / Disable actions
-                LogosButton { visible: root.phase === "gates"; variant: LogosButton.Variant.Primary; text: qsTr("Enable Blend Core"); enabled: root.allGreen; onClicked: root._enable() }
+                LogosButton { visible: root.phase === "gates"; variant: LogosButton.Variant.Primary
+                    text: root.withdrawEpoch >= 0 ? qsTr("Re-declare after epoch %1").arg(root.withdrawEpoch) : qsTr("Enable Blend Core")
+                    enabled: root.allGreen; onClicked: root._enable() }
                 LogosButton { visible: root.phase === "core"; text: qsTr("Disable Blend Core"); onClicked: root._disable() }
             }
         }

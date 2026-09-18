@@ -1211,11 +1211,12 @@ Rectangle {
                 ? String(p.time_info.current_epoch) : "—"
         } catch (e) { return "—" }
     }
-    // BlendStatus enum → the view's none|edge|activating|core. Edge=2, Core=3,
-    // Broadcast=4, Activating=8 (a pending declaration, epic #89).
+    // BlendStatus enum → the view's none|edge|coredeclared|core. Edge=2, Core=3,
+    // Broadcast=4. "Activating" is not a distinct blend type (the node mixes as Edge while a
+    // declaration matures), so the backend never emits it; a stray value maps to coredeclared.
     function _dashBlend(bs) {
         if (bs === BlockchainBackend.Edge) return "edge"
-        if (bs === BlockchainBackend.Activating) return "activating"
+        if (bs === BlockchainBackend.Activating) return "coredeclared"
         if (bs === BlockchainBackend.CoreDeclaredEdge) return "coredeclared"
         if (bs === BlockchainBackend.Core || bs === BlockchainBackend.Broadcast) return "core"
         return "none"
