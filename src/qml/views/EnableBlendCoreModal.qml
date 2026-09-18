@@ -31,6 +31,7 @@ Item {
     property string errorText: ""      // enable/disable failure surfaced verbatim from the node
     property string txId: ""           // declaration id returned by /blend/join
     property int coreEpoch: -1         // the epoch our declaration activates (mineActive)
+    property int withdrawEpoch: -1     // if our declaration is withdraw-pending, the epoch it clears (mineWithdrawAt)
     property string faucetMsg: ""      // funded-gate faucet feedback (requesting / result / why-nothing)
     property bool   faucetBusy: false  // a faucet request is in flight
 
@@ -180,6 +181,7 @@ Item {
                 if (!r) return
                 root.netCount = (r.count !== undefined) ? r.count : -1
                 if (r.mineActive !== undefined && r.mineActive >= 0) root.coreEpoch = r.mineActive
+                root.withdrawEpoch = (r.mineWithdrawAt !== undefined && r.mineWithdrawAt >= 0) ? r.mineWithdrawAt : -1
             },
             function(e) {}
         )
@@ -219,6 +221,7 @@ Item {
                     if (r && r.mineId && String(r.mineId).length > 0) {
                         if (root.step < 2) root.step = 2         // on-chain → activating
                         if (r.mineActive !== undefined && r.mineActive >= 0) root.coreEpoch = r.mineActive
+                        root.withdrawEpoch = (r.mineWithdrawAt !== undefined && r.mineWithdrawAt >= 0) ? r.mineWithdrawAt : -1
                     }
                 },
                 function(e) {}
@@ -397,13 +400,16 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 visible: root.phase === "enabling"
-                LogosText { text: root.step === 0 ? qsTr("Submitting declaration…")
+                LogosText { text: root.withdrawEpoch >= 0 ? qsTr("Previous declaration still withdrawing")
+                                 : root.step === 0 ? qsTr("Submitting declaration…")
                                  : root.step === 1 ? qsTr("Included in a block")
                                  : (root.coreEpoch > 0 ? qsTr("Activating — Core at epoch %1").arg(root.coreEpoch)
                                                        : qsTr("Activating — Core in ~2 epochs"))
-                            color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
+                            color: root.withdrawEpoch >= 0 ? Theme.palette.warning : Theme.palette.text
+                            font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
                 LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: root.step === 0 ? qsTr("Signing the declaration from your node's blend keys.")
+                            text: root.withdrawEpoch >= 0 ? qsTr("Your key can't re-declare until the previous declaration clears at epoch %1 and its stake unlocks. Re-declare after that.").arg(root.withdrawEpoch)
+                                 : root.step === 0 ? qsTr("Signing the declaration from your node's blend keys.")
                                  : root.step === 1 ? (root.txId.length > 0 ? qsTr("Declaration is on-chain (id %1…).").arg(root.txId.substring(0, 8)) : qsTr("Declaration is on-chain."))
                                  : qsTr("You can safely close this window — activation continues in the background (~2 epochs).")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
