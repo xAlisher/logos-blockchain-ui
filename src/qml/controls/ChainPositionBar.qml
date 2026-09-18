@@ -102,7 +102,7 @@ LogosFrame {
                 var parts = []
                 if (root.blockHeight >= 0) parts.push(qsTr("%1 blocks").arg(root.blockHeight))
                 if (root.nowSlot >= 0 && root.tipSlot >= 0) parts.push(qsTr("%1 slots behind").arg(Math.max(0, root.nowSlot - root.tipSlot)))
-                if (root.tipSlot >= 0 && root.libSlot >= 0) parts.push(qsTr("%1 slots to finality").arg(Math.max(0, root.tipSlot - root.libSlot)))
+                if (root.tipSlot >= 0 && root.libSlot >= 0) parts.push(qsTr("finality lag %1 slots").arg(Math.max(0, root.tipSlot - root.libSlot)))
                 return parts.join(" · ")
             }
             color: Theme.palette.textTertiary; font.pixelSize: 11

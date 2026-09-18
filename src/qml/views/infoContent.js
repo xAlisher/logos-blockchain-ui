@@ -78,7 +78,7 @@ var data = {
     chainPosition: {
         title: "Chain position",
         what: "Slot and Height in one picture: a slot axis with three markers — lib (finalized), tip (your latest block), and now (the clock / current_slot) — plus the block count.",
-        calc: "Slot is the clock (it ticks every slot whether or not a block is produced); Height is the chain (it only climbs when a block lands). The solid segment lib→tip is built-but-not-yet-finalized; the faint segment tip→now is the gap you're catching up to the clock. When synced, tip≈now and the faint part disappears. During a prolonged bootstrap the finalized edge (lib) freezes far behind — visible here as a large 'slots to finality'. Point-in-time (current values), not a history."
+        calc: "Slot is the clock (it ticks every slot whether or not a block is produced); Height is the chain (it only climbs when a block lands). The solid segment lib→tip is built-but-not-yet-finalized; the faint segment tip→now is the gap you're catching up to the clock. When synced, tip≈now and the faint part disappears. During a prolonged bootstrap the finalized edge (lib) freezes far behind — visible here as a large 'finality lag'. Point-in-time (current values), not a history."
     },
     blocksByEpoch: {
         title: "Blocks per epoch",
