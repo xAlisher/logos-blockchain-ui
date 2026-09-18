@@ -139,6 +139,9 @@ Item {
         var h = Math.floor(elapsedM / 60), m = elapsedM % 60
         return (h > 0 ? h + "h " : "") + m + "m of " + lenH + "h"
     }
+    // Fraction through the current epoch (0..1) for the Epoch card's progress bar; -1 = unknown.
+    readonly property real _epochFrac: (!_time || _time.current_slot === undefined)
+        ? -1 : (Number(_time.current_slot) % _epochLenSlots) / _epochLenSlots
 
     // ── NOT wired (no API yet) — honest placeholders, overridable for design mocks ──
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
@@ -514,6 +517,7 @@ Item {
         property bool shine: false                // subtle gold pulse on the value (e.g. Blend = Core)
         property string cta: ""                    // optional action link in the sub row (e.g. "Enable Blend Core")
         signal ctaClicked()
+        property real progress: -1                 // 0..1 → a rounded bar fills the sub row left of `sub`; <0 = none
         property bool showLane: false             // embed the lifecycle lane at the bottom (merged Status card)
         property var laneSteps: []
         property int laneReached: -1
@@ -618,9 +622,23 @@ Item {
             }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 visible: !showLane        // (stacked below the value only when the lane isn't sharing the card)
+                // Epoch progress bar (gray track, white fill, rounded) — fills the row left of the timer.
+                Rectangle {
+                    visible: blk.progress >= 0
+                    Layout.fillWidth: true; Layout.preferredHeight: 6; Layout.alignment: Qt.AlignVCenter
+                    radius: 3
+                    color: Qt.rgba(Theme.palette.text.r, Theme.palette.text.g, Theme.palette.text.b, 0.14)
+                    Rectangle {
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                        height: parent.height; radius: parent.radius
+                        width: parent.width * Math.max(0, Math.min(1, blk.progress))
+                        color: Theme.palette.text
+                    }
+                }
                 // normal sub text (hidden when the row is a copy-only button, or a CTA link is shown)
                 LogosText { visible: copyValue.length === 0 && sub.length > 0 && blk.cta.length === 0; text: sub; color: subColor
-                            font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
+                            font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight
+                            Layout.alignment: Qt.AlignVCenter }
                 // CTA action link (e.g. "Enable Blend Core") — shown in relevant states
                 LogosLink { visible: blk.cta.length > 0; text: blk.cta; font.pixelSize: Theme.typography.secondaryText
                             onActivated: blk.ctaClicked() }
@@ -637,7 +655,8 @@ Item {
                     }
                 }
                 LogosText { visible: blk._copied; text: qsTr("Copied"); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
-                Item { Layout.fillWidth: true } }
+                // filler only when there's no progress bar (the bar fills the width otherwise)
+                Item { visible: blk.progress < 0; Layout.fillWidth: true } }
             Lifecycle {
                 visible: showLane
                 Layout.fillWidth: true
@@ -676,7 +695,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendKnown ? root._blend.label : "—"; sub: root._blendKnown ? root._blendSub : ""; accent: root._blendKnown ? root._blend.c : Theme.palette.text; shine: root._blendKnown && root.blendState === "core"
                             // No tile CTA — the header "Enable Blend Core" action is the single entry point (epic #89).
                             info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
-                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
+                    Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; progress: root._epochFrac; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.success) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }
                     // Vouchers — the two honest numbers the Rewards tab shows:
                     // "Ready to claim" (claimable now) headlines; "Submitted" = claims in flight.
