@@ -1557,7 +1557,24 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
         return out;
     const QJsonObject o = doc.object();   // { <declId>: Declaration, ... }
     out.insert(QStringLiteral("ok"), true);
-    out.insert(QStringLiteral("count"), o.size());
+    out.insert(QStringLiteral("total"), o.size());   // all BN declarations ever (incl. dead)
+    // Live "Blend network size" = declarations still ACTIVE this epoch, per the ledger rule
+    // is_active: active + inactivity_period(2) >= epoch AND (withdraw_at null or > epoch).
+    const int nowEpoch = currentEpochOnchain();          // -1 if the node isn't reporting
+    static const int kInactivityPeriod = 2;
+    int activeCount = 0;
+    for (auto it = o.begin(); it != o.end(); ++it) {
+        const QJsonObject d = it.value().toObject();
+        if (d.value(QStringLiteral("service_type")).toString() != QStringLiteral("BN"))
+            continue;
+        const int a = (int) d.value(QStringLiteral("active")).toDouble(-1);
+        const QJsonValue w = d.value(QStringLiteral("withdraw_at"));
+        const int wat = w.isDouble() ? (int) w.toDouble() : -1;
+        if (a >= 0 && nowEpoch >= 0 && a + kInactivityPeriod >= nowEpoch && (wat < 0 || wat > nowEpoch))
+            ++activeCount;
+    }
+    // Show the live count when we know the epoch; else fall back to the raw total (never 0).
+    out.insert(QStringLiteral("count"), nowEpoch >= 0 ? activeCount : o.size());
 
     // Identify ours: the persisted declaration id first, else match by locked note / locator.
     const QJsonObject mineStore = loadBlendDecl();
