@@ -7,6 +7,7 @@ import Logos.Controls
 import Logos.BlockchainBackend 1.0
 import "infoContent.js" as InfoContent
 import "../amounts.js" as Amounts
+import "../controls"
 
 // Dashboard CONTENT (epic #56): Status/Blend hero pair + 4×3 metric grid + real Blocks table.
 // Header + top-tab nav live in BlockchainView (persist across tabs). HONEST: fields with no real
@@ -152,6 +153,8 @@ Item {
     property string foundingAddr: ""
     property string earnedStr: "—"                           // #60
     property var earnedByEpoch: []                           // [{epoch, lepta}] net earned per epoch (chart)
+    property var proposedByEpoch: []                         // [{epoch, value}] blocks proposed per epoch
+    property var vouchersByEpoch: []                         // [{epoch, value}] vouchers claimed per epoch
     property string feePct: ""
     property string uptime: ""
     property string replayProgress: ""
@@ -778,6 +781,24 @@ Item {
                             }
                         }
                     }
+                }
+                // ---- Blocks proposed by epoch (count) — empty bars for no-proposal epochs ----
+                EpochBarChart {
+                    title: qsTr("Blocks proposed by epoch")
+                    unit: qsTr("blocks"); decimals: 0
+                    series: root.proposedByEpoch
+                    emptyText: qsTr("No blocks proposed yet.")
+                    info: root._infoData.proposedByEpoch
+                    onInfoRequested: (i) => root._openInfo(i)
+                }
+                // ---- Vouchers claimed by epoch (count) ----
+                EpochBarChart {
+                    title: qsTr("Vouchers claimed by epoch")
+                    unit: qsTr("vouchers"); decimals: 0
+                    series: root.vouchersByEpoch
+                    emptyText: qsTr("No vouchers claimed yet.")
+                    info: root._infoData.vouchersByEpoch
+                    onInfoRequested: (i) => root._openInfo(i)
                 }
 
                 // ---- footer: version line (+ copy) · legal disclaimer (modal) ----

@@ -1410,6 +1410,47 @@ Rectangle {
         // fit its width (fixed-width, left-packed bars) and reveals labels on hover.
         return filled
     }
+    // Helper: fill [{epoch,value}] continuously from first epoch → current epoch (0 for gaps),
+    // so a no-activity epoch shows as an empty bar instead of collapsing the axis (mirrors earned).
+    function _fillEpochSeries(m) {
+        var out = []
+        for (var k in m) out.push({ epoch: Number(k), value: m[k] })
+        out.sort(function(a, b) { return a.epoch - b.epoch })
+        if (out.length === 0) return out
+        var lo = out[0].epoch, hi = out[out.length - 1].epoch
+        var cur = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+        if (!isNaN(cur) && cur > hi) hi = cur
+        var filled = []
+        for (var e2 = lo; e2 <= hi; ++e2) filled.push({ epoch: e2, value: (m[e2] || 0) })
+        return filled
+    }
+    // Blocks this node PROPOSED per epoch (count). proposalsJson carries `time` per proposal;
+    // derive the epoch the same way _proposedEpoch does (genesis + epoch-length).
+    readonly property var _proposedByEpoch: {
+        var arr
+        try { arr = root.proposalsJson && root.proposalsJson.length ? JSON.parse(root.proposalsJson) : [] }
+        catch (e) { return [] }
+        var L = 36000, GEN = 1788525000000, m = ({})
+        for (var i = 0; i < arr.length; ++i) {
+            var ms = Date.parse(String(arr[i].time).replace(" ", "T"))
+            if (isNaN(ms)) continue
+            var e2 = Math.floor((ms - GEN) / 1000 / L)
+            m[e2] = (m[e2] || 0) + 1
+        }
+        return _fillEpochSeries(m)
+    }
+    // Vouchers CLAIMED per epoch (count of settled/in-block claims, same source as earned).
+    readonly property var _vouchersByEpoch: {
+        var cs = leaderRewardsView.claims, L = 36000, m = ({})
+        for (var i = 0; i < cs.length; ++i) {
+            var c = cs[i]
+            if (!c || (c.status !== "settled" && c.status !== "in_block")) continue
+            var sl = Number(c.slot); if (isNaN(sl)) continue
+            var e2 = Math.floor(sl / L)
+            m[e2] = (m[e2] || 0) + 1
+        }
+        return _fillEpochSeries(m)
+    }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
             return
@@ -1913,6 +1954,8 @@ Rectangle {
 
                         // net earned per epoch, for the "Earned by epoch" chart
                         earnedByEpoch: opPage.nodeRunning ? root._earnedByEpoch : []
+                        proposedByEpoch: opPage.nodeRunning ? root._proposedByEpoch : []
+                        vouchersByEpoch: opPage.nodeRunning ? root._vouchersByEpoch : []
 
                         // version footer defaults to Module v<moduleVersion> (0.2.23)
 
