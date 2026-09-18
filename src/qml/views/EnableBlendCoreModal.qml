@@ -395,7 +395,28 @@ Item {
                                 Layout.alignment: Qt.AlignTop; width: 18; height: 18; radius: 9
                                 color: modelData.ok ? Theme.palette.success : "transparent"
                                 border.color: modelData.ok ? Theme.palette.success : _pend; border.width: 2
-                                LogosText { anchors.centerIn: parent; text: modelData.ok ? "✓" : "!"; color: modelData.ok ? "#FFFFFF" : parent._pend; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                                // OK: a checkmark knocked out of the green disc (drawn in the row's own
+                                // background colour so it reads as a transparent cut-out), pixel-centred.
+                                // Not-OK: a centred "!" in the pending colour.
+                                Canvas {
+                                    id: _chk; visible: modelData.ok; anchors.fill: parent; antialiasing: true
+                                    readonly property color _stroke: Theme.palette.surfaceRaised
+                                    onPaint: {
+                                        var ctx = getContext("2d"); ctx.reset()
+                                        var w = width, h = height
+                                        ctx.strokeStyle = _stroke; ctx.lineWidth = 2.2
+                                        ctx.lineCap = "round"; ctx.lineJoin = "round"
+                                        ctx.beginPath()
+                                        ctx.moveTo(w * 0.30, h * 0.52)
+                                        ctx.lineTo(w * 0.44, h * 0.66)
+                                        ctx.lineTo(w * 0.72, h * 0.36)
+                                        ctx.stroke()
+                                    }
+                                    onVisibleChanged: if (visible) requestPaint()
+                                    Component.onCompleted: requestPaint()
+                                }
+                                LogosText { visible: !modelData.ok; anchors.centerIn: parent; text: "!"; color: parent._pend
+                                            font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 1
