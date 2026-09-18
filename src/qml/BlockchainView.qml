@@ -1395,9 +1395,20 @@ Rectangle {
         var out = []
         for (var k in m) out.push({ epoch: Number(k), lepta: m[k] })
         out.sort(function(a, b) { return a.epoch - b.epoch })
+        if (out.length === 0) return out
+        // Fill the epoch axis CONTINUOUSLY: an epoch the node didn't earn in must show as an
+        // empty (zero) bar, not be skipped — otherwise the timeline collapses gaps and lies
+        // about which epochs earned. Range = first earning epoch → the current epoch, so recent
+        // no-earn epochs (e.g. 29, 30 while the node sat idle) appear as empty bars on the right.
+        var lo = out[0].epoch, hi = out[out.length - 1].epoch
+        var cur = parseInt(root._dashEpoch(root.cryptarchiaInfoJson))
+        if (!isNaN(cur) && cur > hi) hi = cur
+        var filled = []
+        for (var e2 = lo; e2 <= hi; ++e2)
+            filled.push({ epoch: e2, lepta: (m[e2] || 0) })
         // Full per-epoch series; the chart itself keeps only the most recent epochs that
         // fit its width (fixed-width, left-packed bars) and reveals labels on hover.
-        return out
+        return filled
     }
     function refreshLeaderClaims() {
         if (!root.backend || root.backend.status !== BlockchainBackend.Running)
