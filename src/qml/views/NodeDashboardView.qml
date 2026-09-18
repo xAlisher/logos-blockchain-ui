@@ -325,13 +325,12 @@ Item {
         if (_blendPhase === "core") {
             var cn = blendPeers > 0 ? blendPeers : n
             return ({ value: qsTr("Core"),
-                      sub: cn > 0 ? qsTr("You are mixing proposals with %1 nodes").arg(cn) : qsTr("You are mixing proposals"),
+                      sub: cn > 0 ? qsTr("Mixing with %1 core nodes").arg(cn) : qsTr("Mixing your proposals"),
                       c: "#d9a521" })
         }
         // edge or coredeclared → both honestly read as Edge (the node's live mode)
         return ({ value: qsTr("Edge"),
-                  sub: n > 0 ? qsTr("Your proposals mixed by %1 core nodes").arg(n)
-                             : qsTr("Your proposals are mixed by the Blend core network"),
+                  sub: n > 0 ? qsTr("Mixed by %1 core nodes").arg(n) : qsTr("Mixed by the core network"),
                   c: Theme.palette.info })
     }
     // Blend state is only meaningful once the node is Online (following the chain).
