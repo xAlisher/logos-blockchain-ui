@@ -745,15 +745,6 @@ Item {
                     info: root._infoData.blockTx
                     onInfoRequested: (i) => root._openInfo(i)
                 }
-                // Blocks per epoch (Δheight) — network block production.
-                EpochBarChart {
-                    title: qsTr("Blocks per epoch")
-                    unit: qsTr("blocks"); decimals: 0
-                    series: root.blocksByEpoch
-                    emptyText: qsTr("Recording — blocks-per-epoch fills in as epochs pass.")
-                    info: root._infoData.blocksByEpoch
-                    onInfoRequested: (i) => root._openInfo(i)
-                }
                 // ③ Sync gap (now − tip) over time — the "am I caught up?" line.
                 TimeSeriesChart {
                     title: qsTr("Sync gap (slots behind)")
@@ -767,7 +758,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.spacing.large
                 LogosFrame {
-                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true; Layout.alignment: Qt.AlignTop
                     visible: root.earnedByEpoch && root.earnedByEpoch.length > 0
                     backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
                     radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
@@ -847,7 +838,11 @@ Item {
                                         var cx = padL + slot * (j + 0.5)
                                         var bh = top > 0 ? (v / top) * ph : 0
                                         ctx.fillStyle = white; ctx.globalAlpha = (j === hoverIdx) ? 1.0 : 0.8
-                                        ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh); ctx.globalAlpha = 1
+                                        var bx = cx - bw / 2, by = baseY - bh, rr = Math.min(bw / 2, 2.5, bh)
+                                        ctx.beginPath()
+                                        if (bh <= rr || bw < 2) { ctx.rect(bx, by, bw, bh) }
+                                        else { ctx.moveTo(bx, baseY); ctx.lineTo(bx, by + rr); ctx.quadraticCurveTo(bx, by, bx + rr, by); ctx.lineTo(bx + bw - rr, by); ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + rr); ctx.lineTo(bx + bw, baseY); ctx.closePath() }
+                                        ctx.fill(); ctx.globalAlpha = 1
                                     }
                                     // Hover: "Epoch N: X LGO" above the bar, clamped so the label stays on-canvas.
                                     if (hoverIdx >= 0 && hoverIdx < d.length) {
@@ -877,7 +872,7 @@ Item {
                 }
                 // ---- Blocks proposed by epoch (count) — empty bars for no-proposal epochs ----
                 EpochBarChart {
-                    Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true; Layout.alignment: Qt.AlignTop
                     title: qsTr("Blocks proposed by epoch")
                     unit: qsTr("blocks"); decimals: 0
                     series: root.proposedByEpoch
@@ -887,7 +882,7 @@ Item {
                 }
                 // ---- Vouchers claimed by epoch (count) ----
                 EpochBarChart {
-                    Layout.preferredWidth: 1; Layout.alignment: Qt.AlignTop
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true; Layout.alignment: Qt.AlignTop
                     title: qsTr("Vouchers claimed by epoch")
                     unit: qsTr("vouchers"); decimals: 0
                     series: root.vouchersByEpoch
@@ -895,17 +890,19 @@ Item {
                     info: root._infoData.vouchersByEpoch
                     onInfoRequested: (i) => root._openInfo(i)
                 }
-                }   // end Earned/Proposed/Claimed row
-                // ---- Blend type by epoch (persisted categorical strip) ----
+                // ---- Blend type by epoch — 4th item in the row, same height as the bar charts ----
                 BlendEpochStrip {
+                    Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.fillHeight: true; Layout.alignment: Qt.AlignTop
                     series: root.blendModeByEpoch
                     info: root._infoData.blendModeByEpoch
                     onInfoRequested: (i) => root._openInfo(i)
                 }
+                }   // end by-epoch row (Earned / Proposed / Vouchers / Blend type)
                 // ---- Peers (rolling ~10 min in-session) ----
                 TimeSeriesChart {
                     title: qsTr("Peers")
                     series: root.peersSeries
+                    smoothLine: true
                     info: root._infoData.peersSeries
                     onInfoRequested: (i) => root._openInfo(i)
                 }
@@ -913,6 +910,7 @@ Item {
                 TimeSeriesChart {
                     title: qsTr("Hardware")
                     series: root.hwSeries
+                    smoothLine: true
                     info: root._infoData.hwSeries
                     onInfoRequested: (i) => root._openInfo(i)
                 }

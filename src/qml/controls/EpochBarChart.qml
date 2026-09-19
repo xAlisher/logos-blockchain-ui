@@ -19,6 +19,23 @@ LogosFrame {
     property var info: null               // InfoContent entry for the (i)
     signal infoRequested(var info)
 
+    // Fill a bar with rounded TOP corners (flat base), radius adaptive to the bar width.
+    function _roundedTopBar(ctx, x, y, w, h, baseY) {
+        var r = Math.min(w / 2, 2.5, h)
+        ctx.beginPath()
+        if (h <= r || w < 2) { ctx.rect(x, y, w, h) }
+        else {
+            ctx.moveTo(x, baseY)
+            ctx.lineTo(x, y + r)
+            ctx.quadraticCurveTo(x, y, x + r, y)
+            ctx.lineTo(x + w - r, y)
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r)
+            ctx.lineTo(x + w, baseY)
+            ctx.closePath()
+        }
+        ctx.fill()
+    }
+
     Layout.fillWidth: true
     visible: series && series.length > 0
     backgroundColor: Theme.palette.surfaceRaised
@@ -101,7 +118,7 @@ LogosFrame {
                         var cx = padL + slot * (j + 0.5)
                         var bh = top > 0 ? (v / top) * ph : 0
                         ctx.fillStyle = white; ctx.globalAlpha = (j === hoverIdx) ? 1.0 : 0.8
-                        ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh); ctx.globalAlpha = 1
+                        root._roundedTopBar(ctx, cx - bw / 2, baseY - bh, bw, bh, baseY); ctx.globalAlpha = 1
                     }
                     if (hoverIdx >= 0 && hoverIdx < d.length) {
                         var hv = qsTr("Epoch %1: %2 %3").arg(d[hoverIdx].epoch).arg(Number(d[hoverIdx].value).toFixed(root.decimals)).arg(root.unit)

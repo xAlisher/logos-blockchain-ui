@@ -20,7 +20,7 @@ LogosFrame {
     function _heat(t) {
         if (t <= 0) return root._empty
         t = Math.max(0, Math.min(1, t))
-        var lo = [14, 68, 41], hi = [57, 211, 83]   // #0e4429 → #39d353
+        var lo = [72, 78, 88], hi = [255, 255, 255]   // dim grey → white (activity = brightness)
         return Qt.rgba((lo[0] + (hi[0] - lo[0]) * t) / 255,
                        (lo[1] + (hi[1] - lo[1]) * t) / 255,
                        (lo[2] + (hi[2] - lo[2]) * t) / 255, 1)

@@ -95,7 +95,7 @@ LogosFrame {
                         var mx = 0
                         for (var k = 0; k < vals.length; k++) mx = Math.max(mx, Number(vals[k]) || 0)
                         if (mx <= 0) mx = 1
-                        ctx.strokeStyle = lines[li].color; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9
+                        ctx.strokeStyle = lines[li].color; ctx.lineWidth = 2.5; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.globalAlpha = 0.9
                         ctx.lineJoin = "round"; ctx.lineCap = "round"
                         var pts = []
                         for (var j = 0; j < vals.length; j++)
