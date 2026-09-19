@@ -70,6 +70,12 @@ Item {
     readonly property bool _declBlocks: mineId.length > 0 && !mineLive
     readonly property bool gSlotFree: !_declBlocks
     readonly property bool allGreen: gSynced && gFunded && gStakeNote && gPort && gNetwork && gSlotFree
+    // ── manage-view state (drive off the declaration facts, not just blendStatus, which can lag) ──
+    readonly property bool _isCore: backend && backend.blendStatus === BlockchainBackend.Core
+    // pre-active window: declared + live on-chain, but activation epoch is still ahead
+    readonly property bool _maturing: mineLive && coreEpoch > 0 && nowEpoch >= 0 && nowEpoch < coreEpoch
+    // declared + live but not (yet) mixing in this epoch's Core set — the "no need to re-declare" state
+    readonly property bool _declaredNotMixing: (backend && backend.blendStatus === BlockchainBackend.CoreDeclaredEdge) || (mineLive && !_isCore)
 
     readonly property string docsUrl: "https://docs.logos.co/blockchain/blend/join-the-blend-network-as-a-core-node"
 
@@ -94,6 +100,7 @@ Item {
 
     function _enable() {
         if (!allGreen || phase !== "gates" || !backend) return
+        if (root.mineLive) { root.phase = "core"; return }   // already declared — never re-declare
         root.errorText = ""
         root.step = 0
         root.phase = "enabling"
@@ -198,6 +205,10 @@ Item {
                 root.mineLive = (r.mineLive === true)
                 root.mineInactiveSince = (r.mineInactiveSince !== undefined) ? r.mineInactiveSince : -1
                 root.nowEpoch = (r.nowEpoch !== undefined) ? r.nowEpoch : -1
+                // We already have a LIVE declaration on-chain → we're declared, not eligible to declare
+                // again. Leave the gates checklist for the manage view (guards against a stale blendStatus
+                // that still reads Edge during the pre-active maturing window, epoch < active).
+                if (root.mineLive && root.phase === "gates") root.phase = "core"
             },
             function(e) {}
         )
@@ -513,25 +524,28 @@ Item {
                     contentItem: RowLayout {
                         spacing: Theme.spacing.medium
                         Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9
-                            color: (root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge) ? Theme.palette.info : "#d9a521" }
+                            color: root._declaredNotMixing ? Theme.palette.info : "#d9a521" }
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 1
-                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
-                                            ? qsTr("Core declared — not active this epoch")
-                                            : qsTr("Active — mixing your proposals")
+                            LogosText { text: !root._declaredNotMixing ? qsTr("Active — mixing your proposals")
+                                            : root._maturing ? qsTr("Declared — activating at epoch %1").arg(root.coreEpoch)
+                                            : qsTr("Core declared — not active this epoch")
                                         color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            LogosText { text: (root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
-                                            ? qsTr("running as Edge · not in this epoch's Core set")
-                                            : (root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            LogosText { text: !root._declaredNotMixing
+                                            ? ((root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"))
+                                            : root._maturing ? qsTr("enters the Core set at epoch %1 (~2 epochs)").arg(root.coreEpoch)
+                                            : qsTr("running as Edge · not in this epoch's Core set"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                         }
                     }
                 }
                 // declared-but-Edge: explain the honest state + head off a re-declare (stake is locked)
-                LogosText { visible: root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge
+                LogosText { visible: root._declaredNotMixing
                             Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: qsTr("Your Core declaration is active on-chain and your stake is locked — you don't need to declare again. The node is running as Edge and isn't in this epoch's Core mixing set. It may rejoin at the next epoch. If it keeps missing epochs, the node reports a Blend membership issue (blend_tsi_outage) worth raising with the team.")
+                            text: root._maturing
+                                ? qsTr("Your declaration is live on-chain and your stake is locked — you don't need to declare again. It's maturing and enters the Core mixing set at epoch %1 (~2 epochs). You can close this window; activation continues in the background.").arg(root.coreEpoch)
+                                : qsTr("Your Core declaration is active on-chain and your stake is locked — you don't need to declare again. The node is running as Edge and isn't in this epoch's Core mixing set. It may rejoin at the next epoch. If it keeps missing epochs, the node reports a Blend membership issue (blend_tsi_outage) worth raising with the team.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                LogosText { visible: !(root.backend && root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
+                LogosText { visible: !root._declaredNotMixing
                             Layout.fillWidth: true; wrapMode: Text.WordWrap
                             text: qsTr("Disabling withdraws your Blend declaration and unlocks the note you staked. You stop mixing and revert to Edge at the next epoch — rewards you already earned are unaffected.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
