@@ -161,6 +161,8 @@ Item {
     property int vouchersReady: -1                           // claimable vouchers ready; -1 = n/a
     property string peers: "—"                               // #62 (curl)
     property string connections: ""
+    // parsed peer count (-1 = unknown) — lets the stall message be honest about whether peers are the cause
+    readonly property int _peerCount: { var n = parseInt(peers); return isNaN(n) ? -1 : n }
     property bool empoweringActive: false                    // #64 (#85) — mining currently on (drives the tile)
     property real empoweringMined: -1                        // LGO mined toward target; <0 = no data
     property real empoweringTarget: -1                       // auto-claim threshold / target balance
@@ -296,9 +298,18 @@ Item {
       : status === BlockchainBackend.Error
             ? ({ label: qsTr("Error"), sub: (lastErrorMessage.length ? lastErrorMessage : qsTr("Node error.")), c: Theme.palette.error, copy: lastErrorMessage.length > 0, d: false })
       : (nodeStalled && _prolonged)
-            ? ({ label: qsTr("Bootstrap stuck"), sub: qsTr("Not syncing. Likely lost peers."), c: Theme.palette.error, copy: false, d: false })
+            ? ({ label: qsTr("Bootstrap stuck"),
+                 // Honest: don't blame peers when they're healthy. A frozen chain height WITH peers
+                 // connected is a chain-state stall (the node can't process past a block), not a
+                 // connectivity problem — recovery resets the chain state. Only call out peers when they're low.
+                 sub: (_peerCount >= 0 && _peerCount < 3)
+                        ? qsTr("Chain height frozen · only %1 peer(s) — recover, or check connectivity.").arg(_peerCount)
+                        : (_peerCount >= 0
+                            ? qsTr("Chain height frozen while connected to %1 peers — a block won't process. Recover to reset chain state.").arg(_peerCount)
+                            : qsTr("Chain height frozen — a block won't process. Recover to reset chain state.")),
+                 c: Theme.palette.error, copy: false, d: false })
       : nodeStalled
-            ? ({ label: qsTr("Sync stalled"), sub: qsTr("No progress. Try restarting."), c: Theme.palette.error, copy: false, d: false })
+            ? ({ label: qsTr("Sync stalled"), sub: qsTr("Chain height not advancing. Recover, or restart the node."), c: Theme.palette.error, copy: false, d: false })
       : nodeRecovering
             ? ({ label: qsTr("Replaying blocks"), sub: replayProgress, c: Theme.palette.warning, copy: false, d: true })
       : status === BlockchainBackend.Starting
