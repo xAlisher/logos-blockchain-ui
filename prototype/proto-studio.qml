@@ -45,6 +45,7 @@ Window {
         property string peerId: ""
         property string blend: "none"
         property int blendWithdrawEpoch: -1    // >=0 ⇒ our declaration is withdrawing, clears at this epoch (blocks re-declare)
+        property int blendMaturingEpoch: -1    // >=0 ⇒ declared + live on-chain but pre-active; activates at this epoch
         property string validation: ""
         property int epochsToActivate: 0
         property int eligibleNoteCount: -1     // 0.3 /leader/aged-notes count; -1 unknown, 0 aging, >0 eligible
@@ -157,6 +158,7 @@ Window {
         st.peerId = p.peerId || ""
         st.blend = p.blend || "none"
         st.blendWithdrawEpoch = ("blendWithdrawEpoch" in p) ? p.blendWithdrawEpoch : -1
+        st.blendMaturingEpoch = ("blendMaturingEpoch" in p) ? p.blendMaturingEpoch : -1
         st.validation = p.validation || ""
         st.epochsToActivate = p.epochsToActivate || 0
         st.eligibleNoteCount = ("eligibleNoteCount" in p) ? p.eligibleNoteCount : -1
@@ -217,6 +219,11 @@ Window {
         // clears (blend TYPE is honestly Edge meanwhile — a stale/withdrawing declaration doesn't mix).
         { key: "Blend — withdrawing",     val: { status: 2, mode: "Online", tip: 151720, head: 151720, upSecs: 60 * 3600, peerId: win._peer, funded: true,
                                                   blend: "edge", blendWithdrawEpoch: 35, epoch: 33, epochElapsed: 150, proposed: 40, eligibleNoteCount: 4, peers: 62, conn: 68,
+                                                  cpu: 11, cpuCap: 30, ram: 1.4, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
+        // Declared + live on-chain but pre-active: the modal opens the manage view ("activating at epoch N")
+        // and never invites a re-declare — the stake is already locked.
+        { key: "Blend — declared, maturing", val: { status: 2, mode: "Online", tip: 151730, head: 151730, upSecs: 60 * 3600, peerId: win._peer, funded: true,
+                                                  blend: "coredeclared", blendMaturingEpoch: 37, epoch: 35, epochElapsed: 150, proposed: 40, eligibleNoteCount: 4, peers: 62, conn: 68,
                                                   cpu: 11, cpuCap: 30, ram: 1.4, ramCapSet: false, stake: 5000000000000, addr: "0x71bd…9e4a" } },
         // ── recovery / trouble heroes ───────────────────────────────────────────
         { key: "Replaying blocks",        val: { status: 2, mode: "Online", recovering: true, tip: 149000, head: 151000, peerId: win._peer, peers: 30, conn: 35 } },
@@ -625,6 +632,7 @@ Window {
         gPort: win._blendPortOpen
         blendState: st.blend
         withdrawEpoch: st.blendWithdrawEpoch
+        maturingEpoch: st.blendMaturingEpoch
         onClosed: win._blendModal = false
         onDeclared: st.blend = "coredeclared"  // declaration submitted → declared, maturing (Edge meanwhile)
         onReachedCore: st.blend = "core"     // activated → Core

@@ -58,8 +58,8 @@ fi
 
 # Dashboard scenario grid (index → slug; keep in sync with the scenarios array).
 NAMES=(fresh starting bootstrapping online funded-aging aged-eligible validating \
-       blend-edge blend-core blend-declared-not-mixing blend-withdrawing replaying-blocks \
-       bootstrap-stuck sync-stalled node-auto-paused error)
+       blend-edge blend-core blend-declared-not-mixing blend-withdrawing blend-maturing \
+       replaying-blocks bootstrap-stuck sync-stalled node-auto-paused error)
 if [ "$#" -gt 0 ]; then IDXS=("$@"); else IDXS=($(seq 0 $((${#NAMES[@]} - 1)))); fi
 echo "Rendering ${#IDXS[@]} scenario(s) → $OUT"
 fail=0

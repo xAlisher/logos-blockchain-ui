@@ -18,6 +18,10 @@ Item {
 
     property string blendState: "edge" // node lifecycle: edge | coredeclared | core (drives entry phase)
     property int withdrawEpoch: -1     // >=0 ⇒ our declaration is withdrawing, clears at this epoch
+    property int maturingEpoch: -1     // >=0 ⇒ declared + live on-chain but pre-active; activates at this epoch
+    // declared + live but not (yet) mixing in this epoch's Core set — the "no need to re-declare" state
+    readonly property bool _declaredNotMixing: blendState === "coredeclared" || maturingEpoch >= 0
+    readonly property bool _maturing: maturingEpoch >= 0
 
     // ── mock gate state (the studio toggles these to demo red/green) ──
     property bool gSynced: true
@@ -42,7 +46,7 @@ Item {
         root.step = 0
         // Core / declared-on-chain → the "core" manage view (declared reads Edge but is still on-chain);
         // otherwise the gates checklist (where the slot gate blocks re-declare while withdrawing).
-        root.phase = (root.blendState === "core" || root.blendState === "coredeclared") ? "core" : "gates"
+        root.phase = (root.blendState === "core" || root.blendState === "coredeclared" || root.maturingEpoch >= 0) ? "core" : "gates"
     }
 
     function _enable()  { if (allGreen && phase === "gates") { step = 0; phase = "enabling"; declared() } }
@@ -216,15 +220,28 @@ Item {
                     backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
                     contentItem: RowLayout {
                         spacing: Theme.spacing.medium
-                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9; color: "#d9a521" }
+                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9
+                            color: root._declaredNotMixing ? Theme.palette.info : "#d9a521" }
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 1
-                            LogosText { text: qsTr("Active — mixing your proposals"); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            LogosText { text: qsTr("3 core peers this epoch · emitting the active heartbeat"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            LogosText { text: !root._declaredNotMixing ? qsTr("Active — mixing your proposals")
+                                            : root._maturing ? qsTr("Declared — activating at epoch %1").arg(root.maturingEpoch)
+                                            : qsTr("Core declared — not active this epoch")
+                                        color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
+                            LogosText { text: !root._declaredNotMixing ? qsTr("3 core peers this epoch · emitting the active heartbeat")
+                                            : root._maturing ? qsTr("enters the Core set at epoch %1 (~2 epochs)").arg(root.maturingEpoch)
+                                            : qsTr("running as Edge · not in this epoch's Core set")
+                                        color: Theme.palette.textTertiary; font.pixelSize: 11 }
                         }
                     }
                 }
-                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                // declared (maturing or edge-this-epoch): head off a needless re-declare — the stake is locked.
+                LogosText { visible: root._declaredNotMixing; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                            text: root._maturing
+                                ? qsTr("Your declaration is live on-chain and your stake is locked — you don't need to declare again. It's maturing and enters the Core mixing set at epoch %1 (~2 epochs). You can close this window; activation continues in the background.").arg(root.maturingEpoch)
+                                : qsTr("Your Core declaration is active on-chain and your stake is locked — you don't need to declare again. The node is running as Edge and isn't in this epoch's Core mixing set. It may rejoin at the next epoch.")
+                            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                LogosText { visible: !root._declaredNotMixing; Layout.fillWidth: true; wrapMode: Text.WordWrap
                             text: qsTr("Disabling withdraws your Blend declaration and unlocks the note you staked. You stop mixing and revert to Edge at the next epoch — rewards you already earned are unaffected.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
             }
