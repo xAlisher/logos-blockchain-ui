@@ -463,19 +463,21 @@ Rectangle {
         onTriggered: {
             if (!root.backend) return
             root._stopTries += 1
-            var tries = root._stopTries
+            // HARD DEADLINE — the reliable stop. A wedged/stuck-bootstrapping node keeps answering its
+            // HTTP API forever, so we can NEVER wait for the API to go down. After ~9s in Stopping,
+            // force-kill the node by port/PID (SIGKILL — verified to stop it with no respawn) and mark
+            // Stopped. This is what makes the Stop button AND Settings → Reset chain state work when the
+            // node is stuck: both wait for the Stopped transition, which now always arrives.
+            // (The old code force-killed only if the API kept replying "success" for 8 straight ticks,
+            // and on ANY transient RPC hiccup it called confirmStopped() — falsely marking the node
+            // Stopped WITHOUT killing it, so a still-running wedged node was never actually stopped.)
+            if (root._stopTries >= 6) { root.backend.forceStopNow(); return }
+            // Fast graceful finish before the deadline — ONLY when the node's API has verifiably gone
+            // down (a real stop). We no longer confirm-stopped on a transient error.
             logos.watch(
                 root.backend.getCryptarchiaInfo(),
-                function(result) {
-                    if (result.success) {
-                        // Node still answering. Give the graceful stop a window, then force-kill.
-                        if (tries > 8 && root.backend) root.backend.forceStopNow()
-                    } else if (root.backend) {
-                        // API no longer answering → the node really stopped.
-                        root.backend.confirmStopped()
-                    }
-                },
-                function(error) { if (root.backend) root.backend.confirmStopped() }
+                function(result) { /* still answering → wait for the hard deadline */ },
+                function(error) { if (root.backend) root.backend.forceStopNow() }
             )
         }
     }
