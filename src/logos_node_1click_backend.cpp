@@ -3450,15 +3450,25 @@ QVariantMap LogosNode1clickBackend::generateConfig(
     if (!absoluteOut)
         normalized.insert("use_persistence_paths", true);
 
-    if (!initialPeers.isEmpty()) {
-        QVariantList peersList;
-        for (const QString& p : initialPeers) {
-            if (!p.trimmed().isEmpty())
-                peersList.append(p.trimmed());
-        }
-        if (!peersList.isEmpty())
-            normalized.insert("initial_peers", peersList);
+    // initial_peers: use what the caller passed; if none survive, fall back to known-good bootstrap
+    // peers so a fresh node NEVER ships an empty peer list. Empty initial_peers → empty
+    // bootstrap.ibd.peers (injectIbdPeersFromInitialPeers has nothing to copy) → the node stalls in
+    // ProlongedBootstrapPeriod with ParentMissing on restart. See #106. (Testnet fallback; refresh the
+    // list if these seed nodes change.)
+    QVariantList peersList;
+    for (const QString& p : initialPeers) {
+        if (!p.trimmed().isEmpty())
+            peersList.append(p.trimmed());
     }
+    if (peersList.isEmpty()) {
+        static const char* const kDefaultBootstrapPeers[] = {
+            "/ip4/65.109.51.37/udp/3000/quic-v1/p2p/12D3KooWFrouXfmrR4nsLMtE7wu15DoMJ6VtoUtHinREZCvbWHar",
+            "/ip4/65.109.51.37/udp/3001/quic-v1/p2p/12D3KooWJRGau8M1rjT7R5e4YYsgdFhsMX35nRDtMwCDjxQkXAHz",
+            "/ip4/65.109.51.37/udp/3002/quic-v1/p2p/12D3KooWQXJavMDTRscjauFSgVAB1VLB6Rzpy2uY5SU9Tk7927tb"
+        };
+        for (const char* p : kDefaultBootstrapPeers) peersList.append(QString::fromLatin1(p));
+    }
+    normalized.insert("initial_peers", peersList);
     if (netPort > 0)
         normalized.insert("net_port", netPort);
     if (blendPort > 0)

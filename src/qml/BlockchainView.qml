@@ -974,8 +974,25 @@ Rectangle {
                 },
                 function(error) { /* keep last known */ }
             )
+            // Our declaration's aging/liveness → feeds the dashboard "Core at risk" warning (#107).
+            logos.watch(
+                root.backend.getBlendDeclarations(),
+                function(r) {
+                    if (!r) return
+                    root._blendMineActive = (r.mineActive !== undefined) ? r.mineActive : -1
+                    root._blendInactiveSince = (r.mineInactiveSince !== undefined) ? r.mineInactiveSince : -1
+                    root._blendNowEpoch = (r.nowEpoch !== undefined) ? r.nowEpoch : -1
+                    root._blendMineLive = (r.mineLive === true)
+                },
+                function(error) { /* keep last known */ }
+            )
         }
     }
+    // Blend declaration aging (for the Core-at-risk warning) — updated on the 4s poll above.
+    property int  _blendMineActive: -1
+    property int  _blendInactiveSince: -1
+    property int  _blendNowEpoch: -1
+    property bool _blendMineLive: false
 
     // Self libp2p peer id, derived from the selected user config (no running
     // node required). Refreshed when ready and whenever the config changes.
@@ -2029,6 +2046,9 @@ Rectangle {
                         blendState: opPage.nodeRunning ? root._dashBlend(root.backend ? root.backend.blendStatus : 0) : "none"
                         blendPeers: opPage.nodeRunning ? root._blendPeers : -1
                         blendCoreNodes: (opPage.nodeRunning && root.backend) ? root.backend.blendCoreNodes : -1
+                        blendInactiveSince: opPage.nodeRunning ? root._blendInactiveSince : -1
+                        blendNowEpoch: opPage.nodeRunning ? root._blendNowEpoch : -1
+                        blendMineLive: opPage.nodeRunning ? root._blendMineLive : false
 
                         // --- peers / connections (#62, real via curl bridge) ---
                         peers: opPage.nodeRunning && root.nodePeers >= 0 ? String(root.nodePeers) : "—"

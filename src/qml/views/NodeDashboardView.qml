@@ -147,6 +147,13 @@ Item {
     property string blendState: "none"                       // #58 none|edge|core (NOT in 0.3 API)
     property int blendPeers: -1                               // Blend core mix-set size (getBlendInfo.mixPeers); <0 = unknown
     property int blendCoreNodes: -1                           // epoch Blend CORE set size (log membership_count); <0 = unknown
+    property int  blendInactiveSince: -1                      // epoch our declaration ages out (active + 2); <0 = unknown
+    property int  blendNowEpoch: -1                           // current epoch from the declarations poll
+    property bool blendMineLive: false                       // our declaration is is_active (#107)
+    // Core at risk: we're a live declared provider but the declaration is within 1 epoch of ageing out
+    // (heartbeat not refreshing `active`) → Core will drop unless it re-declares / comes back online (#107).
+    readonly property bool _coreAtRisk: blendMineLive && blendInactiveSince > 0 && blendNowEpoch >= 0
+                                        && blendNowEpoch >= blendInactiveSince - 1
     property string epoch: "—"
     property string epochProgress: ""                        // e.g. "6h of 10h" — needs epoch length + slot-in-epoch from the node
     property string proposed: "—"                            // #61
@@ -334,9 +341,12 @@ Item {
         if (_blendPhase === "notstarted")   return ({ value: "—", sub: "", c: Theme.palette.text })
         if (_blendPhase === "bootstrapping") return ({ value: qsTr("Not Active"), sub: qsTr("Proposals not mixed"), c: Theme.palette.text })
         if (_blendPhase === "core") {
-            var cn = blendPeers > 0 ? blendPeers : n
+            if (_coreAtRisk)
+                return ({ value: qsTr("Core"),
+                          sub: qsTr("⚠ Core at risk — declaration ageing, re-declare to refresh"),
+                          c: Theme.palette.warning })
             return ({ value: qsTr("Core"),
-                      sub: cn > 0 ? qsTr("Mixing with %1 core nodes").arg(cn) : qsTr("Mixing your proposals"),
+                      sub: qsTr("Node mixing proposals"),
                       c: "#d9a521" })
         }
         // edge or coredeclared → both honestly read as Edge (the node's live mode)
