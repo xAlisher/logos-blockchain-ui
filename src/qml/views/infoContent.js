@@ -26,7 +26,8 @@ var data = {
             { label: "Not Active", meaning: "Node still bootstrapping — proposals not mixed yet." },
             { label: "Edge", meaning: "Your proposals are mixed through the Blend core network (N core nodes)." },
             { label: "Edge (Core declared)", meaning: "You declared Core on-chain but the node is running Edge this epoch — button reads 'Blend Core declared'." },
-            { label: "Core", meaning: "You are a Blend core node, mixing proposals for others (with N nodes) and earning rewards." }
+            { label: "Core", meaning: "You are a Blend core node, mixing proposals for others (with N nodes) and earning rewards." },
+            { label: "Core at risk", meaning: "Your on-chain declaration's active epoch is not being refreshed, so it ages out 2 epochs after 'active' (you drop to Edge even while mixing). In this testnet build the node does NOT emit the periodic SDPActive heartbeat that would refresh it. To keep Core you must RENEW the declaration before it ages out: withdraw the current one, wait ~2 epochs for it to clear, then re-declare. A plain re-declare while it's still live is a no-op (the node returns the existing declaration)." }
         ],
         docs: "https://docs.logos.co/blockchain/concepts/about-the-blend-network"
     },

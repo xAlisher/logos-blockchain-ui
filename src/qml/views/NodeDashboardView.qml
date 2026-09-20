@@ -343,7 +343,12 @@ Item {
         if (_blendPhase === "core") {
             if (_coreAtRisk)
                 return ({ value: qsTr("Core"),
-                          sub: qsTr("⚠ Core at risk — declaration ageing, re-declare to refresh"),
+                          // The node doesn't auto-refresh the declaration in this build, so it ages out at
+                          // active+2; renewing means withdraw + re-declare (a plain re-declare no-ops while
+                          // the declaration is still live). blendInactiveSince = active+2 → drops at +1.
+                          sub: (blendInactiveSince > 0
+                                  ? qsTr("⚠ Ages out at epoch %1 — withdraw & re-declare to renew").arg(blendInactiveSince + 1)
+                                  : qsTr("⚠ Core at risk — declaration ageing; withdraw & re-declare to renew")),
                           c: Theme.palette.warning })
             return ({ value: qsTr("Core"),
                       sub: qsTr("Node mixing proposals"),
