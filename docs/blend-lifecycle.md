@@ -83,15 +83,40 @@ services always spawned, `nodes/node/binary/src/lib.rs:119,127`). It is not a mi
   restart (Edge/Core state is in-memory, #172), or dropped by a premature tracker/declaration reset
   (#88/#367/#368) — any of which silently stops refresh.
 
-## What our node showed (epoch 38, `active=37`) — the timing-lag case
+## What our node showed — RE-CHECKED against live artifacts at epoch 39 (2026-09-20)
 
-Declared ~epoch 37 → `active=37`. It only becomes a snapshot member ~epoch 38, so its **first** possible
-refresh (for epoch 38) can't be emitted until the **38→39 boundary** (into epoch 39). At epoch 38, zero
-`SDPActive` submissions is **exactly what the code produces** — confirmed: the live log has no
-`blend_activity_token_evaluation` / `sdp_activity_proof_submitted` / mode-transition events yet. So at
-epoch 38 it's genuinely at-risk-but-undecided: it **may** refresh at the 38→39 boundary (if it collects
-a token and stays core) and clear, or lapse and drop to Edge at epoch 40. It is **racing its own age-out
-by design**, because the first refresh opportunity lands ~2 epochs behind declare.
+Our declaration `cdd5bdd7…` (provider `601dcb79…`, note `1836184b…`): `created=35`, `active=37`,
+`withdraw_at=None`, **`nonce=0`**. Re-examined once epoch 39 was ~14 slots in (i.e. just after the
+38→39 boundary). The artifacts **confirm the age-out outcome but overturn the earlier "timing-lag /
+may self-heal" framing** — this was never a near-miss race:
+
+- **`active=37` is `created+2`, i.e. the automatic snapshot baseline — NOT a refresh.** It has not moved
+  since declaring, across **two** refresh boundaries (37→38, 38→39).
+- **`nonce=0`** — the SDPActive op carries a strictly-increasing nonce; zero means the node has submitted
+  **zero activity messages, ever.** Contrast the 6 healthy core providers, all refreshed at the same
+  38→39 boundary to `active=39` with `nonce` 11–39 (`sdp_activity_committed … previous_active_epoch=38
+  new_active_epoch=39 active_until_epoch=41`). A genuine timing-lag node would show nonce climbing one
+  epoch behind; ours never climbed.
+- **Epoch-40 frozen snapshot already excludes us.** The node's own log has exactly one line naming our
+  provider: `event="blend_snapshot_provider_decision" target_epoch=40 … frozen_included=false` (no
+  `snapshot_active_epoch` printed — we fail `is_active` for 40, since `37+2=39 < 40`). The refreshers
+  show `snapshot_active_epoch=38 snapshot_active_until_epoch=40 frozen_included=true`.
+- **Why "still Core" right now is correct but terminal:** at epoch 39, `is_active(37, 39) = 37+2=39 ≥ 39`
+  → true, so `core_info` is populated for this **one last** epoch. At epoch 40 it drops to Edge.
+
+**Cause (as far as INFO logs allow):** the node reached the snapshot (nominal Core) but is **not landing
+activity proofs at all** — one of the fragile-heartbeat modes above (work-gated no qualifying token /
+mode-coupling below minimum / submission-or-mempool drop). Which one is not decidable from these logs:
+`blend_activity_token_evaluation` is `tracing::debug!` and this node runs at **INFO** (180 INFO lines, 0
+DEBUG), so its absence is log-level filtering, not evidence. The unambiguous facts are on-chain: `nonce=0`
+vs peers' `nonce 11–39`, and `frozen_included=false` for epoch 40. `diagnostic="blend_tsi_outage"` on
+these lines is a **shared grep-label** stamped on all blend/SDP tracing (it rides healthy
+`sdp_activity_committed` events too), **not** an outage signal.
+
+**Verdict vs the hypothesis:** the *outcome* (age-out to Edge at epoch 40) is **confirmed**; the earlier
+*framing* ("racing its own age-out by design, may refresh at the boundary") is **wrong** — the node isn't
+one epoch behind, it is a nominal member that has never refreshed once. Recovery is still withdraw(+2) +
+re-declare(+2) (#425), and re-declaring alone won't help unless the node actually mixes and lands proofs.
 
 ## UI mapping (how the dashboard should read each state) — honest
 
