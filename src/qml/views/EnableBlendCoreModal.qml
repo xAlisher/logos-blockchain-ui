@@ -13,7 +13,7 @@ import Logos.BlockchainBackend 1.0
 //   gates → enabling → activated →(Done)  |  core → disabling → disabled →(Done)
 // Gates + stages mirror the declaration proven end-to-end on sneg (fund sdp funding_pk
 // → POST /blend/join {locator, locked_note_id} → declaration → active at created+2
-// epochs → Mode::Core). Disable = POST /sdp/withdrawal (unlocks the staked note).
+// epochs → Mode::Core). Disable requests withdrawal; acknowledgement does not prove stake release.
 //
 // Overlay Item: parent sets anchors.fill; open()/close() toggle visibility. Uses the
 // global `logos` context property for logos.watch, and `backend` (the .rep replica)
@@ -23,6 +23,47 @@ Item {
     visible: false
 
     property var backend: null
+    // The owner binds this to QtRO readiness, not merely replica existence.
+    property bool backendReady: false
+    onBackendReadyChanged: if (!backendReady) _mutationUnknown(qsTr("Connection lost"))
+    onBackendChanged: _mutationUnknown(qsTr("Backend changed"))
+    property bool requestBusy: false
+    readonly property bool mutationBusy: requestBusy || faucetBusy
+    property int _mutationGeneration: 0
+    property string _mutationReturnPhase: "gates"
+
+    Timer {
+        id: mutationDeadline
+        interval: 20000
+        onTriggered: root._mutationUnknown(qsTr("Request timed out"))
+    }
+    function _mutationUnknown(reason) {
+        if (!requestBusy) return
+        ++_mutationGeneration
+        mutationDeadline.stop()
+        requestBusy = false
+        phase = _mutationReturnPhase
+        errorText = qsTr("%1 — outcome unknown. Check chain evidence before retrying; this request will not be retried automatically.").arg(String(reason))
+    }
+    function _mutate(call, completed) {
+        requestBusy = true
+        _mutationReturnPhase = phase === "disabling" ? "core" : "gates"
+        var token = ++_mutationGeneration
+        mutationDeadline.restart()
+        function failed(e) {
+            if (token !== root._mutationGeneration) return
+            root._mutationUnknown(e)
+        }
+        try {
+            logos.watch(call(), function(r) {
+                if (token !== root._mutationGeneration) return
+                ++root._mutationGeneration
+                mutationDeadline.stop()
+                root.requestBusy = false
+                completed(r)
+            }, failed)
+        } catch (e) { failed(e) }
+    }
 
     // ── phase machine (identical to the prototype) ──
     // gates | enabling | activated | core | disabling | disabled
@@ -81,6 +122,7 @@ Item {
 
     // ── open/close ──
     function open() {
+        if (mutationBusy) return
         root.errorText = ""
         root.portAttested = false
         root.txId = ""
@@ -99,14 +141,14 @@ Item {
     function close() { root.visible = false }
 
     function _enable() {
-        if (!allGreen || phase !== "gates" || !backend) return
+        if (mutationBusy || !allGreen || phase !== "gates" || !backend || !backendReady) return
         if (root.mineLive) { root.phase = "core"; return }   // already declared — never re-declare
         root.errorText = ""
         root.step = 0
         root.phase = "enabling"
         // locator "" → the backend builds it from the resolved public IP + blend port.
-        logos.watch(
-            backend.declareBlendCore(root.locator, root.lockNoteId),
+        root._mutate(
+            function() { return backend.declareBlendCore(root.locator, root.lockNoteId) },
             function(r) {
                 if (r && r.ok) {
                     root.txId = r.tx || ""
@@ -115,20 +157,16 @@ Item {
                     root.errorText = (r && r.error) ? r.error : qsTr("The declaration was rejected.")
                     root.phase = "gates"
                 }
-            },
-            function(e) {
-                root.errorText = qsTr("Couldn't submit the declaration — %1").arg(String(e))
-                root.phase = "gates"
             }
         )
     }
 
     function _disable() {
-        if (phase !== "core" || !backend) return
+        if (mutationBusy || withdrawEpoch >= 0 || phase !== "core" || !backend || !backendReady) return
         root.errorText = ""
         root.phase = "disabling"
-        logos.watch(
-            backend.withdrawBlendCore(),
+        root._mutate(
+            function() { return backend.withdrawBlendCore() },
             function(r) {
                 if (r && r.ok) {
                     root.phase = "disabled"
@@ -138,10 +176,6 @@ Item {
                     root.errorText = (r && r.error) ? r.error : qsTr("The withdrawal was rejected.")
                     root.phase = "core"
                 }
-            },
-            function(e) {
-                root.errorText = qsTr("Couldn't submit the withdrawal — %1").arg(String(e))
-                root.phase = "core"
             }
         )
     }
@@ -150,7 +184,7 @@ Item {
 
     // ── gate polling (real backend) ──
     function _refreshGates() {
-        if (!backend) return
+        if (!backend || !backendReady) return
         // 1) SDP funding key + locator (config-derived; also gives the blend port).
         logos.watch(
             backend.getSdpFundingKey(),
@@ -214,7 +248,7 @@ Item {
         )
     }
     function _refreshFunded() {
-        if (!backend || root.sdpKey.length === 0) return
+        if (!backend || !backendReady || root.sdpKey.length === 0) return
         logos.watch(
             backend.getBalance(root.sdpKey),
             function(r) {
@@ -241,7 +275,7 @@ Item {
         interval: 5000; repeat: true
         running: root.visible && root.phase === "enabling"
         onTriggered: {
-            if (!root.backend) return
+            if (!root.backend || !root.backendReady) return
             logos.watch(
                 root.backend.getBlendDeclarations(),
                 function(r) {
@@ -273,8 +307,9 @@ Item {
     }
 
     function _gateAction(kind) {
+        if (mutationBusy) return
         if (kind === "faucet") {
-            if (!backend) return
+            if (!backend || !backendReady) return
             // No key yet = the click would silently no-op; tell the operator why instead.
             if (root.sdpKey.length === 0) {
                 root.faucetMsg = qsTr("Funding key not ready yet — wait for the node to finish starting, then try again.")
@@ -294,16 +329,15 @@ Item {
     // can clear the slot and re-declare. Stays in gates and re-polls; withdraw_at then appears and the
     // gate switches to the "wait until it clears" message.
     function _withdrawStale() {
-        if (!backend || root.mineId.length === 0) return
+        if (mutationBusy || withdrawEpoch >= 0 || !backend || !backendReady || root.mineId.length === 0) return
         root.errorText = ""
-        logos.watch(
-            backend.withdrawBlendCore(),
+        root._mutate(
+            function() { return backend.withdrawBlendCore() },
             function(r) {
                 if (!(r && r.ok))
                     root.errorText = (r && r.error) ? r.error : qsTr("The withdrawal was rejected.")
                 root._refreshGates()
-            },
-            function(e) { root.errorText = qsTr("Couldn't submit the withdrawal — %1").arg(String(e)) }
+            }
         )
     }
 
@@ -463,7 +497,7 @@ Item {
                                 }
                                 // action link (faucet / port attestation)
                                 LogosLink { visible: !modelData.ok && (modelData.action || "").length > 0
-                                            text: modelData.action; font.pixelSize: 11; onActivated: root._gateAction(modelData.kind) }
+                                            enabled: root.backendReady && !root.mutationBusy; text: modelData.action; font.pixelSize: 11; onActivated: root._gateAction(modelData.kind) }
                                 // faucet feedback — requesting / result / why-nothing (the click
                                 // used to no-op silently; now it always says what happened).
                                 LogosText { visible: modelData.kind === "faucet" && root.faucetMsg.length > 0
@@ -484,9 +518,9 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 visible: root.phase === "enabling"
-                LogosText { text: root.withdrawEpoch >= 0 ? qsTr("Previous declaration still withdrawing")
+                LogosText { Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; text: root.withdrawEpoch >= 0 ? qsTr("Previous declaration still withdrawing")
                                  : root.step === 0 ? qsTr("Submitting declaration…")
-                                 : root.step === 1 ? qsTr("Included in a block")
+                                 : root.step === 1 ? qsTr("Submitted — awaiting chain confirmation")
                                  : (root.coreEpoch > 0 ? qsTr("Activating — Core at epoch %1").arg(root.coreEpoch)
                                                        : qsTr("Activating — Core in ~2 epochs"))
                             color: root.withdrawEpoch >= 0 ? Theme.palette.warning : Theme.palette.text
@@ -494,7 +528,7 @@ Item {
                 LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
                             text: root.withdrawEpoch >= 0 ? qsTr("Your key can't re-declare until the previous declaration clears at epoch %1 and its stake unlocks. Re-declare after that.").arg(root.withdrawEpoch)
                                  : root.step === 0 ? qsTr("Signing the declaration from your node's blend keys.")
-                                 : root.step === 1 ? (root.txId.length > 0 ? qsTr("Declaration is on-chain (id %1…).").arg(root.txId.substring(0, 8)) : qsTr("Declaration is on-chain."))
+                                 : root.step === 1 ? (root.txId.length > 0 ? qsTr("Declaration acknowledged (id %1…). Inclusion is not yet confirmed.").arg(root.txId.substring(0, 8)) : qsTr("Declaration acknowledged. Inclusion is not yet confirmed."))
                                  : qsTr("You can safely close this window — activation continues in the background (~2 epochs).")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 RowLayout {
@@ -531,8 +565,8 @@ Item {
                                             : root._maturing ? qsTr("Declared — activating at epoch %1").arg(root.coreEpoch)
                                             : qsTr("Core declared — not active this epoch")
                                         color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            LogosText { text: !root._declaredNotMixing
-                                            ? ((root.backend && root.backend.lastBlendEvent.length > 0) ? root.backend.lastBlendEvent : qsTr("emitting the active heartbeat"))
+                            LogosText { Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; text: !root._declaredNotMixing
+                                            ? qsTr("Accepted activity not verified here — check the lifecycle evidence")
                                             : root._maturing ? qsTr("enters the Core set at epoch %1 (~2 epochs)").arg(root.coreEpoch)
                                             : qsTr("running as Edge · not in this epoch's Core set"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                         }
@@ -547,7 +581,7 @@ Item {
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 LogosText { visible: !root._declaredNotMixing
                             Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: qsTr("Disabling withdraws your Blend declaration and unlocks the note you staked. You stop mixing and revert to Edge at the next epoch — rewards you already earned are unaffected.")
+                            text: qsTr("Disabling requests withdrawal. Inclusion, the scheduled withdrawal epoch, and stake release require chain confirmation; frozen snapshots may delay the mode change.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 // withdrawal error (e.g. the staked note is still inside its lock period)
                 LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap
@@ -558,11 +592,11 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 visible: root.phase === "disabling" || root.phase === "disabled"
-                LogosText { text: root.phase === "disabling" ? qsTr("Submitting withdrawal…") : qsTr("Left the Blend Network — back to Edge")
+                LogosText { Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; text: root.phase === "disabling" ? qsTr("Submitting withdrawal…") : qsTr("Withdrawal requested — awaiting confirmation")
                             color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
                 LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: root.phase === "disabling" ? qsTr("Removing your declaration and unlocking the staked note.")
-                                                             : qsTr("Your staked note is unlocked. The node reverts to Edge at the next epoch.")
+                            text: root.phase === "disabling" ? qsTr("Requesting withdrawal; inclusion and stake release must be verified.")
+                                                             : qsTr("Request acknowledged, not proof of removal or unlocked stake. Check the lifecycle block for the scheduled epoch and chain evidence.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
             }
 
@@ -581,8 +615,8 @@ Item {
                 // Enable / Disable actions
                 LogosButton { visible: root.phase === "gates"; variant: LogosButton.Variant.Primary
                     text: root.withdrawEpoch >= 0 ? qsTr("Re-declare after epoch %1").arg(root.withdrawEpoch) : qsTr("Enable Blend Core")
-                    enabled: root.allGreen; onClicked: root._enable() }
-                LogosButton { visible: root.phase === "core"; text: qsTr("Disable Blend Core"); onClicked: root._disable() }
+                    enabled: root.backendReady && root.allGreen && !root.mutationBusy; onClicked: root._enable() }
+                LogosButton { visible: root.phase === "core"; enabled: root.backendReady && !root.mutationBusy && root.withdrawEpoch < 0; text: qsTr("Disable Blend Core"); onClicked: root._disable() }
             }
         }
     }

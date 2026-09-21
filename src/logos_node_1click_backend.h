@@ -115,6 +115,8 @@ public slots:
     // Blend Core provider lifecycle (epic #89). See the .rep for the API contract.
     QVariantMap declareBlendCore(QString locator, QString lockedNoteId) override;
     QVariantMap getBlendDeclarations() override;
+    QVariantMap getBlendLifecycle() override;
+    QVariantMap repairBlendBinding() override;
     // Per-epoch blend-mode history (write-ahead store) for the dashboard "Blend type" strip.
     QVariantMap getBlendModeHistory() override;
     // Per-epoch max block height (write-ahead) → blocks-per-epoch (Δheight) chart.
@@ -130,6 +132,15 @@ protected:
     void onContextReady() override;
 
 private:
+    bool m_blendMutation = false;
+    bool m_blendReading = false;
+    bool m_blendSubmissionPending = false;
+    bool m_blendWithdrawalPending = false;
+    qint64 m_blendRunFloor = 0;
+    qint64 m_blendRepairedAt = 0;
+    QString m_blendRepairedId;
+    qint64 blendRunStartedAt() const;
+    qint64 blendMissingBindingAt(qint64 runStart) const;
     // Last-resort force stop: SIGKILL the module host on the node's HTTP port.
     bool forceStopNode();
     // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).
@@ -149,7 +160,7 @@ private:
     // Latest `membership_count=N` from the blend service log = the epoch's Blend CORE set size
     // (the "N core nodes" shown on the dashboard). -1 if not found (log rotated / not written).
     int blendMembershipCount() const;
-    // On-chain state of OUR SDP declaration (matched by locked_note_id): { found, active, withdrawAt }.
+    // On-chain state of OUR SDP declaration (matched by verified provider identity): { found, active, withdrawAt }.
     QVariantMap onchainBlendDecl() const;
     // Current epoch from the node's /time/info (-1 if unavailable). Distinguishes a genuinely
     // pending declaration (epoch < active) from an active-but-not-mixing one (epoch >= active).
@@ -177,7 +188,7 @@ private:
     QString buildBlendLocator() const;
     // Write-ahead store for THIS node's Blend declaration ({declaration_id, locked_note_id,
     // locator, created_at}). declareBlendCore writes it so withdrawBlendCore can find the
-    // declaration id and refreshBlendStatus can report Activating; withdraw deletes it.
+    // declaration id and refreshBlendStatus can report Activating; withdraw retains it until confirmed removal.
     QString blendDeclStorePath() const;
     // Per-epoch blend-mode history store (blend-mode-history.json beside the node config):
     // recordBlendMode upserts {epoch: mode} (last-seen wins) from refreshBlendStatus.

@@ -552,6 +552,19 @@ Rectangle {
         ]
     }
 
+    BlendLifecycleController {
+        id: blendLifecycleController
+        backend: root.backend
+        bridge: logos
+        ready: root.ready
+        externalBusy: enableBlendModal.mutationBusy
+    }
+    Timer {
+        interval: 5000; repeat: true; triggeredOnStart: true
+        running: root.ready
+        onTriggered: blendLifecycleController.refresh()
+    }
+
     // ── Fund the node (auto-stake) via the cryptarchia web faucet (issue #22) ──
     // POST the node's public key to the faucet; it credits testnet funds that
     // auto-stake. The backend runs the POST via system curl — QML network is
@@ -1972,7 +1985,7 @@ Rectangle {
                           : (bs === "coredeclared" || bs === "activating") ? qsTr("Blend Core declared")
                           : bs === "edge" ? qsTr("Enable Core")
                           : qsTr("Enable Blend Core")
-                    enabled: online && bs !== "none"      // disabled while bootstrapping / not synced
+                    enabled: online && bs !== "none" && !blendLifecycleController.busy      // disabled while bootstrapping / not synced
                     onClicked: enableBlendModal.open()
                 }
 
@@ -2108,7 +2121,13 @@ Rectangle {
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
-                        onEnableBlendRequested: enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
+                        blendLifecycle: blendLifecycleController.lifecycle
+                        blendBusy: blendLifecycleController.busy || blendLifecycleController.loading
+                        blendResult: blendLifecycleController.resultText
+                        blendResultError: blendLifecycleController.resultError
+                        onRepairBlendRequested: blendLifecycleController.repair()
+                        onRefreshBlendRequested: blendLifecycleController.refresh(true)
+                        onEnableBlendRequested: if (!blendLifecycleController.busy) enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
                         onRecoverRequested: recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 

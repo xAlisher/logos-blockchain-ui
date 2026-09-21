@@ -40,6 +40,12 @@ Item {
     property string blocksEmptyText: qsTr("Start the node to see blocks arrive.")
     signal clearBlocksRequested()
     signal copyText(string t)
+    property var blendLifecycle: ({})
+    property bool blendBusy: false
+    property string blendResult: ""
+    property bool blendResultError: false
+    signal repairBlendRequested()
+    signal refreshBlendRequested()
     signal enableBlendRequested()             // open the Enable-Blend-Core flow (epic #89)
     signal recoverRequested()                 // "Bootstrap stuck" hero CTA → host runs stop → reset chain → re-bootstrap
 
@@ -47,7 +53,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.32"
+    property string moduleVersion: "0.2.33-blend.2"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -151,7 +157,7 @@ Item {
     property int  blendNowEpoch: -1                           // current epoch from the declarations poll
     property bool blendMineLive: false                       // our declaration is is_active (#107)
     // Core at risk: we're a live declared provider but the declaration is within 1 epoch of ageing out
-    // (heartbeat not refreshing `active`) → Core will drop unless it re-declares / comes back online (#107).
+    // Check lifecycle evidence rather than inferring accepted activity from Core connectivity.
     readonly property bool _coreAtRisk: blendMineLive && blendInactiveSince > 0 && blendNowEpoch >= 0
                                         && blendNowEpoch >= blendInactiveSince - 1
     property string epoch: "—"
@@ -343,12 +349,7 @@ Item {
         if (_blendPhase === "core") {
             if (_coreAtRisk)
                 return ({ value: qsTr("Core"),
-                          // The node doesn't auto-refresh the declaration in this build, so it ages out at
-                          // active+2; renewing means withdraw + re-declare (a plain re-declare no-ops while
-                          // the declaration is still live). blendInactiveSince = active+2 → drops at +1.
-                          sub: (blendInactiveSince > 0
-                                  ? qsTr("⚠ Ages out at epoch %1 — withdraw & re-declare to renew").arg(blendInactiveSince + 1)
-                                  : qsTr("⚠ Core at risk — declaration ageing; withdraw & re-declare to renew")),
+                          sub: qsTr("⚠ Activity at risk — check Blend Core evidence below"),
                           c: Theme.palette.warning })
             return ({ value: qsTr("Core"),
                       sub: qsTr("Node mixing proposals"),
@@ -718,6 +719,16 @@ Item {
                     value: root._st.label; sub: root._st.sub; accent: root._st.c; copyable: false; dots: root._st.d
                     showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                     info: root._infoData.status; onInfoRequested: root._openInfo(info)
+                }
+                BlendCoreProgress {
+                    Layout.fillWidth: true
+                    lifecycle: root.blendLifecycle
+                    busy: root.blendBusy
+                    resultText: root.blendResult
+                    resultError: root.blendResultError
+                    onManageRequested: root.enableBlendRequested()
+                    onRepairRequested: root.repairBlendRequested()
+                    onRefreshRequested: root.refreshBlendRequested()
                 }
                 // Recovery CTA — only when the node is wedged in a prolonged bootstrap
                 // (finalization frozen, falling behind). Opens the host's explain-and-confirm

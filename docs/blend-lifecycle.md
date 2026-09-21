@@ -5,15 +5,41 @@ dashboard's blend states map onto protocol reality instead of guesswork. Grounde
 (`logos-blockchain` **v0.2.4**, read at `/extra/tmp/lb-node`), the SDP ledger rules, and upstream
 issues. Every claim cites code `file:line` or an issue number. Inference is marked **(inf)**.
 
+## Correction / current implementation specification
+
+The September 20 source cross-check found errors in the original investigation below.
+For the new operator UI, use [blend-core-progress-spec.md](blend-core-progress-spec.md)
+and [epic #108](https://github.com/xAlisher/logos-blockchain-ui/issues/108).
+
+- Core, accepted activity and rewards are separate states. `nonce=0` proves no accepted
+  nonce-advancing operation, not zero tokens or zero attempted submissions.
+- Activity is automatic, but depends on a qualifying proof and successful submission/inclusion.
+  Do not periodically withdraw/redeclare a working provider.
+- SDP has a persisted declaration binding; UI JSON and nullable config are not its runtime state.
+  A missing binding is a distinct recoverable failure, not proof that the declaration must be replaced.
+- The full ledger path verifies Blend proofs in `ledger/src/mantle/sdp/rewards/blend`.
+  The TODO in the generic Active validator does not mean arbitrary heartbeats are accepted.
+- First exclusion under inactivity=2 is `active+3`, using the applicable frozen snapshot.
+  Lapse alone neither removes the declaration nor unlocks the stake.
+- Withdrawal submission is not exit: inclusion in W schedules removal/unlock at W+2.
+- Core checkpoints are epoch-sensitive (`services/blend/src/core/mod.rs:642-705`).
+  Existing persistence is not an end-to-end restart guarantee.
+- The current investigation observed `No declaration_id set. Cannot post activity without declaration.`
+  at wild's 37→38 and 38→39 boundaries. This identifies a concrete submission blocker;
+  duplicate locator remains a separate reachability problem, not a proven zero-token cause.
+
+The original incident account below is retained for provenance, with corrected operative claims.
+
 ## TL;DR — the one thing to internalise
 
 Core membership is **not** "declare once and stay". It is a **per-epoch, work-gated, probabilistic**
 state. You keep it only if, each epoch, the node (a) is in the frozen Core set, (b) actually mixes and
 collects a qualifying blend token, and (c) that token's activity proof lands on-chain to refresh the
 declaration's `active` epoch. Miss `inactivity_period` (= **2** on testnet) consecutive refreshes and
-the declaration **ages out** of the Core set — and there is **no heartbeat-your-way-back**: recovery is
-withdraw (2 epochs) + re-declare (2 epochs). Aging out is a **legitimate lifecycle transition, not a
-bug** — the "Core at risk" warning is honest.
+the declaration **ages out** of the Core set. A still-valid prior-epoch proof can sometimes refresh a
+lapsed live record, but cannot retroactively alter frozen membership. Once excluded from the required
+proof epoch, withdrawal followed by redeclaration is the general recovery path. Diagnose missing
+local binding and failed submission before suggesting this stake-changing action.
 
 ## Constants (fact)
 
@@ -72,16 +98,13 @@ services always spawned, `nodes/node/binary/src/lib.rs:119,127`). It is not a mi
   membership `>= minimum_network_size` **and** the local node is in it; else the node silently drops to
   Broadcast/Edge and submits nothing — `services/blend/src/instance.rs:300-311`. As members age out,
   survivors fall below the minimum and stop refreshing too.
-- **NOT work-verified.** The ledger's `SDPActiveOp::validate` checks only declaration-exists, not-
-  withdrawn, strictly-increasing nonce, zk-sig — with a literal `// TODO: check service specific logic`
-  (`core/src/mantle/ops/sdp/active.rs:34-69`). Upstream **#421 (closed, superseded) / #334 (OPEN)**: the
-  proof is a re-provable quota+selection+lottery ticket, **not evidence of relaying**. So *"actively
-  mixing" is neither necessary nor sufficient for the refresh to land.* (This directly contradicts the
-  internal referral-proposal assumption "T4 · the SDP active heartbeat carries a ZK proof of real Blend
-  activity" — it does not, in 0.2.x.)
-- **Client-side drops.** A submitted refresh can be evicted from the SDP mempool (#333/#330), lost on
-  restart (Edge/Core state is in-memory, #172), or dropped by a premature tracker/declaration reset
-  (#88/#367/#368) — any of which silently stops refresh.
+- **Proof verification is required.** Generic `SDPActiveOp::validate` checks declaration, withdrawal,
+  nonce and signature. The full ledger execution additionally verifies proof epoch, provider, PoQ,
+  PoSel, threshold and uniqueness (`ledger/src/mantle/sdp/mod.rs:483-507`; rewards/blend).
+  This is not the same as independently proving useful external forwarding volume.
+- **Submission boundaries.** Proof generation, SDP binding, wallet funding, mempool submission and
+  canonical inclusion can each fail. SDP and Core have recovery code, with epoch-sensitive Core
+  restore; successful whole-process recovery must be tested, not inferred from the existence of storage.
 
 ## What our node showed — RE-CHECKED against live artifacts at epoch 39 (2026-09-20)
 
@@ -92,8 +115,8 @@ may self-heal" framing** — this was never a near-miss race:
 
 - **`active=37` is `created+2`, i.e. the automatic snapshot baseline — NOT a refresh.** It has not moved
   since declaring, across **two** refresh boundaries (37→38, 38→39).
-- **`nonce=0`** — the SDPActive op carries a strictly-increasing nonce; zero means the node has submitted
-  **zero activity messages, ever.** Contrast the 6 healthy core providers, all refreshed at the same
+- **`nonce=0`** — the SDPActive op carries a strictly-increasing nonce; zero means the declaration has
+  **no accepted nonce-advancing operation.** Contrast the 6 healthy core providers, all refreshed at the same
   38→39 boundary to `active=39` with `nonce` 11–39 (`sdp_activity_committed … previous_active_epoch=38
   new_active_epoch=39 active_until_epoch=41`). A genuine timing-lag node would show nonce climbing one
   epoch behind; ours never climbed.
@@ -138,12 +161,11 @@ actually lapsed to Edge.
 ## Recommendations
 
 - **#107 alert** — correct to keep, with the split copy above.
-- **#105 auto-re-declare watchdog** — the right operator-side mitigation, given no self-recovery. It must
-  act only after a genuine **lapse** (Edge with a stale/aged declaration), not while still `is_active`.
-- Do **not** implement an unconditional timer heartbeat in our UI/module — the ledger would accept it
-  (`active.rs:34`), but it deliberately ties refresh to real mixing; a blind timer re-creates exactly the
-  #334 "premium capture by re-proving" abuse. Any keep-alive change is an **upstream design decision**.
-- Track upstream **#334** (work-binding) and **#425** (lapse re-entry) — both OPEN, no merged fix.
+- **#105 automatic redeclaration is not adopted by #108.** Prefer explicit narrow repair, preserve
+  the stake, and require an operator decision for withdrawal after diagnosing genuine lapse.
+- Do **not** implement an unconditional timer heartbeat: the complete ledger path requires a valid
+  Blend proof. Changes to that mechanism belong upstream.
+- Historical issue references in this account are context, not independently reverified current status.
 
 ## Sources
 Code: `core/src/sdp/mod.rs`, `ledger/src/mantle/sdp/mod.rs`,

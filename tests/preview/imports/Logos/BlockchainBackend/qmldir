@@ -1,0 +1,2 @@
+module Logos.BlockchainBackend
+singleton BlockchainBackend 1.0 BlockchainBackend.qml
