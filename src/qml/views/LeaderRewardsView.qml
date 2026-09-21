@@ -62,16 +62,27 @@ ColumnLayout {
     // --- epoch sidebar (Rewards page) ---
     property int currentEpoch: -1
     function _cEpoch(c) { var sl = (c && c.slot !== undefined) ? Number(c.slot) : NaN; return isNaN(sl) ? -1 : Math.floor(sl / 36000) }
+    // Sidebar counts must match the rows shown below, which are LANDED only
+    // (settled/in_block, see filteredClaims). Counting every ledger row here made
+    // "All epochs" and the per-epoch counts overshoot what the list renders (the
+    // not-landed ones surface in the Submitted tile + summary instead). Count what we show.
     readonly property var _claimEpochs: {
         var seen = ({}), list = []
-        for (var i = 0; i < claims.length; i++) { var e = _cEpoch(claims[i]); if (e >= 0 && !seen[e]) { seen[e] = 1; list.push(e) } }
+        for (var i = 0; i < claims.length; i++) { if (!_isLanded(claims[i])) continue; var e = _cEpoch(claims[i]); if (e >= 0 && !seen[e]) { seen[e] = 1; list.push(e) } }
         list.sort(function(a, b) { return b - a }); return list
     }
-    // Claims per epoch, shown in the sidebar rows (epoch -> count).
+    // Landed claims per epoch, shown in the sidebar rows (epoch -> count).
     readonly property var _claimCounts: {
         var m = ({})
-        for (var i = 0; i < claims.length; i++) { var e = _cEpoch(claims[i]); if (e >= 0) m[e] = (m[e] || 0) + 1 }
+        for (var i = 0; i < claims.length; i++) { if (!_isLanded(claims[i])) continue; var e = _cEpoch(claims[i]); if (e >= 0) m[e] = (m[e] || 0) + 1 }
         return m
+    }
+    // "All epochs" total = the same landed set, so total == sum of the per-epoch rows
+    // == the rows shown when no epoch is selected.
+    readonly property int _claimTotal: {
+        var n = 0
+        for (var i = 0; i < claims.length; i++) if (_isLanded(claims[i]) && _cEpoch(claims[i]) >= 0) n++
+        return n
     }
     function _isLanded(c) { return c && (c.status === "settled" || c.status === "in_block") }
     // Only LANDED claims appear as rows — every row is real earnings, so no per-row
@@ -500,7 +511,7 @@ ColumnLayout {
                 epochs: root._claimEpochs
                 currentEpoch: root.currentEpoch
                 counts: root._claimCounts
-                total: root.claims.length
+                total: root._claimTotal
             }
             ScrollView {
                 id: rewardsScroll
