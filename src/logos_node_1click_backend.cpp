@@ -1564,6 +1564,40 @@ qint64 LogosNode1clickBackend::blendMissingBindingAt(qint64 runStart) const
     return latest;
 }
 
+// Positive counterpart to blendMissingBindingAt: the node logs, at SDP start (and periodically),
+// "Loaded declaration from ledger declaration.id=DeclarationId([<decimal bytes>]) …". When that names
+// OUR declaration this run, the runtime is bound — so we can confirm the binding instead of guessing
+// "unknown" and needlessly offering the "Set activity binding" repair.
+qint64 LogosNode1clickBackend::blendBindingLoadedAt(qint64 runStart, const QString& declId) const
+{
+    if (runStart <= 0 || userConfig().isEmpty()) return 0;
+    const QByteArray raw = QByteArray::fromHex(declId.toLatin1());
+    if (raw.size() != 32) return 0;                                   // only match a real 32-byte id
+    QStringList bytes;
+    for (int j = 0; j < raw.size(); ++j) bytes << QString::number(static_cast<unsigned char>(raw[j]));
+    const QString needle = QStringLiteral("Loaded declaration from ledger");
+    const QString idNeedle = QStringLiteral("DeclarationId([") + bytes.join(QStringLiteral(", ")) + QStringLiteral("])");
+    const QDir logs(QFileInfo(userConfig()).absoluteDir().filePath(QStringLiteral("logs")));
+    const auto files = logs.entryInfoList(QDir::Files, QDir::Time);
+    qint64 latest = 0;
+    static const QRegularExpression timestamp(QStringLiteral("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z"));
+    for (int i = 0; i < qMin(3, int(files.size())); ++i) {
+        if (files[i].lastModified().toMSecsSinceEpoch() < runStart) continue;
+        QFile file(files[i].absoluteFilePath());
+        if (!file.open(QIODevice::ReadOnly)) continue;
+        file.seek(qMax<qint64>(0, file.size() - 256 * 1024));
+        const auto lines = QString::fromUtf8(file.readAll()).split('\n');
+        for (const QString& line : lines) {
+            if (!line.contains(needle) || !line.contains(idNeedle)) continue;
+            const auto time = timestamp.match(line);
+            if (!time.hasMatch()) continue;
+            const qint64 at = QDateTime::fromString(time.captured(), Qt::ISODateWithMs).toMSecsSinceEpoch();
+            if (at >= runStart) latest = qMax(latest, at);
+        }
+    }
+    return latest;
+}
+
 void LogosNode1clickBackend::ensureBlendRecovery()
 {
     const QString config = toLocalPath(userConfig());
@@ -1919,7 +1953,10 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
     input["healthyPeers"] = BlendLifecycle::healthyPeers(peers);
     const qint64 runStart = blendRunStartedAt();
     const qint64 repairedAt = m_blendRepairedId == identity.value("id").toString() ? m_blendRepairedAt : 0;
-    input["bindingStatus"] = BlendLifecycle::binding(runStart, blendMissingBindingAt(runStart), repairedAt, QDateTime::currentMSecsSinceEpoch());
+    // Positive proof from the node log that the runtime loaded OUR declaration this run: with it we
+    // know the binding is set, so the "Set activity binding" repair action is not offered needlessly.
+    const qint64 loadedAt = blendBindingLoadedAt(runStart, identity.value("id").toString());
+    input["bindingStatus"] = BlendLifecycle::binding(runStart, blendMissingBindingAt(runStart), repairedAt, loadedAt, QDateTime::currentMSecsSinceEpoch());
     m_recoverySnapshot.bindingKnown = input["bindingStatus"] == "confirmed";
     QStringList evidence;
     if (apiOk) {

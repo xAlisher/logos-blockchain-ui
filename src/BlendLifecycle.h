@@ -110,10 +110,14 @@ inline QString joinId(const QString& response)
     if (id.startsWith('"') && id.endsWith('"')) id = id.mid(1, id.size() - 2);
     return isId(id) ? id : QString();
 }
-inline QString binding(qint64 runStart, qint64 missingAt, qint64 repairedAt, qint64 now)
+// loadedAt: timestamp of the node's own "Loaded declaration from ledger …=<our id>" log line
+// (a positive proof the runtime is bound), alongside repairedAt (our explicit set-declaration-id).
+// Either, when newer than any missing-binding error this run, confirms the binding.
+inline QString binding(qint64 runStart, qint64 missingAt, qint64 repairedAt, qint64 loadedAt, qint64 now)
 {
     if (runStart <= 0) return QStringLiteral("unknown");
-    if (repairedAt >= runStart && repairedAt > missingAt && repairedAt <= now)
+    const qint64 confirmedAt = qMax(repairedAt, loadedAt);
+    if (confirmedAt >= runStart && confirmedAt > missingAt && confirmedAt <= now)
         return QStringLiteral("confirmed");
     if (missingAt >= runStart && missingAt <= now && now - missingAt <= 3600000)
         return QStringLiteral("missing");

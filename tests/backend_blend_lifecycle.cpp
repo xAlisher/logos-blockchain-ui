@@ -54,11 +54,17 @@ int main(int argc, char** argv)
     check(BlendLifecycle::joinId("null").isEmpty(), "null join is not success");
     check(BlendLifecycle::joinId("\"" + id + "\"") == id, "JSON declaration ID accepted");
     check(BlendLifecycle::joinId("garbage").isEmpty(), "invalid join response rejected");
-    check(BlendLifecycle::binding(100, 90, 0, 200) == "unknown", "old-run missing log ignored");
-    check(BlendLifecycle::binding(100, 110, 0, 200) == "missing", "current-run SDP error proves missing");
-    check(BlendLifecycle::binding(100, 110, 120, 200) == "confirmed", "repair supersedes older log");
-    check(BlendLifecycle::binding(130, 110, 120, 200) == "unknown", "restart invalidates repair");
-    check(BlendLifecycle::binding(100, 110, 0, 4000000) == "unknown", "old errors expire");
+    // signature: binding(runStart, missingAt, repairedAt, loadedAt, now)
+    check(BlendLifecycle::binding(100, 90, 0, 0, 200) == "unknown", "old-run missing log ignored");
+    check(BlendLifecycle::binding(100, 110, 0, 0, 200) == "missing", "current-run SDP error proves missing");
+    check(BlendLifecycle::binding(100, 110, 120, 0, 200) == "confirmed", "repair supersedes older log");
+    check(BlendLifecycle::binding(130, 110, 120, 0, 200) == "unknown", "restart invalidates repair");
+    check(BlendLifecycle::binding(100, 110, 0, 0, 4000000) == "unknown", "old errors expire");
+    // a positive "Loaded declaration" log line this run confirms the binding (no repair offered)
+    check(BlendLifecycle::binding(100, 0, 0, 150, 200) == "confirmed", "loaded-declaration log confirms binding");
+    check(BlendLifecycle::binding(100, 160, 0, 150, 200) == "missing", "a newer missing error overrides an older load");
+    check(BlendLifecycle::binding(100, 140, 0, 150, 200) == "confirmed", "a newer load overrides an older missing error");
+    check(BlendLifecycle::binding(130, 0, 0, 120, 200) == "unknown", "load before this run does not confirm");
     QVariantMap repair{{"ok", true}, {"action", "repair"}, {"declarationId", id}, {"withdrawAt", -1}, {"bindingStatus", "missing"}};
     check(BlendLifecycle::canRepair(repair), "verified missing owned binding repair allowed");
     repair["withdrawAt"] = 20;
