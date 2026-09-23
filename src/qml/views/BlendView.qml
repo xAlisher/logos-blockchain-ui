@@ -652,23 +652,7 @@ Item {
                 onRefreshRequested: if (root.controller) root.controller.refresh(true)
             }
 
-            // header — title/subtitle removed (the strip above already names Blend Core);
-            // only the step indicator remains, right-aligned.
-            RowLayout {
-                Layout.fillWidth: true
-                Item { Layout.fillWidth: true }
-                LogosText {   // wizard step indicator
-                    Layout.alignment: Qt.AlignTop
-                    // "core" phase covers both maturing (declared, not yet mixing) and truly
-                    // active. Only call it Active (Step 3) when actually mixing — otherwise it's
-                    // still Activation (Step 2), matching the strip's "Activation pending".
-                    text: (root.phase === "gates") ? qsTr("Step 1 of 3 · Declaration")
-                        : (root.phase === "enabling" || root.phase === "activated"
-                           || (root.phase === "core" && root._declaredNotMixing)) ? qsTr("Step 2 of 3 · Activation")
-                        : qsTr("Step 3 of 3 · Active")
-                    color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
-                }
-            }
+            // (header + step indicator removed — the strip above carries state/context)
 
             // ── node-not-running gate (shared across Declaration/Activation) ──
             NodeGate { visible: !root.nodeUp && root.phase !== "activated" }
@@ -843,6 +827,9 @@ Item {
                             LogosText { Layout.fillWidth: true; text: qsTr("Declaration accepted on-chain"); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium } }
                         KV { k: qsTr("Declaration ID"); v: root._elide(root.mineId); copyValue: root.mineId
                              info: ({ "title": qsTr("Declaration ID"), "what": qsTr("The on-chain record of your Blend provider declaration."), "states": [], "docs": root.docsUrl }) }
+                        // Transaction is only known at declare time (txId); the on-chain SDP record
+                        // doesn't carry the creating tx hash, so this row is shown only when we have it.
+                        KV { visible: root.txId.length > 0; k: qsTr("Transaction"); v: root._elide(root.txId); copyValue: root.txId }
                         KV { visible: root.createdEpoch >= 0; k: qsTr("Created at epoch"); v: "" + root.createdEpoch; copyValue: "" }
                         KV { k: qsTr("Service type"); v: "BN"; copyValue: "" }
                     }
@@ -860,7 +847,7 @@ Item {
                             LogosText { text: root.activationTimeLeft.length ? qsTr("active at epoch %1 · %2").arg(root.coreEpoch).arg(root.activationTimeLeft) : qsTr("active at epoch %1").arg(root.coreEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                             InfoDot { payload: ({ "title": qsTr("Activation window"), "what": qsTr("A new declaration becomes active at created + 2 epochs, provided the node stays reachable and keeps sending Active heartbeats. Membership, not the clock alone, decides."), "states": [], "docs": root.docsUrl }) } }
                         Rectangle { Layout.fillWidth: true; height: 6; radius: 3; color: Theme.palette.backgroundTertiary
-                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.text } }
+                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.warning } }
                         RowLayout { Layout.fillWidth: true
                             LogosText { text: qsTr("epoch %1 (created)").arg(root.createdEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                             Item { Layout.fillWidth: true }
@@ -893,10 +880,13 @@ Item {
                     onActed: { if (root.reachVerdict === "unknown") root.portAttested = true; else reachConfirm.open() }
                 }
 
-                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
-                    contentItem: LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                        text: qsTr("Note: in this release the Active heartbeat is not work-verified. \"Active\" means declared, heartbeating and reachable — not proof your node is mixing traffic.")
-                        color: Theme.palette.textTertiary; font.pixelSize: 11 } }
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: Theme.palette.info; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: RowLayout { spacing: Theme.spacing.small
+                        LogosText { Layout.alignment: Qt.AlignTop; text: "ⓘ"; color: Theme.palette.info; font.pixelSize: 14 }
+                        LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                            text: qsTr("What \"active\" means here: your declaration is on-chain, your node is heartbeating, and its Blend port is reachable. That's not yet proof your node is actually mixing traffic — verified work is planned for a later release.")
+                            color: Theme.palette.textSecondary; font.pixelSize: 11 } }
+                }
 
                 LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
             }
