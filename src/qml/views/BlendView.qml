@@ -560,7 +560,7 @@ Item {
                             text: root.withdrawEpoch >= 0 ? qsTr("Your key can't re-declare until the previous declaration clears at epoch %1 and its stake unlocks. Re-declare after that.").arg(root.withdrawEpoch)
                                  : root.step === 0 ? qsTr("Signing the declaration from your node's blend keys.")
                                  : root.step === 1 ? (root.txId.length > 0 ? qsTr("Declaration acknowledged (id %1…). Inclusion is not yet confirmed.").arg(root.txId.substring(0, 8)) : qsTr("Declaration acknowledged. Inclusion is not yet confirmed."))
-                                 : qsTr("You can safely close this window — activation continues in the background (~2 epochs).")
+                                 : qsTr("You can leave this tab — activation continues in the background (~2 epochs).")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 RowLayout {
                     Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; spacing: Theme.spacing.small
@@ -607,7 +607,7 @@ Item {
                 LogosText { visible: root._declaredNotMixing
                             Layout.fillWidth: true; wrapMode: Text.WordWrap
                             text: root._maturing
-                                ? qsTr("Your declaration is live on-chain and your stake is locked — you don't need to declare again. It's maturing and enters the Core mixing set at epoch %1 (~2 epochs). You can close this window; activation continues in the background.").arg(root.coreEpoch)
+                                ? qsTr("Your declaration is live on-chain and your stake is locked — you don't need to declare again. It's maturing and enters the Core mixing set at epoch %1 (~2 epochs). You can leave this tab; activation continues in the background.").arg(root.coreEpoch)
                                 : qsTr("Your Core declaration is active on-chain and your stake is locked — you don't need to declare again. The node is running as Edge and isn't in this epoch's Core mixing set. It may rejoin at the next epoch. If it keeps missing epochs, the node reports a Blend membership issue (blend_tsi_outage) worth raising with the team.")
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 LogosText { visible: !root._declaredNotMixing

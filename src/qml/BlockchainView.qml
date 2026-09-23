@@ -639,7 +639,7 @@ Rectangle {
         id: fundDialog
         anchors.centerIn: parent
         width: 480
-        title: qsTr("Fund the node")
+        title: root._fundTargetKey.length ? qsTr("Fund a key") : qsTr("Fund the node")
         closePolicy: Popup.CloseOnEscape
         // Darker scrim behind the modal (~3× the default dim).
         Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
@@ -656,7 +656,11 @@ Rectangle {
                 width: parent.width; wrapMode: Text.WordWrap
                 color: Theme.palette.textSecondary
                 font.pixelSize: Theme.typography.secondaryText
-                text: qsTr("These are testnet funds — no real value. They auto-stake: your balance "
+                // The auto-stake / leader-slot claim is only true for the node's staking
+                // key; when funding a specific key (Blend/SDP), keep it factual.
+                text: root._fundTargetKey.length
+                    ? qsTr("These are testnet funds — no real value, sent to the key below. It can take a little while to arrive.")
+                    : qsTr("These are testnet funds — no real value. They auto-stake: your balance "
                            + "counts as stake, so your node starts winning leader slots proportional "
                            + "to it and proposes blocks on its own. It can take a little while to arrive.")
             }
@@ -664,7 +668,8 @@ Rectangle {
                 visible: root._fundStage === "" || root._fundStage === "requesting"
                 width: parent.width; spacing: 4
                 LogosText {
-                    text: qsTr("Destination — your node's public key")
+                    text: root._fundTargetKey.length ? qsTr("Destination — the selected key")
+                                                     : qsTr("Destination — your node's public key")
                     font.pixelSize: Theme.typography.secondaryText
                     color: Theme.palette.textSecondary
                 }
