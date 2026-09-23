@@ -1712,7 +1712,7 @@ QVariantMap LogosNode1clickBackend::checkBlendReachable(QString nonceHex)
 
     // Default prober endpoint (deployed on the Hetzner VPS, epic #124). Overridable for tests.
     QString base = QString::fromUtf8(qgetenv("LOGOS_BLEND_PROBER_URL"));
-    if (base.isEmpty()) base = QStringLiteral("http://65.109.51.37:8899/check");   // placeholder until DNS
+    if (base.isEmpty()) base = QStringLiteral("http://sequencer.logos.live:8899/check");   // deployed prober (Hetzner VPS 116.202.19.154)
     const QString url = base + QStringLiteral("?ip=%1&port=%2&nonce=%3")
                                    .arg(ip).arg(port).arg(QString::fromUtf8(nonce.toHex()));
 
