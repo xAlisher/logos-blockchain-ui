@@ -110,10 +110,36 @@ Item {
     // node run state for the node-not-running gate (BlockchainStatus enum)
     readonly property int nodeStatus: (backend && typeof backend.status === "number") ? backend.status : -1
     readonly property bool nodeUp: nodeStatus === BlockchainBackend.Running
-    // activation progress from real epoch math (created → active); 0..1
-    readonly property real activationProgress: (createdEpoch >= 0 && coreEpoch > createdEpoch && nowEpoch >= 0)
-        ? Math.max(0, Math.min(1, (nowEpoch - createdEpoch) / (coreEpoch - createdEpoch))) : 0
-    readonly property int epochsToActive: (coreEpoch >= 0 && nowEpoch >= 0) ? Math.max(0, coreEpoch - nowEpoch) : -1
+    // Node time info (current_slot / slot_duration_ms), plumbed from BlockchainView like the
+    // Epoch tile (#132). Lets the activation bar show real TIME across created→active epochs.
+    property string timeInfoJson: ""
+    readonly property var _time: {
+        try { return timeInfoJson ? JSON.parse(timeInfoJson) : null } catch (e) { return null }
+    }
+    readonly property int _epochLenSlots: 36000                        // testnet const, like the dash
+    readonly property real _slotDurS: (_time && _time.slot_duration_ms) ? Number(_time.slot_duration_ms) / 1000 : 0
+    readonly property int _nowSlot: (_time && _time.current_slot !== undefined) ? Number(_time.current_slot) : -1
+    // Time-based fraction created→active (0..1); falls back to epoch counts when no slot data.
+    readonly property real activationProgress: {
+        if (createdEpoch < 0 || coreEpoch <= createdEpoch) return 0
+        if (_nowSlot >= 0)
+            return Math.max(0, Math.min(1, (_nowSlot - createdEpoch * _epochLenSlots) / ((coreEpoch - createdEpoch) * _epochLenSlots)))
+        if (nowEpoch >= 0) return Math.max(0, Math.min(1, (nowEpoch - createdEpoch) / (coreEpoch - createdEpoch)))
+        return 0
+    }
+    // Human "time left" until active (e.g. "1h 20m left"); falls back to "~N epoch(s) left".
+    readonly property string activationTimeLeft: {
+        if (coreEpoch < 0) return ""
+        if (_nowSlot >= 0 && _slotDurS > 0) {
+            var leftSlots = coreEpoch * _epochLenSlots - _nowSlot
+            if (leftSlots <= 0) return qsTr("due now")
+            var secs = leftSlots * _slotDurS
+            var h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60)
+            return (h > 0 ? h + "h " : "") + m + "m left"
+        }
+        var e = (nowEpoch >= 0) ? Math.max(0, coreEpoch - nowEpoch) : -1
+        return e > 0 ? qsTr("~%1 epoch(s) left").arg(e) : ""
+    }
     function _elide(s) { s = "" + s; return s.length > 22 ? s.substring(0,12) + "…" + s.substring(s.length-6) : s }
     function _openInfo(i) { if (i) { infoModal.info = i; infoModal.open() } }
 
@@ -831,10 +857,10 @@ Item {
                         RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
                             LogosText { text: qsTr("Activating…"); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
                             Item { Layout.fillWidth: true }
-                            LogosText { text: root.epochsToActive > 0 ? qsTr("active at epoch %1 · ~%2 epoch(s) left").arg(root.coreEpoch).arg(root.epochsToActive) : qsTr("active at epoch %1").arg(root.coreEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            LogosText { text: root.activationTimeLeft.length ? qsTr("active at epoch %1 · %2").arg(root.coreEpoch).arg(root.activationTimeLeft) : qsTr("active at epoch %1").arg(root.coreEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                             InfoDot { payload: ({ "title": qsTr("Activation window"), "what": qsTr("A new declaration becomes active at created + 2 epochs, provided the node stays reachable and keeps sending Active heartbeats. Membership, not the clock alone, decides."), "states": [], "docs": root.docsUrl }) } }
                         Rectangle { Layout.fillWidth: true; height: 6; radius: 3; color: Theme.palette.backgroundTertiary
-                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.primary } }
+                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.text } }
                         RowLayout { Layout.fillWidth: true
                             LogosText { text: qsTr("epoch %1 (created)").arg(root.createdEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                             Item { Layout.fillWidth: true }

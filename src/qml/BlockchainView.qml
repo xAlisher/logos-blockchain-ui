@@ -2439,6 +2439,8 @@ Rectangle {
                     backend: root.backend
                     backendReady: root.ready
                     controller: blendLifecycleController
+                    // node time (current_slot/slot_duration_ms) for the activation time bar (#132)
+                    timeInfoJson: opPage.nodeRunning ? root._dashTimeInfo(root.cryptarchiaInfoJson) : ""
                     onOpenWallet: operationTabBar.currentIndex = 4
                 }
 
