@@ -118,6 +118,17 @@ LogosFrame {
             function segmentLeft(i) { return i * (segmentWidth - 12) }
             onStepsChanged: canvas.requestPaint()
             onWidthChanged: canvas.requestPaint()
+            // Breathe the CURRENT chevron (like the dashboard's aged lane): ease up, ease down.
+            readonly property bool hasCurrent: {
+                var s = steps; for (var i = 0; i < s.length; ++i) if (s[i].state === "current") return true; return false
+            }
+            property real breathe: 0
+            onBreatheChanged: canvas.requestPaint()
+            SequentialAnimation on breathe {
+                running: lane.hasCurrent; loops: Animation.Infinite
+                NumberAnimation { from: 0; to: 1; duration: 1400; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 1; to: 0; duration: 1400; easing.type: Easing.InOutSine }
+            }
             Canvas {
                 id: canvas
                 anchors.fill: parent
@@ -129,7 +140,8 @@ LogosFrame {
                         var state = lane.steps[i].state
                         var c = state === "error" ? Theme.palette.error : root.accent
                         ctx.fillStyle = state === "complete" ? Theme.palette.surface
-                            : state === "pending" ? Theme.palette.surfaceRecessed : Qt.rgba(c.r, c.g, c.b, 0.20)
+                            : state === "pending" ? Theme.palette.surfaceRecessed
+                            : Qt.rgba(c.r, c.g, c.b, 0.14 + 0.30 * lane.breathe)   // current → breathing
                         var pts = [[x0, 0]]
                         if (i === lane.steps.length - 1) pts.push([x1, 0], [x1, height])
                         else pts.push([x1 - 14, 0], [x1, height / 2], [x1 - 14, height])

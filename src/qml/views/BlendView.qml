@@ -588,6 +588,7 @@ Item {
         property string okText: ""
         property string badText: ""
         property string fix: ""
+        property var info: null         // optional (i) → InfoModal, right side
         property string action: ""      // optional attest/act link shown when !ok
         signal acted()
         Layout.fillWidth: true
@@ -607,6 +608,7 @@ Item {
                     Layout.fillWidth: true
                     LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
                     LogosText { text: ok ? okText : badText; color: ok ? Theme.palette.success : warn ? Theme.palette.warning : Theme.palette.error; font.pixelSize: Theme.typography.secondaryText }
+                    InfoDot { payload: lrRoot.info }
                 }
                 LogosText { visible: !ok && fix.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: fix; color: Theme.palette.textTertiary; font.pixelSize: 11 }
                 LogosText { visible: !lrRoot.ok && lrRoot.action.length > 0; text: lrRoot.action; font.pixelSize: 11
@@ -807,15 +809,7 @@ Item {
                 visible: show && root.nodeUp
                 Layout.fillWidth: true; spacing: Theme.spacing.medium
 
-                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                    text: root.phase === "enabling"
-                            ? (root.step === 0 ? qsTr("Submitting declaration…") : root.step === 1 ? qsTr("Submitted — awaiting chain confirmation") : qsTr("Activating — awaiting Core membership"))
-                            : (root._maturing ? qsTr("Declared — activating at epoch %1").arg(root.coreEpoch) : qsTr("Core declared — not active this epoch"))
-                    color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
-                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                    text: qsTr("\"Activated\" means the network has admitted your node as Core — not merely the clock passing 2 epochs. Keep it reachable and heartbeating.")
-                    color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-
+                // (old headline/subtitle removed — the strip above carries the state)
                 LogosText { visible: root.mineId.length > 0; text: qsTr("ON-CHAIN"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame {
                     visible: root.mineId.length > 0
@@ -847,7 +841,7 @@ Item {
                             LogosText { text: root.activationTimeLeft.length ? qsTr("active at epoch %1 · %2").arg(root.coreEpoch).arg(root.activationTimeLeft) : qsTr("active at epoch %1").arg(root.coreEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                             InfoDot { payload: ({ "title": qsTr("Activation window"), "what": qsTr("A new declaration becomes active at created + 2 epochs, provided the node stays reachable and keeps sending Active heartbeats. Membership, not the clock alone, decides."), "states": [], "docs": root.docsUrl }) } }
                         Rectangle { Layout.fillWidth: true; height: 6; radius: 3; color: Theme.palette.backgroundTertiary
-                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.warning } }
+                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.text } }
                         RowLayout { Layout.fillWidth: true
                             LogosText { text: qsTr("epoch %1 (created)").arg(root.createdEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
                             Item { Layout.fillWidth: true }
@@ -860,6 +854,7 @@ Item {
                     ok: root.backend && (root.backend.blendStatus === BlockchainBackend.Edge || root.backend.blendStatus === BlockchainBackend.Core || root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
                     label: qsTr("Active heartbeat"); okText: qsTr("Sending"); badText: qsTr("Not sending")
                     fix: qsTr("The node emits periodic Active messages while it's up. If they stop, activation won't complete — keep the node running.")
+                    info: ({ "title": qsTr("Active heartbeat"), "what": qsTr("A periodic message the node emits to signal it's a live provider. Required through the activation window and for the life of the declaration. Not work-verified in this release — it means declared + heartbeating + reachable, not proof of mixing."), "states": [{ "label": qsTr("Sending"), "meaning": qsTr("Node is heartbeating.") }, { "label": qsTr("Not sending"), "meaning": qsTr("Node down or stalled — activation pauses.") }], "docs": root.docsUrl })
                 }
                 LivenessRow {
                     // Real external verdict from the prober (epic #124), plus honest fallbacks:
@@ -878,14 +873,7 @@ Item {
                         : qsTr("Have the prober dial your Blend port for a real verdict, or attest the forward if it can't reach you.")
                     action: root.reachChecking ? "" : (root.reachVerdict === "unknown" ? qsTr("I've forwarded this port") : qsTr("Check reachability"))
                     onActed: { if (root.reachVerdict === "unknown") root.portAttested = true; else reachConfirm.open() }
-                }
-
-                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: Theme.palette.info; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
-                    contentItem: RowLayout { spacing: Theme.spacing.small
-                        LogosText { Layout.alignment: Qt.AlignTop; text: "ⓘ"; color: Theme.palette.info; font.pixelSize: 14 }
-                        LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: qsTr("What \"active\" means here: your declaration is on-chain, your node is heartbeating, and its Blend port is reachable. That's not yet proof your node is actually mixing traffic — verified work is planned for a later release.")
-                            color: Theme.palette.textSecondary; font.pixelSize: 11 } }
+                    info: ({ "title": qsTr("Reachability (Blend port)"), "what": qsTr("Peers must be able to dial your Blend port (udp/%1) or you declare but never earn. The node has no built-in AutoNAT verdict for it, so this uses Core membership, a local listener, an external prober (with your consent), or your attestation.").arg(root.blendPort), "states": [{ "label": qsTr("Reachable (verified)"), "meaning": qsTr("An external prober dialed your port and got the nonce back.") }, { "label": qsTr("Reachable"), "meaning": qsTr("You're a current Core member, so peers reach you.") }, { "label": qsTr("Needs confirmation"), "meaning": qsTr("Not verified yet — run the check or attest the forward.") }, { "label": qsTr("Not reachable"), "meaning": qsTr("The prober couldn't reach the port — fix the forward.") }], "docs": root.docsUrl })
                 }
 
                 LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
