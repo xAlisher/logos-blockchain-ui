@@ -22,6 +22,10 @@ Item {
     property var backend: null
     // The blend lifecycle reducer/controller (BlockchainView owns the instance).
     property var controller: null
+    // Core-peer roster + message telemetry, merged (API + node log) by the backend; may be empty.
+    readonly property var _tele: (controller && controller.lifecycle) ? controller.lifecycle : ({})
+    readonly property var corePeers: _tele.corePeers || []
+    readonly property var blendMsgs: _tele.messages || ({})
     // Ask the shell to switch to the Wallet tab (Fund the keys there).
     signal openWallet()
     // The owner binds this to QtRO readiness, not merely replica existence.
@@ -524,6 +528,15 @@ Item {
         icon.color: hovered ? Theme.palette.primary : Theme.palette.textMuted
         onClicked: if (payload) { infoModal.info = payload; infoModal.open() }
     }
+    // a compact stat card (small gray label + value) for the Messages row
+    component MsgCard: Rectangle {
+        property string label: ""; property string value: ""; property color valColor: Theme.palette.text
+        Layout.fillWidth: true; Layout.preferredWidth: 1; implicitHeight: 56
+        radius: Theme.spacing.radiusSmall; color: Theme.palette.surfaceRecessed
+        ColumnLayout { anchors.fill: parent; anchors.margins: 10; spacing: 2
+            LogosText { text: label; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            LogosText { Layout.fillWidth: true; text: value; color: valColor; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight } }
+    }
     // label/sub (left) · value (right, mono) · [copy] · (i)
     component KV: RowLayout {
         property string k; property string sub: ""; property string v; property string copyValue: ""
@@ -979,6 +992,64 @@ Item {
                             LogosText { text: qsTr("Stake"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                             LogosText { text: qsTr("collateral bonded to your declaration"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
                         KV { k: qsTr("Locked note"); sub: qsTr("bonded as your provider stake — returned ~2 epochs after withdrawal"); v: root._elide(root.recNote); copyValue: root.recNote } } }
+
+                // ── MESSAGES (cards) — sourced from the node log; empty when unavailable ──
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            LogosText { text: qsTr("Messages"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                            LogosText { text: qsTr("from node logs"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
+                        GridLayout {
+                            Layout.fillWidth: true; columns: width < 520 ? 1 : 3
+                            columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
+                            MsgCard { label: qsTr("Last send window")
+                                value: (root.blendMsgs.window && root.blendMsgs.window.length) ? root.blendMsgs.window : qsTr("no data in logs") }
+                            MsgCard { label: qsTr("Activity delivery")
+                                value: (root.blendMsgs.missed > 0) ? qsTr("%1 missed deadline").arg(root.blendMsgs.missed) : (root.blendMsgs.fromLog ? qsTr("on time") : qsTr("—"))
+                                valColor: (root.blendMsgs.missed > 0) ? Theme.palette.warning : (root.blendMsgs.fromLog ? Theme.palette.success : Theme.palette.textTertiary) }
+                            MsgCard { label: qsTr("Connected peers")
+                                value: (root.blendMsgs.connected !== undefined) ? (root.blendMsgs.connected + " / " + root.blendMsgs.total) : qsTr("—") }
+                        }
+                    }
+                }
+
+                // ── CORE NODES (table) — full roster from the log, health from the API ──
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            LogosText { text: qsTr("Core nodes"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                            LogosText { text: qsTr("this epoch's membership · API + log"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            Item { Layout.fillWidth: true }
+                            LogosText { text: qsTr("%1 shown").arg(root.corePeers.length); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
+                        Repeater {
+                            model: root.corePeers
+                            delegate: RowLayout {
+                                id: peerRow
+                                required property var modelData
+                                readonly property color _sc: peerRow.modelData.status === "Connected" ? Theme.palette.success
+                                    : peerRow.modelData.status === "Degraded" ? Theme.palette.warning
+                                    : peerRow.modelData.status === "Unreachable" ? Theme.palette.error : Theme.palette.textTertiary
+                                Layout.fillWidth: true; Layout.minimumHeight: 30; spacing: Theme.spacing.small
+                                Rectangle { Layout.alignment: Qt.AlignVCenter; width: 8; height: 8; radius: 4; color: peerRow._sc }
+                                ColumnLayout { Layout.fillWidth: true; spacing: 1
+                                    RowLayout { spacing: 6
+                                        LogosText { text: root._elide(peerRow.modelData.id); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace" }
+                                        Rectangle { visible: peerRow.modelData.self === true; radius: 3; color: Theme.palette.info; implicitHeight: 14; implicitWidth: youLabel.implicitWidth + 8
+                                            LogosText { id: youLabel; anchors.centerIn: parent; text: qsTr("you"); color: Theme.palette.surfaceRaised; font.pixelSize: 10 } } }
+                                    LogosText { visible: (""+peerRow.modelData.address).length > 0; Layout.fillWidth: true; text: peerRow.modelData.address; color: Theme.palette.textTertiary; font.pixelSize: 11; font.family: "monospace"; elide: Text.ElideRight } }
+                                Row { Layout.alignment: Qt.AlignVCenter; spacing: 4
+                                    Repeater { model: peerRow.modelData.sources || []
+                                        delegate: Rectangle { required property string modelData; radius: 3; color: Theme.palette.surface; implicitHeight: 15; implicitWidth: srcLabel.implicitWidth + 8
+                                            LogosText { id: srcLabel; anchors.centerIn: parent; text: parent.modelData; color: Theme.palette.textSecondary; font.pixelSize: 10 } } } }
+                                LogosText { Layout.alignment: Qt.AlignVCenter; text: peerRow.modelData.status; color: peerRow._sc; font.pixelSize: 11 }
+                                BcCopyButton { Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 20; Layout.preferredWidth: 20; onCopyText: if (root.backend) root.backend.copyToClipboard(peerRow.modelData.id) }
+                            }
+                        }
+                        LogosText { visible: root.corePeers.length === 0; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                            text: qsTr("No Core peers reported yet — needs a live /blend/info and the node log (debug).")
+                            color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                    }
+                }
 
                 LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
             }

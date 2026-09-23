@@ -25,6 +25,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QProcess>
+#include <QMap>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -1564,6 +1565,84 @@ qint64 LogosNode1clickBackend::blendMissingBindingAt(qint64 runStart) const
     return latest;
 }
 
+// Core-peer roster + message telemetry. The full membership (peer id + address) and the
+// per-peer reachability / message-send counters live ONLY in the node log; the live /blend/info
+// API contributes the currently-connected peers and their health bool. We merge both and tag each
+// row with its source(s) so the UI never implies more certainty than the source provides.
+QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, const QString& ourId) const
+{
+    QVariantMap out;
+    // ---- API: peers we're currently connected to (id -> healthy) ----
+    QMap<QString, bool> apiHealth;
+    const QJsonArray cep = core.toObject().value(QStringLiteral("current_epoch_peers")).toArray();
+    for (const QJsonValue& v : cep) {
+        const QJsonArray pair = v.toArray();
+        if (pair.size() == 2 && pair[0].isString()) apiHealth.insert(pair[0].toString(), pair[1].toBool());
+    }
+    // ---- Log: full roster (id -> address), unreachable ids, latest message window, missed count ----
+    QMap<QString, QString> rosterAddr;
+    QSet<QString> unreachable;
+    QString window; qint64 windowTs = 0; int missed = 0;
+    if (!userConfig().isEmpty()) {
+        const QDir logs(QFileInfo(userConfig()).absoluteDir().filePath(QStringLiteral("logs")));
+        const auto files = logs.entryInfoList(QDir::Files, QDir::Time);
+        static const QRegularExpression reRoster(QStringLiteral("PeerId\\(\"([^\"]+)\"\\): Node \\{ id: PeerId\\(\"[^\"]+\"\\), address: (\\S+),"));
+        static const QRegularExpression reDial(QStringLiteral("Dialing error for peer: Some\\(PeerId\\(\"([^\"]+)\"\\)\\)|Giving up on message delivery: peer PeerId\\(\"([^\"]+)\"\\)"));
+        static const QRegularExpression reSent(QStringLiteral("Sent out (\\d+) data, (\\d+) processed and (\\d+) cover"));
+        static const QRegularExpression reMiss(QStringLiteral("did not deliver (\\d+) locally-originated payload"));
+        static const QRegularExpression ts(QStringLiteral("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z"));
+        for (int i = 0; i < qMin(2, int(files.size())); ++i) {
+            QFile file(files[i].absoluteFilePath());
+            if (!file.open(QIODevice::ReadOnly)) continue;
+            file.seek(qMax<qint64>(0, file.size() - 1024 * 1024));   // ~last hour+: catches the periodic roster line
+            const auto lines = QString::fromUtf8(file.readAll()).split('\n');
+            for (const QString& line : lines) {
+                if (line.contains(QStringLiteral("core_nodes: {"))) {
+                    auto it = reRoster.globalMatch(line);
+                    QMap<QString, QString> fresh;
+                    while (it.hasNext()) { const auto m = it.next(); fresh.insert(m.captured(1), m.captured(2)); }
+                    if (!fresh.isEmpty()) rosterAddr = fresh;   // keep the latest complete roster
+                }
+                if (line.contains(QStringLiteral("Dialing error")) || line.contains(QStringLiteral("Giving up on message delivery"))) {
+                    const auto m = reDial.match(line);
+                    const QString id = m.captured(1).isEmpty() ? m.captured(2) : m.captured(1);
+                    if (!id.isEmpty()) unreachable.insert(id);
+                }
+                const auto ms = reSent.match(line);
+                if (ms.hasMatch()) {
+                    const auto t = ts.match(line);
+                    const qint64 at = t.hasMatch() ? QDateTime::fromString(t.captured(), Qt::ISODateWithMs).toMSecsSinceEpoch() : 0;
+                    if (at >= windowTs) { windowTs = at;
+                        window = QStringLiteral("%1 sent · %2 processed · %3 cover").arg(ms.captured(1), ms.captured(2), ms.captured(3)); }
+                }
+                const auto mm = reMiss.match(line);
+                if (mm.hasMatch()) missed += mm.captured(1).toInt();
+            }
+        }
+    }
+    // ---- merge: union of log roster + API peers, tagged by source, connected peers first ----
+    QStringList ids = rosterAddr.keys();
+    for (const QString& id : apiHealth.keys()) if (!ids.contains(id)) ids << id;
+    QVariantList peers;
+    for (const QString& id : ids) {
+        const bool inApi = apiHealth.contains(id), inLog = rosterAddr.contains(id);
+        QStringList src; if (inApi) src << QStringLiteral("API"); if (inLog) src << QStringLiteral("Log");
+        QString status = inApi ? (apiHealth.value(id) ? QStringLiteral("Connected") : QStringLiteral("Degraded"))
+            : unreachable.contains(id) ? QStringLiteral("Unreachable") : QStringLiteral("In set");
+        peers << QVariantMap{{"id", id}, {"address", rosterAddr.value(id)}, {"sources", src},
+                             {"status", status}, {"self", !ourId.isEmpty() && id == ourId}};
+    }
+    std::sort(peers.begin(), peers.end(), [](const QVariant& a, const QVariant& b) {
+        auto rank = [](const QString& s) { return s == "Connected" ? 0 : s == "Degraded" ? 1 : s == "In set" ? 2 : 3; };
+        return rank(a.toMap().value("status").toString()) < rank(b.toMap().value("status").toString());
+    });
+    out["peers"] = peers;
+    out["messages"] = QVariantMap{{"window", window}, {"windowTs", windowTs}, {"missed", missed},
+                                  {"connected", apiHealth.size()}, {"total", int(ids.size())},
+                                  {"fromLog", !window.isEmpty() || !rosterAddr.isEmpty()}};
+    return out;
+}
+
 // Positive counterpart to blendMissingBindingAt: the node logs, at SDP start (and periodically),
 // "Loaded declaration from ledger declaration.id=DeclarationId([<decimal bytes>]) …". When that names
 // OUR declaration this run, the runtime is bound — so we can confirm the binding instead of guessing
@@ -1999,6 +2078,10 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
                 && !store.value("observed_on_chain").toBool())))
         || (!completedWithdrawal && (m_blendWithdrawalPending || store.value("withdraw_pending").toBool()))
         || (m_blendMutation && !m_recoveryTick);
+    // Core-peer roster + message telemetry (API + log), for the Blend tab's nodes table and cards.
+    const QVariantMap telemetry = blendCoreTelemetry(core, blend.value("node_id").toString());
+    result["corePeers"] = telemetry.value("peers");
+    result["messages"] = telemetry.value("messages");
     return withBlendRecovery(result);
 }
 

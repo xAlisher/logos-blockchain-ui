@@ -75,6 +75,17 @@ class Integration(unittest.TestCase):
         self.assertGreaterEqual(blend.count('reachVerdict === "unreachable"'), 2)
         self.assertIn('Not reachable', blend)
 
+    def test_core_nodes_table_and_message_cards(self):
+        # The Blend tab (not the dashboard) hosts the Core-nodes table + message cards,
+        # fed from the merged API+log telemetry the backend attaches to the lifecycle payload.
+        blend = (ROOT / 'views/BlendView.qml').read_text()
+        self.assertIn('property var corePeers', blend)
+        self.assertIn('property var blendMsgs', blend)
+        self.assertIn('Core nodes', blend)
+        self.assertIn('component MsgCard', blend)
+        # source tags per node come from the backend, not hardcoded
+        self.assertIn('peerRow.modelData.sources', blend)
+
 
 if __name__ == '__main__':
     unittest.main()

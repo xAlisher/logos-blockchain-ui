@@ -158,6 +158,8 @@ private:
     qint64 blendRunStartedAt() const;
     qint64 blendMissingBindingAt(qint64 runStart) const;
     qint64 blendBindingLoadedAt(qint64 runStart, const QString& declId) const;
+    // Core-peer roster + message telemetry, merged from the live /blend/info API and the node log.
+    QVariantMap blendCoreTelemetry(const QJsonValue& core, const QString& ourId) const;
     // Last-resort force stop: SIGKILL the module host on the node's HTTP port.
     bool forceStopNode();
     // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).
