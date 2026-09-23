@@ -138,8 +138,9 @@ Window {
         id: mockWalletAccounts
         ListElement { address: "3dbbbeed6cf8a8fac00d57edd1746034fa6ab6311fa78778dc07ddd4011dc726"; balance: "1,250.0 LGO"; label: "Wallet"; hint: "Your spendable balance — faucet funds land here"; group: "spendable"; fundable: true }
         ListElement { address: "5da62d70bdc0230b8a552d3f4e730658b2aef07c694eaed859f4e24aa4ccca0e"; balance: "3,000.0 LGO"; label: "Leader funding key"; hint: "Funds block proposals — fund this to earn"; group: "spendable"; fundable: true }
-        ListElement { address: "6c4665db63dc20197a32e3b063e45f5281f794db707dbfb5364640522438901b"; balance: "500.0 LGO"; label: "Blend stake key"; hint: "Pays your Blend Core declaration stake"; group: "spendable"; fundable: true }
-        ListElement { address: "601dcb79ef4986b5a7b786ac7d965562a065f1acc9dfa42ea8ecfd3e850802b5"; balance: ""; label: "Blend public key"; hint: "Your node's Blend signing identity — matches the on-chain declaration"; group: "identity"; fundable: false }
+        ListElement { address: "6c4665db63dc20197a32e3b063e45f5281f794db707dbfb5364640522438901b"; balance: "500.0 LGO"; label: "SDP funding key"; hint: "Pays your Blend Core declaration fee"; group: "spendable"; fundable: true }
+        ListElement { address: "2ca45bc4fa5bfd02a4806229d3e7669a52e590ede065263d9ec7cd370cb33b13"; balance: "500.0 LGO"; label: "BlendZk key"; hint: "Holds the note locked as your Blend Core stake"; group: "spendable"; fundable: true }
+        ListElement { address: "601dcb79ef4986b5a7b786ac7d965562a065f1acc9dfa42ea8ecfd3e850802b5"; balance: ""; label: "Blend signing key"; hint: "Your node's Blend signing identity (provider_id) — matches the on-chain declaration and earns referral points"; group: "identity"; fundable: false }
         ListElement { address: "12D3KooWK6oQMAMZYFne1Mwtc1C7vvNfqLg42WDa8rQuDgR9uXRj"; balance: ""; label: "Network key"; hint: "Your node's peer identity on the network"; group: "identity"; fundable: false }
     }
 
@@ -301,6 +302,87 @@ Window {
     }
     function playStart() { win._reset({ status: 0 }); win._seqStep = 0; seq.running = true }
 
+    // ── Blend wizard (tab 6): which step is showing ──
+    property int blendStep: 1   // 1 Declaration · 2 Activation · 3 Active
+
+    // The SHIPPED BlendCoreProgress reducer output, mapped from the wizard's
+    // current evidence. Deliberately NOT a linear wizard readout: the strip
+    // reflects independent evidence per stage (per the state-gallery critique).
+    readonly property var _blendLifecycle: {
+        function S(a, b, c, d, e, f) { return [
+            { label: qsTr("Online"), state: a }, { label: qsTr("Declared"), state: b },
+            { label: qsTr("Activated"), state: c }, { label: qsTr("Connected"), state: d },
+            { label: qsTr("Activity"), state: e }, { label: qsTr("Maintaining"), state: f } ] }
+        if (blendStep === 1) {
+            if (!blendDecl.nodeUp)
+                return { title: qsTr("Evidence unavailable — node offline"), tone: "warning", action: "refresh", actionLabel: qsTr("Refresh"),
+                         detail: qsTr("The node isn't running, so Blend Core evidence can't be read. This is unknown, not \"not declared\"."),
+                         evidence: qsTr("No current evidence; nothing inferred."), steps: S("current", "pending", "pending", "pending", "pending", "pending") }
+            return { title: blendDecl.phase === "submitting" ? qsTr("Submitting declaration…") : !blendDecl.allGreen ? qsTr("Not declared — checks pending") : qsTr("Ready to declare"),
+                     tone: blendDecl.phase === "submitting" ? "warning" : !blendDecl.allGreen ? "warning" : "success",
+                     action: "refresh", actionLabel: qsTr("Refresh"),
+                     detail: qsTr("Your node is online but not yet a Blend provider. Clear the checks below, then submit the declaration."),
+                     evidence: qsTr("No declaration on-chain yet."),
+                     steps: S("complete", "current", "pending", "pending", "pending", "pending") }
+        }
+        if (blendStep === 2) {
+            var risk = blendAct.subState === "stalled"
+            return { title: risk ? qsTr("Activation at risk") : qsTr("Activating — awaiting Core membership"),
+                     tone: risk ? "error" : "warning", action: "refresh", actionLabel: qsTr("Refresh"),
+                     detail: qsTr("Declared on-chain. \"Activated\" means the node is actually admitted as Core — not merely past created + 2 epochs. Keep it reachable and heartbeating."),
+                     evidence: qsTr("Declared at epoch %1; current membership evidence pending.").arg(blendAct.createdEpoch),
+                     steps: S("complete", "complete", risk ? "error" : "current", "pending", "pending", "pending") }
+        }
+        if (blendLive.subState === "withdrawn")
+            return { title: qsTr("Withdrawn — not declared"), tone: "warning", action: "refresh", actionLabel: qsTr("Refresh"),
+                     detail: qsTr("The declaration was withdrawn and the staked note unlocked. Declare again to rejoin Blend Core."),
+                     evidence: qsTr("No current Core membership."), steps: S("complete", "pending", "pending", "pending", "pending", "pending") }
+        if (blendLive.subState === "withdrawing")
+            return { title: qsTr("Withdrawal scheduled"), tone: "warning", action: "manage", actionLabel: qsTr("Manage"),
+                     detail: qsTr("Withdrawal requested. The node has stopped mixing; the staked note unlocks at epoch %1.").arg(blendLive.withdrawAtEpoch),
+                     evidence: qsTr("Winding down; membership ending."), steps: S("complete", "complete", "complete", "complete", "complete", "current") }
+        return { title: qsTr("Blend Core active"), tone: "success", action: "manage", actionLabel: qsTr("Manage"),
+                 detail: qsTr("Current Blend Core member: healthy peers and recent accepted activity."),
+                 evidence: qsTr("Membership + healthy peers + recent activity (nonce %1). Nonce alone is not proof.").arg(blendLive.nonce),
+                 steps: S("complete", "complete", "complete", "complete", "complete", "complete") }
+    }
+
+    // ── Blend wizard state presets ──
+    function _decl(p) {
+        blendDecl.gSynced    = ("gSynced" in p)    ? p.gSynced    : true
+        blendDecl.gFunded    = ("gFunded" in p)    ? p.gFunded    : true
+        blendDecl.gZkFunded  = ("gZkFunded" in p)  ? p.gZkFunded  : true
+        blendDecl.gNetwork   = ("gNetwork" in p)   ? p.gNetwork   : true
+        blendDecl.slotFree   = ("slotFree" in p)   ? p.slotFree   : true
+        blendDecl.natState   = p.natState || "reachable"
+        blendDecl.ipDynamic  = p.ipDynamic || false
+        blendDecl.phase      = p.phase || "idle"
+        blendDecl.errorText  = p.errorText || ""
+        win.blendStep = 1
+        studioTabs.currentIndex = 6
+    }
+    function _activate(p) {
+        blendAct.subState    = p.subState || "activating"
+        blendAct.progress    = ("progress" in p) ? p.progress : 0.45
+        blendAct.etaText     = p.etaText || qsTr("~1h 10m")
+        blendAct.heartbeatOk = ("heartbeatOk" in p) ? p.heartbeatOk : true
+        blendAct.natState    = p.natState || "reachable"
+        win.blendStep = 2
+        studioTabs.currentIndex = 6
+    }
+    function _live(p) {
+        blendLive.subState    = p.subState || "active"
+        blendLive.nonce       = ("nonce" in p) ? p.nonce : 47
+        blendLive.heartbeatOk = ("heartbeatOk" in p) ? p.heartbeatOk : true
+        blendLive.natState    = p.natState || "reachable"
+        win.blendStep = 3
+        studioTabs.currentIndex = 6
+    }
+    // submit → maturing → active lifecycle chain
+    Timer { id: declSubmit;  interval: 1600; repeat: false; onTriggered: { blendDecl.phase = "submitted"; toActivate.restart() } }
+    Timer { id: toActivate;  interval: 1100; repeat: false; onTriggered: win._activate({ subState: "activating", progress: 0.12, etaText: qsTr("~1h 50m") }) }
+    Timer { id: blendWithdraw; interval: 1600; repeat: false; onTriggered: blendLive.subState = "withdrawn" }
+
     readonly property bool _grabMode: Qt.application.arguments.indexOf("--grab") >= 0
     readonly property int _grabScenario: { var i = Qt.application.arguments.indexOf("--scenario"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? parseInt(Qt.application.arguments[i + 1]) : 4 }
     readonly property int _grabTab: { var i = Qt.application.arguments.indexOf("--tab"); return (i >= 0 && i + 1 < Qt.application.arguments.length) ? parseInt(Qt.application.arguments[i + 1]) : 0 }
@@ -310,6 +392,13 @@ Window {
         win._reset(win.scenarios[_grabMode ? _grabScenario : 3].val)
         if (_grabMode) studioTabs.currentIndex = _grabTab
         if (Qt.application.arguments.indexOf("--dragexp") >= 0) win._dragExp = true
+        // --blendstep N: drive the Blend wizard to step N (2 = activation, 3 = active) for grabs
+        var _bi = Qt.application.arguments.indexOf("--blendstep")
+        if (_bi >= 0 && _bi + 1 < Qt.application.arguments.length) {
+            var _bs = parseInt(Qt.application.arguments[_bi + 1])
+            if (_bs === 2) win._activate({ subState: "activating", progress: 0.45 })
+            else if (_bs === 3) win._live({ subState: "active" })
+        }
         // Render the Enable-Blend-Core modal open (over the chosen scenario); --port opens UDP 3400.
         if (Qt.application.arguments.indexOf("--blendmodal") >= 0) {
             if (Qt.application.arguments.indexOf("--port") >= 0) win._blendPortOpen = true
@@ -410,6 +499,7 @@ Window {
                 LogosTabButton { text: qsTr("Proposals") }
                 LogosTabButton { text: qsTr("Wallet") }        // groups Accounts · Transfer · Channel Deposit (pages TBD)
                 LogosTabButton { text: qsTr("Settings") }
+                LogosTabButton { text: qsTr("Blend") }
             }
 
             StackLayout {
@@ -528,7 +618,7 @@ Window {
                         anchors.left: walletDivider.right; anchors.leftMargin: Theme.spacing.large
                         anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
                         currentIndex: walletPage.walletNav
-                        V.AccountsView { accountsModel: mockWalletAccounts; onGetBalanceRequested: (a) => {}; onRefreshAccountsRequested: () => {}; onCopyToClipboard: (t) => {} }
+                        V.AccountsView { accountsModel: mockWalletAccounts; onGetBalanceRequested: (a) => {}; onFundRequested: (a) => {}; onRefreshAccountsRequested: () => {}; onCopyToClipboard: (t) => {} }
                         V.TransferView { accountsModel: mockAccountsModel; onTransferRequested: (f, to, a) => {}; onCopyToClipboard: (t) => {} }
                         V.ChannelDepositView { accountsModel: mockAccountsModel; nodeRunning: st.running; onGetNotesRequested: (a, b) => {}; onSubmitRequested: () => {}; onCopyToClipboard: (t) => {} }
                     }
@@ -550,6 +640,49 @@ Window {
                         }
                     }
                     onMiningTargetApplied: (t) => st.empoweringTarget = Number(t) || 1000
+                }
+                // Blend (tab 6) — enable-Blend-Core wizard. Top: the SHIPPED
+                // BlendCoreProgress evidence strip + status (independent evidence,
+                // not a wizard sequence), pinned. Below: the current wizard step,
+                // which scrolls inside itself.
+                ColumnLayout {
+                    spacing: Theme.spacing.large
+                    BlendCoreProgress {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; Layout.topMargin: Theme.spacing.large
+                        implicitWidth: 0
+                        lifecycle: win._blendLifecycle
+                        backendReady: true
+                        onRefreshRequested: {}
+                        onManageRequested: win.blendStep = 3
+                        onRepairRequested: {}
+                    }
+                    StackLayout {
+                        Layout.fillWidth: true; Layout.fillHeight: true
+                        currentIndex: Math.max(0, Math.min(2, win.blendStep - 1))
+                        BlendDeclarationProto {
+                            id: blendDecl
+                            nodeStatus: st.status
+                            nodeError: st.err
+                            onSubmitRequested: { blendDecl.phase = "submitting"; declSubmit.restart() }
+                            onStartNodeRequested: win.playStart()
+                            onCopyText: (t) => {}
+                        }
+                        BlendActivationProto {
+                            id: blendAct
+                            nodeStatus: st.status
+                            nodeError: st.err
+                            onCancelRequested: { win.blendStep = 1; blendDecl.phase = "idle"; blendDecl.slotFree = false }
+                            onStartNodeRequested: win.playStart()
+                            onCopyText: (t) => {}
+                        }
+                        BlendActiveProto {
+                            id: blendLive
+                            onWithdrawRequested: { blendLive.subState = "withdrawing"; blendWithdraw.restart() }
+                            onRestartRequested: { win.blendStep = 1; blendDecl.phase = "idle"; blendDecl.slotFree = true }
+                            onCopyText: (t) => {}
+                        }
+                    }
                 }
             }
         }
@@ -599,6 +732,44 @@ Window {
                             onClicked: st.blend = st.blend === "none" ? "edge" : st.blend === "edge" ? "coredeclared" : st.blend === "coredeclared" ? "core" : "none" }
                         LogosButton { Layout.fillWidth: true; text: "Blend modal: UDP 3400 " + (win._blendPortOpen ? "open ✓" : "closed ✕")
                             onClicked: win._blendPortOpen = !win._blendPortOpen }
+                    }
+
+                    // Blend wizard states (tab 6) — step 1 Declaration · step 2 Activation · step 3 Active
+                    LogosText { text: "BLEND · STEP 1 DECLARATION"; color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold; Layout.leftMargin: Theme.spacing.large }
+                    ColumnLayout {
+                        Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; spacing: Theme.spacing.small
+                        LogosButton { Layout.fillWidth: true; text: "▶ Run full lifecycle"; variant: LogosButton.Variant.Primary; onClicked: { win._decl({}); declSubmit.stop(); toActivate.stop(); blendDecl.phase = "submitting"; declSubmit.restart() } }
+                        LogosButton { Layout.fillWidth: true; text: "✓ Ready (all pass)"; onClicked: win._decl({}) }
+                        LogosButton { Layout.fillWidth: true; text: "Submitting…"; onClicked: win._decl({ phase: "submitting" }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Not synced"; onClicked: win._decl({ gSynced: false }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ BlendZk key unfunded"; onClicked: win._decl({ gZkFunded: false }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ SDP key unfunded"; onClicked: win._decl({ gFunded: false }) }
+                        LogosButton { Layout.fillWidth: true; text: "◴ NAT: checking"; onClicked: win._decl({ natState: "checking" }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ NAT: Core not listening"; onClicked: win._decl({ natState: "notlistening" }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ NAT: unreachable"; onClicked: win._decl({ natState: "unreachable" }) }
+                        LogosButton { Layout.fillWidth: true; text: "⚠ Reachable, IP dynamic"; onClicked: win._decl({ ipDynamic: true }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Network too small"; onClicked: win._decl({ gNetwork: false }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Slot blocked (withdrawing)"; onClicked: win._decl({ slotFree: false }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Submit error"; onClicked: win._decl({ phase: "error", errorText: "Declaration rejected: staked note already locked." }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Node not started"; onClicked: { win._reset({ status: 0 }); win.blendStep = 1; studioTabs.currentIndex = 6 } }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Node error"; onClicked: { win._reset({ status: 5, err: "Node error: connection refused (rpc :3000)" }); win.blendStep = 1; studioTabs.currentIndex = 6 } }
+                    }
+
+                    LogosText { text: "BLEND · STEP 2 ACTIVATION"; color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold; Layout.leftMargin: Theme.spacing.large }
+                    ColumnLayout {
+                        Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; spacing: Theme.spacing.small
+                        LogosButton { Layout.fillWidth: true; text: "◴ Activating (maturing)"; onClicked: win._activate({ subState: "activating", progress: 0.45 }) }
+                        LogosButton { Layout.fillWidth: true; text: "◴ Almost active (95%)"; onClicked: win._activate({ subState: "activating", progress: 0.95, etaText: "~5m" }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Heartbeat missed (at risk)"; onClicked: win._activate({ subState: "stalled", heartbeatOk: false }) }
+                        LogosButton { Layout.fillWidth: true; text: "✕ Reachability dropped"; onClicked: win._activate({ subState: "stalled", natState: "unreachable" }) }
+                    }
+
+                    LogosText { text: "BLEND · STEP 3 ACTIVE"; color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold; Layout.leftMargin: Theme.spacing.large }
+                    ColumnLayout {
+                        Layout.fillWidth: true; Layout.leftMargin: Theme.spacing.large; Layout.rightMargin: Theme.spacing.large; spacing: Theme.spacing.small
+                        LogosButton { Layout.fillWidth: true; text: "✓ Active (mixing)"; onClicked: win._live({ subState: "active" }) }
+                        LogosButton { Layout.fillWidth: true; text: "↩ Withdrawing"; onClicked: win._live({ subState: "withdrawing" }) }
+                        LogosButton { Layout.fillWidth: true; text: "— Withdrawn"; onClicked: win._live({ subState: "withdrawn" }) }
                     }
 
                     LogosText {
