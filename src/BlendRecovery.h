@@ -82,6 +82,18 @@ public:
         if (!active() || !paused() || !m_error.isEmpty() || phase() == "attention") return false;
         QJsonObject st = m_state; st["paused"] = false; st.remove("detail"); return save(st);
     }
+    // Dismiss a terminally-stopped recovery (phase "attention"): wipe the journal back to
+    // idle so it stops nagging. Terminal-only — there are no future mutations to lose
+    // ("no future mutations; already-submitted on-chain actions are not undone"). Only
+    // touches the file when we actually hold the lock; otherwise clears in-memory only.
+    bool dismiss() {
+        if (phase() != "attention") return false;
+        m_error.clear();
+        m_state = QJsonObject();
+        m_diskDigest.clear();
+        if (!m_path.isEmpty() && m_lock && m_lock->isLocked()) QFile::remove(m_path);
+        return true;
+    }
     bool fail(const QString& reason) {
         m_error = reason;
         // A config/identity fault is durable, not just a process-local lock. Never
@@ -140,6 +152,7 @@ public:
             {"tone", p == "complete" ? "success" : p == "attention" ? "error" : paused() ? "warning" : "neutral"},
             {"steps", steps}, {"canStart", canStart(s)}, {"canPause", active() && !paused() && m_error.isEmpty() && p != "attention"},
             {"canResume", active() && paused() && m_error.isEmpty() && p != "attention"},
+            {"canDismiss", p == "attention"},   // terminal → let the operator clear the nag
             {"coverage", m_state.value("coverage").toArray().toVariantList()}};
     }
     // Exactly one external action per tick. Persist the paid intent BEFORE invoking transport.

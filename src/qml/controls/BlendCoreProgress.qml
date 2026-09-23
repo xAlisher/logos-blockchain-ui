@@ -23,6 +23,7 @@ LogosFrame {
     signal recoverRequested()
     signal pauseRecoveryRequested()
     signal resumeRecoveryRequested()
+    signal dismissRecoveryRequested()   // clear a terminally-stopped (attention) recovery
     property string resultText: ""
     property bool resultError: false
     property bool expanded: false
@@ -238,6 +239,13 @@ LogosFrame {
                     visible: root.recovery.canResume === true
                     enabled: root.backendReady && !root.recoveryBusy && !root.recoveryNeedsRead
                     onClicked: if (enabled) root.resumeRecoveryRequested()
+                }
+                LogosButton {
+                    objectName: "blendRecoveryDismiss"; text: qsTr("Dismiss")
+                    // Terminal (attention) only — clears the retained journal so it stops nagging.
+                    visible: root.recovery.canDismiss === true
+                    enabled: root.backendReady && !root.recoveryBusy
+                    onClicked: if (enabled) root.dismissRecoveryRequested()
                 }
                 LogosButton {
                     objectName: "blendRecoveryRefresh"; text: qsTr("Refresh")

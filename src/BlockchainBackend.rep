@@ -106,6 +106,9 @@ class BlockchainBackend
     SLOT(QVariantMap startBlendRecovery())
     SLOT(QVariantMap pauseBlendRecovery())
     SLOT(QVariantMap resumeBlendRecovery())
+    // Dismiss a terminally-stopped recovery (phase "attention") — clears the retained
+    // journal so it stops nagging. Terminal-only; no on-chain effect.
+    SLOT(QVariantMap dismissBlendRecovery())
     // Per-epoch blend-mode history (write-ahead store) → {success, value: JSON [{epoch,mode}]}.
     SLOT(QVariantMap getBlendModeHistory())
     // Per-epoch max block height (write-ahead) for the blocks-per-epoch chart.

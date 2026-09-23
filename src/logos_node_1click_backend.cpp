@@ -1643,6 +1643,20 @@ QVariantMap LogosNode1clickBackend::resumeBlendRecovery()
         {"message", "Recovery monitoring resumed. Unknown paid outcomes remain pending and are never retried."}};
 }
 
+QVariantMap LogosNode1clickBackend::dismissBlendRecovery()
+{
+    ensureBlendRecovery();
+    if (m_recoveryTick || m_blendReading || m_blendMutation)
+        return {{"ok", false}, {"error", "Wait for the current snapshot/request to finish."}};
+    // Only a terminally-stopped recovery (phase "attention") is dismissable; the controller
+    // guards this. Clears the retained journal so the strip stops showing "needs attention".
+    const bool ok = m_blendRecovery && m_blendRecovery->dismiss();
+    if (ok) setBlendRecoveryActive(false);
+    ensureBlendRecovery();
+    return {{"ok", ok}, {"error", ok ? QString() : QStringLiteral("Nothing to dismiss — recovery is not in a terminally-stopped state.")},
+        {"message", ok ? QStringLiteral("Stopped recovery dismissed. Its on-chain actions (if any) were already final and are unchanged.") : QString()}};
+}
+
 void LogosNode1clickBackend::readBlendRecoveryFunding(BlendRecovery::Snapshot& snapshot)
 {
     snapshot.funded = false;

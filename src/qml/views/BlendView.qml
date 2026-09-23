@@ -417,6 +417,7 @@ Item {
                 onRecoverRequested: if (root.controller) root.controller.startRecovery()
                 onPauseRecoveryRequested: if (root.controller) root.controller.pauseRecovery()
                 onResumeRecoveryRequested: if (root.controller) root.controller.resumeRecovery()
+                onDismissRecoveryRequested: if (root.controller) root.controller.dismissRecovery()
                 onManageRequested: if (root.controller) root.controller.refresh(true)
                 onRepairRequested: if (root.controller) root.controller.repair()
                 onRefreshRequested: if (root.controller) root.controller.refresh(true)

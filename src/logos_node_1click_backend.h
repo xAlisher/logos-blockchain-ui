@@ -121,6 +121,7 @@ public slots:
     QVariantMap startBlendRecovery() override;
     QVariantMap pauseBlendRecovery() override;
     QVariantMap resumeBlendRecovery() override;
+    QVariantMap dismissBlendRecovery() override;
     // Per-epoch blend-mode history (write-ahead store) for the dashboard "Blend type" strip.
     QVariantMap getBlendModeHistory() override;
     // Per-epoch max block height (write-ahead) → blocks-per-epoch (Δheight) chart.

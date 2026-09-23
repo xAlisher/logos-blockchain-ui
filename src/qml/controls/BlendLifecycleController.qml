@@ -43,14 +43,17 @@ QtObject {
     function startRecovery() { requestRecovery("start") }
     function pauseRecovery() { requestRecovery("pause") }
     function resumeRecovery() { requestRecovery("resume") }
+    function dismissRecovery() { requestRecovery("dismiss") }
     function requestRecovery(action) {
         var r = lifecycle.recovery || ({})
         if (!ready || !backend || !bridge || recoveryBusy || repairing || externalBusy) return
-        // Pause only restricts an already-authorized job. A telemetry failure
-        // must not prevent the operator from stopping future submissions.
-        if (action !== "pause" && recoveryNeedsRead) return
+        // Pause/dismiss only restrict or clear; a telemetry failure must not stop the
+        // operator from halting future submissions or clearing a terminally-stopped job.
+        if (action !== "pause" && action !== "dismiss" && recoveryNeedsRead) return
         if (action === "start" ? (recoveryLocked || !r.canStart)
-            : action === "pause" ? !r.canPause : !r.canResume) return
+            : action === "pause" ? !r.canPause
+            : action === "dismiss" ? !r.canDismiss
+            : !r.canResume) return
         recoveryBusy = true; recoveryHeld = true; recoveryNeedsRead = true
         recoveryPausedConfirmed = false
         recoveryResultText = qsTr("Sending recovery request…"); recoveryResultError = false
@@ -62,7 +65,9 @@ QtObject {
         }
         try {
             var call = action === "start" ? backend.startBlendRecovery()
-                : action === "pause" ? backend.pauseBlendRecovery() : backend.resumeBlendRecovery()
+                : action === "pause" ? backend.pauseBlendRecovery()
+                : action === "dismiss" ? backend.dismissBlendRecovery()
+                : backend.resumeBlendRecovery()
             bridge.watch(call, function(reply) {
                 if (token !== root.recoveryGeneration) return
                 if (!reply || typeof reply.ok !== "boolean") { failed(qsTr("Invalid response")); return }

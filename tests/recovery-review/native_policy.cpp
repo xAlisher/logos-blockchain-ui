@@ -91,6 +91,13 @@ int main(int argc, char** argv)
         int requests = 0;
         restored.tick(s, [&](Action, const QJsonObject&) { ++requests; return Reply{Outcome::Accepted, {}}; });
         CHECK(requests == 0);
+        // A terminally-stopped recovery is dismissable → clears the retained journal back to
+        // idle so it stops nagging "needs attention" forever (no on-chain effect).
+        CHECK(restored.view(s).value("canDismiss").toBool());
+        CHECK(restored.dismiss());
+        CHECK(!restored.active() && restored.phase() == "idle");
+        CHECK(!QFile::exists(path));                       // retained journal cleared
+        CHECK(!restored.view(s).value("canDismiss").toBool()); // nothing left to dismiss
     }
 
     // User-local recovery identifiers are not world-readable. Losing the journal
