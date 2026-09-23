@@ -869,7 +869,7 @@ Item {
                     readonly property bool _core: root.backend && root.backend.blendStatus === BlockchainBackend.Core
                     readonly property bool _verified: root.reachVerdict === "reachable"
                     readonly property bool _failed: root.reachVerdict === "unreachable"
-                    ok: _verified || _core || root.portListening || root.portAttested
+                    ok: !_failed && (_verified || _core || root.portListening || root.portAttested)  // a real unreachable verdict wins over the Core inference
                     warn: !ok && !_failed     // amber unless a real unreachable verdict → red
                     label: qsTr("Reachability (Blend port)")
                     okText: _verified ? qsTr("Reachable") : _core ? qsTr("Reachable") : root.portListening ? qsTr("Listening") : qsTr("Confirmed")
@@ -904,9 +904,12 @@ Item {
                                     : qsTr("In the Core set since epoch %1 · collecting activity").arg(root.coreEpoch)
                                 color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText } } } }
 
-                LogosText { text: qsTr("LIVENESS"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
                     contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        // in-card white title + gray desc, matching the declaration step's FieldBlock cards
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            LogosText { text: qsTr("Liveness"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                            LogosText { text: qsTr("live health signals for this provider"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
                         // nonce is a positive signal only when it has actually advanced; 0/"—" is neutral, not green.
                         KV { k: qsTr("Provider nonce"); sub: qsTr("one signal of activity — read with membership, not proof alone"); v: root.recNonce >= 0 ? "" + root.recNonce : "—"; valColor: root.recNonce > 0 ? Theme.palette.success : Theme.palette.textSecondary
                              info: ({ "title": qsTr("Provider nonce"), "what": qsTr("An on-chain counter that advances with accepted activity. A rising nonce is one signal you're live, not sufficient alone — liveness = membership AND healthy peers AND recent activity."), "states": [], "docs": root.docsUrl }) }
@@ -915,20 +918,52 @@ Item {
                         KV { readonly property bool _hb: root.backend && (root.backend.blendStatus === BlockchainBackend.Edge || root.backend.blendStatus === BlockchainBackend.Core || root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
                              k: qsTr("Active heartbeat"); v: _hb ? qsTr("Sending") : qsTr("Not sending"); valColor: _hb ? Theme.palette.success : Theme.palette.error
                              info: ({ "title": qsTr("Active heartbeat"), "what": qsTr("A periodic message the node emits to signal it's a live provider. Not work-verified in this release — it means declared + heartbeating + reachable, not proof of mixing."), "states": [{ "label": qsTr("Sending"), "meaning": qsTr("Node is heartbeating.") }, { "label": qsTr("Not sending"), "meaning": qsTr("Node down or stalled.") }], "docs": root.docsUrl }) }
-                        // reachability: same real-signal ladder as the activation view — verified prober verdict,
-                        // Core membership, local listener, attestation; a real unreachable verdict is red, unconfirmed amber.
-                        KV { readonly property bool _rOk: root.reachVerdict === "reachable" || (root.backend && root.backend.blendStatus === BlockchainBackend.Core) || root.portListening || root.portAttested
-                             k: qsTr("Reachability (Blend port)")
-                             v: (root.reachVerdict === "reachable" || (root.backend && root.backend.blendStatus === BlockchainBackend.Core)) ? qsTr("Reachable")
-                                : root.portListening ? qsTr("Listening") : root.portAttested ? qsTr("Confirmed")
-                                : root.reachChecking ? qsTr("Checking…") : root.reachVerdict === "unreachable" ? qsTr("Not reachable") : qsTr("Needs confirmation")
-                             valColor: _rOk ? Theme.palette.success : root.reachVerdict === "unreachable" ? Theme.palette.error : Theme.palette.warning }
+                        // reachability with an on-demand real probe. A live prober verdict WINS over the
+                        // Core-membership inference, so closing the port + Check flips this to red at once
+                        // (membership alone would keep reading "Reachable" for epochs). Check is always
+                        // available so a green value is falsifiable on demand.
+                        RowLayout {
+                            id: reachRow
+                            readonly property bool _core: root.backend && root.backend.blendStatus === BlockchainBackend.Core
+                            readonly property bool _bad: root.reachVerdict === "unreachable"       // real dial failure
+                            readonly property bool _ok: !_bad && (root.reachVerdict === "reachable" || _core || root.portListening || root.portAttested)
+                            Layout.fillWidth: true; Layout.minimumHeight: 22; spacing: Theme.spacing.small
+                            ColumnLayout {
+                                spacing: 1; Layout.fillWidth: true
+                                LogosText { text: qsTr("Reachability (Blend port)"); color: Theme.palette.textSecondary; font.pixelSize: 11 }
+                                LogosText {
+                                    visible: text.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; font.pixelSize: 11; color: Theme.palette.textTertiary
+                                    text: root.reachChecking ? qsTr("asking the prober to dial your port…")
+                                        : root.reachVerdict === "reachable" ? qsTr("verified by external prober")
+                                        : reachRow._bad ? qsTr("prober could not reach the port — fix your forward, then re-check")
+                                        : reachRow._core ? qsTr("inferred from Core membership — Check for a live probe")
+                                        : ""
+                                }
+                            }
+                            LogosText {
+                                Layout.alignment: Qt.AlignVCenter
+                                text: root.reachChecking ? qsTr("Checking…") : qsTr("Check")
+                                color: root.reachChecking ? Theme.palette.textTertiary : Theme.palette.info; font.pixelSize: 11
+                                TapHandler { enabled: root.backendReady && !root.reachChecking; onTapped: reachConfirm.open() }
+                            }
+                            LogosText {
+                                Layout.alignment: Qt.AlignVCenter
+                                text: root.reachChecking ? qsTr("Checking…") : reachRow._bad ? qsTr("Not reachable")
+                                    : (root.reachVerdict === "reachable" || reachRow._core) ? qsTr("Reachable")
+                                    : root.portListening ? qsTr("Listening") : root.portAttested ? qsTr("Confirmed") : qsTr("Needs confirmation")
+                                color: reachRow._bad ? Theme.palette.error : reachRow._ok ? Theme.palette.success : root.reachChecking ? Theme.palette.textSecondary : Theme.palette.warning
+                                font.pixelSize: Theme.typography.secondaryText
+                            }
+                            InfoDot { payload: ({ "title": qsTr("Reachability (Blend port)"), "what": qsTr("Peers must be able to dial your Blend port (udp/%1). There is no built-in AutoNAT verdict, so this uses, in order, a live external prober result, Core membership, a local listener, or your attestation. A prober 'Not reachable' is a real dial failure and overrides the membership inference; Core membership alone can lag a freshly closed port by epochs.").arg(root.blendPort), "states": [], "docs": root.docsUrl }) }
+                        }
                     }
                 }
 
-                LogosText { text: qsTr("PROVIDER RECORD"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
                     contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            LogosText { text: qsTr("Provider record"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                            LogosText { text: qsTr("your on-chain declaration"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
                         KV { k: qsTr("Blend signing key"); sub: qsTr("provider_id · the key that earns"); v: root._elide(root.recProvider || root.identProvider); copyValue: root.recProvider || root.identProvider }
                         KV { k: qsTr("BlendZk key"); sub: "zk_id"; v: root._elide(root.recZk || root.identZk); copyValue: root.recZk || root.identZk }
                         KV { k: qsTr("Service type"); v: "BN"; copyValue: "" }
@@ -938,9 +973,12 @@ Item {
                     }
                 }
 
-                LogosText { text: qsTr("STAKE"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
-                    contentItem: KV { k: qsTr("Locked note"); sub: qsTr("bonded as your provider stake — returned ~2 epochs after withdrawal"); v: root._elide(root.recNote); copyValue: root.recNote } }
+                    contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            LogosText { text: qsTr("Stake"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                            LogosText { text: qsTr("collateral bonded to your declaration"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
+                        KV { k: qsTr("Locked note"); sub: qsTr("bonded as your provider stake — returned ~2 epochs after withdrawal"); v: root._elide(root.recNote); copyValue: root.recNote } } }
 
                 LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
             }
