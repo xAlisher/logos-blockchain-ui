@@ -2125,22 +2125,9 @@ Rectangle {
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
-                        blendLifecycle: blendLifecycleController.lifecycle
-                        blendBusy: blendLifecycleController.repairing || blendLifecycleController.externalBusy
-                        blendBackendReady: root.ready
-                        blendLoading: blendLifecycleController.loading
-                        blendRecoveryBusy: blendLifecycleController.recoveryBusy
-                        blendRecoveryNeedsRead: blendLifecycleController.recoveryNeedsRead
+                        // Blend progress block moved to the Blend tab (#118); only the
+                        // Recover-node gate + the tile→tab CTA remain wired here.
                         blendRecoveryLocked: root.blendRecoveryLocked
-                        blendRecoveryResult: blendLifecycleController.recoveryResultText
-                        blendRecoveryResultError: blendLifecycleController.recoveryResultError
-                        onRecoverBlendRequested: blendLifecycleController.startRecovery()
-                        onPauseBlendRecoveryRequested: blendLifecycleController.pauseRecovery()
-                        onResumeBlendRecoveryRequested: blendLifecycleController.resumeRecovery()
-                        blendResult: blendLifecycleController.resultText
-                        blendResultError: blendLifecycleController.resultError
-                        onRepairBlendRequested: blendLifecycleController.repair()
-                        onRefreshBlendRequested: blendLifecycleController.refresh(true)
                         onEnableBlendRequested: operationTabBar.currentIndex = 5   // Blend tile CTA → open the Blend tab (#120)
                         onRecoverRequested: if (!root.blendRecoveryLocked) recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
