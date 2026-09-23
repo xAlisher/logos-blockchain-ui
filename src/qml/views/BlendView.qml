@@ -30,6 +30,22 @@ Item {
     readonly property int _msgEpoch: blendMsgs.epoch !== undefined ? blendMsgs.epoch : -1
     readonly property int _msgProp: blendMsgs.proposalsEpoch || 0
     readonly property int _msgDir: blendMsgs.directEpoch || 0
+    // Lifecycle-strip (i) modal — the six lane stages, verified against BlendLifecycle.h reduce():
+    // labels {Online,Declared,Activated,Connected,Activity,Maintaining}; completion = valid /
+    // +declared / +core / +connected(core&&healthyPeers>0) / +accepted(active>created+2) / healthy.
+    readonly property var _lifecycleInfo: ({
+        "title": qsTr("Blend Core lifecycle"),
+        "what": qsTr("The stages your node passes through to become and stay an active Blend Core provider. A stage shows a green check once reached; the current stage is highlighted (yellow while in progress); a red stage flags a problem to fix; later stages stay grey until reached."),
+        "states": [
+            ({ "label": qsTr("Online"), "meaning": qsTr("Node running and following the chain (mode Online).") }),
+            ({ "label": qsTr("Declared"), "meaning": qsTr("Your Blend declaration is recorded on-chain.") }),
+            ({ "label": qsTr("Activated"), "meaning": qsTr("In the Core set — the runtime reports Core (created + 2 epochs reached).") }),
+            ({ "label": qsTr("Connected"), "meaning": qsTr("Connected to at least one healthy Core peer.") }),
+            ({ "label": qsTr("Activity"), "meaning": qsTr("Recent activity accepted on-chain — the active epoch has advanced past the baseline.") }),
+            ({ "label": qsTr("Maintaining"), "meaning": qsTr("All of the above holding together — healthy.") })
+        ],
+        "docs": root.docsUrl
+    })
     // Ask the shell to switch to the Wallet tab (Fund the keys there).
     signal openWallet()
     // The owner binds this to QtRO readiness, not merely replica existence.
@@ -732,6 +748,7 @@ Item {
                 onManageRequested: if (root.controller) root.controller.refresh(true)
                 onRepairRequested: if (root.controller) root.controller.repair()
                 onRefreshRequested: if (root.controller) root.controller.refresh(true)
+                onExplainRequested: root._openInfo(root._lifecycleInfo)
             }
 
             // (header + step indicator removed — the strip above carries state/context)

@@ -40,6 +40,7 @@ LogosFrame {
     signal manageRequested()
     signal repairRequested()
     signal refreshRequested()
+    signal explainRequested()   // (i) tapped → parent opens the stages modal
     readonly property var data: lifecycle || ({})
     readonly property color accent: data.tone === "error" ? Theme.palette.error
         : data.tone === "warning" ? Theme.palette.warning
@@ -93,16 +94,27 @@ LogosFrame {
         spacing: Theme.spacing.small
         // The big state title doubles as the expand/collapse control (tap to toggle);
         // no separate "Blend Core" label or chevron row — the card lives in the Blend tab.
-        LogosText {
-            objectName: "blendTitle"
-            Layout.fillWidth: true
-            text: root.data.title || qsTr("Status unavailable")
-            color: root.accent; font.pixelSize: 24; font.weight: Theme.typography.weightBold
-            wrapMode: Text.WordWrap; textFormat: Text.PlainText
-            Accessible.name: (root.expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + text
-            TapHandler {
-                objectName: "blendToggle"
-                onTapped: { root.userToggled = true; root.expanded = !root.expanded }
+        // An (i) (same 16×16 bordered glyph as the dashboard tiles) opens the stages modal.
+        RowLayout {
+            Layout.fillWidth: true; spacing: Theme.spacing.small
+            LogosText {
+                objectName: "blendTitle"
+                Layout.fillWidth: true
+                text: root.data.title || qsTr("Status unavailable")
+                color: root.accent; font.pixelSize: 24; font.weight: Theme.typography.weightBold
+                wrapMode: Text.WordWrap; textFormat: Text.PlainText
+                Accessible.name: (root.expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + text
+                TapHandler {
+                    objectName: "blendToggle"
+                    onTapped: { root.userToggled = true; root.expanded = !root.expanded }
+                }
+            }
+            Rectangle {
+                objectName: "blendInfo"
+                Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"; border.width: 1
+                border.color: infoIma.containsMouse ? Theme.palette.text : Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
+                LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: infoIma.containsMouse ? Theme.palette.text : Theme.palette.textMuted }
+                MouseArea { id: infoIma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.explainRequested() }
             }
         }
         Item {

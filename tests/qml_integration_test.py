@@ -85,6 +85,15 @@ class Integration(unittest.TestCase):
         # source tags per node come from the backend, not hardcoded
         self.assertIn('peerRow.modelData.sources', blend)
 
+    def test_lifecycle_stages_modal(self):
+        # The lifecycle strip's (i) opens a stages modal; the six stages match the reducer labels.
+        blend = (ROOT / 'views/BlendView.qml').read_text()
+        strip = (ROOT / 'controls/BlendCoreProgress.qml').read_text()
+        self.assertIn('signal explainRequested', strip)
+        self.assertIn('onExplainRequested: root._openInfo(root._lifecycleInfo)', blend)
+        for stage in ['Online', 'Declared', 'Activated', 'Connected', 'Activity', 'Maintaining']:
+            self.assertIn('qsTr("%s")' % stage, blend)
+
 
 if __name__ == '__main__':
     unittest.main()
