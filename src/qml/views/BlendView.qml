@@ -87,6 +87,10 @@ Item {
     property string publicIp: ""
     property bool   portListening: false   // a local listener holds udp/<blendPort>
     property bool   portAttested: false    // operator confirmed the router port-forward
+    // external reachability probe (epic #124): "" | reachable | unreachable | unknown
+    property bool   reachChecking: false
+    property string reachVerdict: ""
+    property string reachDetail: ""
     property int    netCount: -1          // active BN declarations on the network
     // our existing on-chain declaration, for the "declaration slot free" gate
     property string mineId: ""             // our declaration id on-chain ("" = none)
@@ -283,6 +287,23 @@ Item {
                 root.identZk = r.zkId || ""
             },
             function(e) {}
+        )
+    }
+    // External reachability probe (epic #124): responder + hosted prober → real verdict.
+    function _checkReach() {
+        if (!backend || !backendReady || root.reachChecking) return
+        root.reachChecking = true; root.reachVerdict = ""
+        root.reachDetail = qsTr("Asking the prober to dial your Blend port…")
+        var nonce = ""
+        for (var i = 0; i < 16; ++i) nonce += "0123456789abcdef"[Math.floor(Math.random() * 16)]
+        logos.watch(
+            backend.checkBlendReachable(nonce),
+            function(r) {
+                root.reachChecking = false
+                if (r && r.ok === true) { root.reachVerdict = r.reachable ? "reachable" : "unreachable"; root.reachDetail = r.detail || "" }
+                else { root.reachVerdict = "unknown"; root.reachDetail = (r && r.detail) ? r.detail : qsTr("Prober unavailable — attest the forward instead.") }
+            },
+            function(e) { root.reachChecking = false; root.reachVerdict = "unknown"; root.reachDetail = qsTr("Reachability check failed to run.") }
         )
     }
     function _refreshFunded() {
@@ -796,18 +817,22 @@ Item {
                     fix: qsTr("The node emits periodic Active messages while it's up. If they stop, activation won't complete — keep the node running.")
                 }
                 LivenessRow {
-                    // Real signals only: Core membership implies peers reach you; a local listener
-                    // holds the port; else the operator attests the router forward. No fake AutoNAT
-                    // verdict — the node exposes none, and nothing binds udp/%1 until Core.
+                    // Real external verdict from the prober (epic #124), plus honest fallbacks:
+                    // Core membership implies peers reach you; a local listener holds the port; else
+                    // attest. A real "unreachable" prober verdict is red; unconfirmed is amber.
                     readonly property bool _core: root.backend && root.backend.blendStatus === BlockchainBackend.Core
-                    ok: _core || root.portListening || root.portAttested
-                    warn: !ok      // unconfirmed = amber "needs confirmation", never alarm-red
+                    readonly property bool _verified: root.reachVerdict === "reachable"
+                    readonly property bool _failed: root.reachVerdict === "unreachable"
+                    ok: _verified || _core || root.portListening || root.portAttested
+                    warn: !ok && !_failed     // amber unless a real unreachable verdict → red
                     label: qsTr("Reachability (Blend port)")
-                    okText: _core ? qsTr("Reachable") : root.portListening ? qsTr("Listening") : qsTr("Confirmed")
-                    badText: qsTr("Needs confirmation")
-                    fix: qsTr("The node only opens udp/%1 once it's Core, so reachability can't be auto-verified before then. Forward udp/%1 on your router, then confirm.").arg(root.blendPort)
-                    action: qsTr("I've forwarded this port")
-                    onActed: root.portAttested = true
+                    okText: _verified ? qsTr("Reachable (verified)") : _core ? qsTr("Reachable") : root.portListening ? qsTr("Listening") : qsTr("Confirmed")
+                    badText: root.reachChecking ? qsTr("Checking…") : _failed ? qsTr("Not reachable") : qsTr("Needs confirmation")
+                    fix: root.reachChecking ? root.reachDetail
+                        : _failed ? qsTr("The prober couldn't reach udp/%1 — fix your router's port-forward, then re-check.").arg(root.blendPort)
+                        : qsTr("Have the prober dial your Blend port for a real verdict, or attest the forward if it can't reach you.")
+                    action: root.reachChecking ? "" : (root.reachVerdict === "unknown" ? qsTr("I've forwarded this port") : qsTr("Check reachability"))
+                    onActed: { if (root.reachVerdict === "unknown") root.portAttested = true; else root._checkReach() }
                 }
 
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium

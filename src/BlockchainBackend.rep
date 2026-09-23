@@ -109,6 +109,11 @@ class BlockchainBackend
     // Dismiss a terminally-stopped recovery (phase "attention") — clears the retained
     // journal so it stops nagging. Terminal-only; no on-chain effect.
     SLOT(QVariantMap dismissBlendRecovery())
+    // Pre-activation reachability check (epic #124): bind a short-lived udp/<blendPort>
+    // responder, then ask the external prober to dial our public IP:port with `nonceHex`.
+    // Returns { ok, reachable, detail }. ok=false when the prober is unreachable (fall back
+    // to operator attestation). Only meaningful while NOT Core (the port is free then).
+    SLOT(QVariantMap checkBlendReachable(QString nonceHex))
     // Per-epoch blend-mode history (write-ahead store) → {success, value: JSON [{epoch,mode}]}.
     SLOT(QVariantMap getBlendModeHistory())
     // Per-epoch max block height (write-ahead) for the blocks-per-epoch chart.

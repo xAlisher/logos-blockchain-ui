@@ -34,6 +34,8 @@
 #include <QSignalBlocker>
 #include <QTimer>
 #include <QUdpSocket>
+#include <QEventLoop>
+#include <QRandomGenerator>
 #include <QUrl>
 #include <QVariant>
 
@@ -1655,6 +1657,85 @@ QVariantMap LogosNode1clickBackend::dismissBlendRecovery()
     ensureBlendRecovery();
     return {{"ok", ok}, {"error", ok ? QString() : QStringLiteral("Nothing to dismiss — recovery is not in a terminally-stopped state.")},
         {"message", ok ? QStringLiteral("Stopped recovery dismissed. Its on-chain actions (if any) were already final and are unchanged.") : QString()}};
+}
+
+// ── Pre-activation reachability check (epic #124) ────────────────────────────
+// Bind a short-lived responder on udp/<blendPort> and ask the external prober to
+// dial our public IP:port with `nonceHex`; the responder echoes the nonce so the
+// prober returns a REAL reachable/not verdict. A local QEventLoop pumps the
+// responder's readyRead (echo) while curl waits on the prober — no fake AutoNAT.
+// Prober URL: LOGOS_BLEND_PROBER_URL env, else the default deployed endpoint.
+QVariantMap LogosNode1clickBackend::checkBlendReachable(QString nonceHex)
+{
+    QVariantMap out;
+    out.insert(QStringLiteral("ok"), false);
+    out.insert(QStringLiteral("reachable"), false);
+
+    static const QByteArray kMagic   = QByteArray("LOGOS-BLEND-REACH", 17) + '\0';      // 18 bytes
+    static const QByteArray kMagicOk = QByteArray("LOGOS-BLEND-REACH-OK", 20) + '\0';   // 21 bytes
+
+    const int port = blendPortFromConfig();
+    const QString ip = resolvePublicIp();
+    if (ip.isEmpty()) {
+        out.insert(QStringLiteral("detail"), QStringLiteral("Could not resolve a public IPv4 to probe."));
+        return out;
+    }
+    QByteArray nonce = QByteArray::fromHex(nonceHex.trimmed().toUtf8());
+    if (nonce.size() < 4) {   // caller should pass one; generate a fallback
+        nonce = QByteArray::number(qint64(QRandomGenerator::global()->generate64()), 16).rightJustified(16, '0').left(16);
+        nonce = QByteArray::fromHex(nonce);
+    }
+
+    // Bind the responder. If the port is already held (node is Core), reachability is
+    // implied by membership — report that honestly and let the UI treat it as reachable.
+    QUdpSocket responder;
+    if (!responder.bind(QHostAddress::AnyIPv4, static_cast<quint16>(port))) {
+        out.insert(QStringLiteral("ok"), true);
+        out.insert(QStringLiteral("reachable"), true);
+        out.insert(QStringLiteral("detail"),
+                   QStringLiteral("udp/%1 is already bound locally (the node holds it) — reachable via Core membership.").arg(port));
+        return out;
+    }
+    const QByteArray expectProbe = kMagic + nonce;
+    const QByteArray reply = kMagicOk + nonce;
+
+    QEventLoop loop;
+    QObject::connect(&responder, &QUdpSocket::readyRead, &loop, [&responder, expectProbe, reply]() {
+        while (responder.hasPendingDatagrams()) {
+            QByteArray dg; dg.resize(int(responder.pendingDatagramSize()));
+            QHostAddress from; quint16 fromPort = 0;
+            responder.readDatagram(dg.data(), dg.size(), &from, &fromPort);
+            if (dg == expectProbe)
+                responder.writeDatagram(reply, from, fromPort);   // nonce-bound echo
+        }
+    });
+
+    // Default prober endpoint (deployed on the Hetzner VPS, epic #124). Overridable for tests.
+    QString base = QString::fromUtf8(qgetenv("LOGOS_BLEND_PROBER_URL"));
+    if (base.isEmpty()) base = QStringLiteral("http://65.109.51.37:8899/check");   // placeholder until DNS
+    const QString url = base + QStringLiteral("?ip=%1&port=%2&nonce=%3")
+                                   .arg(ip).arg(port).arg(QString::fromUtf8(nonce.toHex()));
+
+    QProcess curl;
+    curl.setProcessEnvironment(curlEnv());
+    QObject::connect(&curl, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                     &loop, &QEventLoop::quit);
+    QTimer::singleShot(8000, &loop, &QEventLoop::quit);   // hard cap
+    curl.start(resolveCurl(), {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("6"), url});
+    loop.exec();   // pumps responder echo + curl completion
+    if (curl.state() != QProcess::NotRunning) { curl.kill(); curl.waitForFinished(500); }
+
+    const QByteArray body = curl.readAllStandardOutput();
+    const QJsonObject o = QJsonDocument::fromJson(body).object();
+    if (o.contains(QStringLiteral("reachable"))) {
+        out.insert(QStringLiteral("ok"), true);
+        out.insert(QStringLiteral("reachable"), o.value(QStringLiteral("reachable")).toBool());
+        out.insert(QStringLiteral("detail"), o.value(QStringLiteral("detail")).toString());
+    } else {
+        out.insert(QStringLiteral("detail"),
+                   QStringLiteral("The reachability prober didn't answer — confirm the udp/%1 forward yourself for now.").arg(port));
+    }
+    return out;
 }
 
 void LogosNode1clickBackend::readBlendRecoveryFunding(BlendRecovery::Snapshot& snapshot)
