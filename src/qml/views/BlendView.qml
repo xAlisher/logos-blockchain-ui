@@ -577,6 +577,7 @@ Item {
     // big value row, then a bottom sub-row that also carries the copy glyph + "Copied" flash.
     component Tile: LogosFrame {
         id: tile
+        objectName: "blendTile"
         property string label: ""
         property string value: ""
         property color valueColor: Theme.palette.text
@@ -595,11 +596,11 @@ Item {
         contentItem: ColumnLayout {
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
-                LogosText { text: tile.label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                LogosText { objectName: "blendTileLabel"; text: tile.label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
                 Item { Layout.fillWidth: true }
                 Info { visible: tile.info != null; Layout.alignment: Qt.AlignTop; onClicked: root._openInfo(tile.info) } }
             RowLayout { Layout.fillWidth: true; spacing: 0
-                LogosText { Layout.fillWidth: true; text: tile.value; color: tile.valueColor; font.pixelSize: 24; font.weight: Theme.typography.weightBold
+                LogosText { objectName: "blendTileValue"; Layout.fillWidth: true; text: tile.value; color: tile.valueColor; font.pixelSize: 24; font.weight: Theme.typography.weightBold
                             elide: Text.ElideRight; font.family: tile.mono ? "monospace" : Qt.application.font.family } }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
                 LogosText { visible: tile.sub.length > 0; text: tile.sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight
@@ -727,6 +728,7 @@ Item {
 
             // Real lifecycle evidence strip + tone status (moved here from the Node page, #118).
             BlendCoreProgress {
+                objectName: "blendStripCard"
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacing.large
                 implicitWidth: 0

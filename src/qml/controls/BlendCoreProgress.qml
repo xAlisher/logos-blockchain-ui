@@ -47,7 +47,7 @@ LogosFrame {
         : data.tone === "success" ? Theme.palette.success : Theme.palette.textSecondary
     backgroundColor: Theme.palette.surfaceRaised
     borderColor: "transparent"
-    background: Rectangle { color: root.backgroundColor; radius: Theme.spacing.radiusLarge }
+    radius: Theme.spacing.radiusLarge   // same mechanism as the dashboard tiles (frame radius, not a custom bg)
     padding: Theme.spacing.large
     implicitWidth: 920
     QQC.Dialog {
