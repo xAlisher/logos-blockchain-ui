@@ -997,7 +997,8 @@ Item {
                     Tile { label: qsTr("Blend Core"); value: root._activityAccepted ? qsTr("Active") : qsTr("Member")
                         sub: root.coreEpoch < 0 ? qsTr("In the active Core set")
                             : root._activityAccepted ? qsTr("Active provider · since epoch %1").arg(root.coreEpoch)
-                            : qsTr("In the Core set since epoch %1 · collecting activity").arg(root.coreEpoch) }
+                            : qsTr("In the Core set since epoch %1 · collecting activity").arg(root.coreEpoch)
+                        info: ({ "title": qsTr("Blend Core membership"), "what": qsTr("Whether your node is in the active Core set. 'Member' means you're in the set; 'Active' means accepted activity is also visible (the active epoch / nonce has advanced past the baseline). The lifecycle strip above shows the full stage breakdown."), "states": [{ "label": qsTr("Member"), "meaning": qsTr("In the Core set, collecting activity.") }, { "label": qsTr("Active"), "meaning": qsTr("In Core with accepted activity visible.") }], "docs": root.docsUrl }) }
 
                     Tile { label: qsTr("Provider nonce"); value: root.recNonce >= 0 ? "" + root.recNonce : "—"; sub: qsTr("activity signal — not proof alone")
                         info: ({ "title": qsTr("Provider nonce"), "what": qsTr("An on-chain counter that advances with accepted activity. A rising nonce is one signal you're live, not sufficient alone — liveness = membership AND healthy peers AND recent activity."), "states": [], "docs": root.docsUrl }) }
@@ -1019,14 +1020,21 @@ Item {
                         onActionClicked: if (root.backendReady && !root.reachChecking) reachConfirm.open()
                         info: ({ "title": qsTr("Reachability (Blend port)"), "what": qsTr("Peers must be able to dial your Blend port (udp/%1). There is no built-in AutoNAT verdict, so this uses, in order, a live external prober result, Core membership, a local listener, or your attestation. A prober 'Not reachable' is a real dial failure and overrides the membership inference; Core membership alone can lag a freshly closed port by epochs.").arg(root.blendPort), "states": [], "docs": root.docsUrl }) }
 
-                    Tile { label: qsTr("Blend signing key"); value: root._elide(root.recProvider || root.identProvider); mono: true; copyValue: root.recProvider || root.identProvider; sub: qsTr("provider_id · the key that earns") }
-                    Tile { label: qsTr("BlendZk key"); value: root._elide(root.recZk || root.identZk); mono: true; copyValue: root.recZk || root.identZk; sub: "zk_id" }
-                    Tile { label: qsTr("Service type"); value: "BN" }
-                    Tile { label: qsTr("Published address"); value: root.recLocator.length ? root._elide(root.recLocator) : root._elide(root.locator); mono: true; copyValue: root.recLocator.length ? root.recLocator : root.locator }
-                    Tile { visible: root.createdEpoch >= 0; label: qsTr("Created / active epoch"); value: root.createdEpoch + " / " + (root.coreEpoch >= 0 ? root.coreEpoch : "—") }
-                    Tile { visible: root.withdrawEpoch >= 0; label: qsTr("Withdraw at epoch"); value: "" + root.withdrawEpoch }
+                    Tile { label: qsTr("Blend signing key"); value: root._elide(root.recProvider || root.identProvider); mono: true; copyValue: root.recProvider || root.identProvider; sub: qsTr("provider_id · the key that earns")
+                        info: ({ "title": qsTr("Blend signing key (provider_id)"), "what": qsTr("Your node's on-chain Blend identity. This is the key that accrues activity and rewards; it's published in your declaration."), "states": [], "docs": root.docsUrl }) }
+                    Tile { label: qsTr("BlendZk key"); value: root._elide(root.recZk || root.identZk); mono: true; copyValue: root.recZk || root.identZk; sub: "zk_id"
+                        info: ({ "title": qsTr("BlendZk key (zk_id)"), "what": qsTr("The zero-knowledge key published in your declaration; it performs the private Blend proofs."), "states": [], "docs": root.docsUrl }) }
+                    Tile { label: qsTr("Service type"); value: "BN"
+                        info: ({ "title": qsTr("Service type"), "what": qsTr("Marks this SDP declaration as a Blend Network provider (BN)."), "states": [], "docs": root.docsUrl }) }
+                    Tile { label: qsTr("Published address"); value: root.recLocator.length ? root._elide(root.recLocator) : root._elide(root.locator); mono: true; copyValue: root.recLocator.length ? root.recLocator : root.locator
+                        info: ({ "title": qsTr("Published address (locator)"), "what": qsTr("The address peers dial to reach your Blend port — your public IP + the Blend Core port (udp/%1), written on-chain in the declaration.").arg(root.blendPort), "states": [], "docs": root.docsUrl }) }
+                    Tile { visible: root.createdEpoch >= 0; label: qsTr("Created / active epoch"); value: root.createdEpoch + " / " + (root.coreEpoch >= 0 ? root.coreEpoch : "—")
+                        info: ({ "title": qsTr("Created / active epoch"), "what": qsTr("created = the epoch your declaration was accepted on-chain. active = when it becomes eligible in the Core set (created + 2 epochs)."), "states": [], "docs": root.docsUrl }) }
+                    Tile { visible: root.withdrawEpoch >= 0; label: qsTr("Withdraw at epoch"); value: "" + root.withdrawEpoch
+                        info: ({ "title": qsTr("Withdraw at epoch"), "what": qsTr("The epoch your scheduled withdrawal takes effect and the declaration is removed; the locked stake unlocks ~2 epochs after withdrawal."), "states": [], "docs": root.docsUrl }) }
 
-                    Tile { label: qsTr("Locked note"); value: root._elide(root.recNote); mono: true; copyValue: root.recNote; sub: qsTr("stake — returned ~2 epochs after withdrawal") }
+                    Tile { label: qsTr("Locked note"); value: root._elide(root.recNote); mono: true; copyValue: root.recNote; sub: qsTr("stake — returned ~2 epochs after withdrawal")
+                        info: ({ "title": qsTr("Locked note"), "what": qsTr("The note bonded on-chain as your provider stake. It's locked while the declaration is active and returned to your wallet ~2 epochs after a withdrawal."), "states": [], "docs": root.docsUrl }) }
 
                     Tile { label: qsTr("Last send window")
                         value: (root.blendMsgs.window && root.blendMsgs.window.length) ? root.blendMsgs.window : qsTr("no data in logs")
