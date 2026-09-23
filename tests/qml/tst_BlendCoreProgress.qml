@@ -39,6 +39,7 @@ TestCase {
         compare(panel.expanded, false) // user choice survives polls
     }
     function test_error_stays_visible() {
+        panel.expanded = true    // the result now lives in the expanded detail area
         panel.resultText = "Binding request failed"; panel.resultError = true
         verify(findChild(panel, "blendResult").visible)
         panel.lifecycle = fixture("success", "none")

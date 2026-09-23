@@ -33,8 +33,10 @@ LogosFrame {
     Timer { id: resultHideTimer; interval: 4000; repeat: false; onTriggered: root._showResult = false }
     property bool expanded: false
     property bool userToggled: false
-    onDataChanged: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error"
+    onDataChanged: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error" || root.resultError
     Component.onCompleted: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error"
+    // An error result keeps the panel open so it stays visible (it lives in the detail area).
+    onResultErrorChanged: if (resultError && !userToggled) expanded = true
     signal manageRequested()
     signal repairRequested()
     signal refreshRequested()
@@ -305,7 +307,8 @@ LogosFrame {
                 LogosText {
                     objectName: "blendResult"
                     Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter
-                    visible: root._showResult && root.resultText.length > 0
+                    // Errors persist; non-error results (e.g. "Checked — no change.") auto-hide.
+                    visible: root.resultText.length > 0 && (root.resultError || root._showResult)
                     text: root.resultText; textFormat: Text.PlainText; elide: Text.ElideRight
                     color: root.resultError ? Theme.palette.error : Theme.palette.textSecondary
                     font.pixelSize: Theme.typography.secondaryText
