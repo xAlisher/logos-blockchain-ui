@@ -502,12 +502,15 @@ Item {
 
     // a liveness row (green tick / amber ? / red !) with a fix line
     component LivenessRow: LogosFrame {
+        id: lrRoot
         property bool ok: false
         property bool warn: false
         property string label: ""
         property string okText: ""
         property string badText: ""
         property string fix: ""
+        property string action: ""      // optional attest/act link shown when !ok
+        signal acted()
         Layout.fillWidth: true
         backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
         contentItem: RowLayout {
@@ -527,6 +530,9 @@ Item {
                     LogosText { text: ok ? okText : badText; color: ok ? Theme.palette.success : warn ? Theme.palette.warning : Theme.palette.error; font.pixelSize: Theme.typography.secondaryText }
                 }
                 LogosText { visible: !ok && fix.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: fix; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                LogosText { visible: !lrRoot.ok && lrRoot.action.length > 0; text: lrRoot.action; font.pixelSize: 11
+                            color: Theme.palette.info
+                            TapHandler { onTapped: lrRoot.acted() } }
             }
         }
     }
@@ -567,17 +573,12 @@ Item {
                 onRefreshRequested: if (root.controller) root.controller.refresh(true)
             }
 
-            // header
+            // header — title/subtitle removed (the strip above already names Blend Core);
+            // only the step indicator remains, right-aligned.
             RowLayout {
                 Layout.fillWidth: true
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 2
-                    LogosText { text: (root.phase === "core" || root.phase === "activated" || root.phase === "disabling" || root.phase === "disabled") ? qsTr("Blend Core") : qsTr("Enable Blend Core")
-                                color: Theme.palette.text; font.pixelSize: Theme.typography.titleText; font.weight: Theme.typography.weightBold }
-                    LogosText { text: qsTr("Become a Blend Network core provider — mixes your proposals for proposer privacy.");
-                                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
-                }
-                LogosText {   // wizard step indicator (replaces the modal's close button)
+                Item { Layout.fillWidth: true }
+                LogosText {   // wizard step indicator
                     Layout.alignment: Qt.AlignTop
                     // "core" phase covers both maturing (declared, not yet mixing) and truly
                     // active. Only call it Active (Step 3) when actually mixing — otherwise it's
@@ -795,9 +796,18 @@ Item {
                     fix: qsTr("The node emits periodic Active messages while it's up. If they stop, activation won't complete — keep the node running.")
                 }
                 LivenessRow {
-                    ok: root.portListening; warn: root.portAttested && !root.portListening
-                    label: qsTr("Reachability (Blend port)"); okText: root.portListening ? qsTr("Reachable") : qsTr("Confirmed"); badText: qsTr("Not verified")
-                    fix: qsTr("Peers must be able to dial your Blend port. If your IP changed or the forward broke, fix it before the window passes.")
+                    // Real signals only: Core membership implies peers reach you; a local listener
+                    // holds the port; else the operator attests the router forward. No fake AutoNAT
+                    // verdict — the node exposes none, and nothing binds udp/%1 until Core.
+                    readonly property bool _core: root.backend && root.backend.blendStatus === BlockchainBackend.Core
+                    ok: _core || root.portListening || root.portAttested
+                    warn: !ok      // unconfirmed = amber "needs confirmation", never alarm-red
+                    label: qsTr("Reachability (Blend port)")
+                    okText: _core ? qsTr("Reachable") : root.portListening ? qsTr("Listening") : qsTr("Confirmed")
+                    badText: qsTr("Needs confirmation")
+                    fix: qsTr("The node only opens udp/%1 once it's Core, so reachability can't be auto-verified before then. Forward udp/%1 on your router, then confirm.").arg(root.blendPort)
+                    action: qsTr("I've forwarded this port")
+                    onActed: root.portAttested = true
                 }
 
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
@@ -828,7 +838,10 @@ Item {
                         KV { k: qsTr("Provider nonce"); sub: qsTr("one signal of activity — read with membership, not proof alone"); v: root.recNonce >= 0 ? "" + root.recNonce : "—"; valColor: Theme.palette.success
                              info: ({ "title": qsTr("Provider nonce"), "what": qsTr("An on-chain counter that advances with accepted activity. A rising nonce is one signal you're live, not sufficient alone — liveness = membership AND healthy peers AND recent activity."), "states": [], "docs": root.docsUrl }) }
                         KV { k: qsTr("Active heartbeat"); v: qsTr("Sending"); valColor: Theme.palette.success }
-                        KV { k: qsTr("Reachability (Blend port)"); v: root.portListening ? qsTr("Reachable") : (root.portAttested ? qsTr("Confirmed") : qsTr("Not verified")); valColor: (root.portListening || root.portAttested) ? Theme.palette.success : Theme.palette.warning }
+                        KV { k: qsTr("Reachability (Blend port)")
+                             v: (root.backend && root.backend.blendStatus === BlockchainBackend.Core) ? qsTr("Reachable")
+                                : root.portListening ? qsTr("Listening") : root.portAttested ? qsTr("Confirmed") : qsTr("Needs confirmation")
+                             valColor: ((root.backend && root.backend.blendStatus === BlockchainBackend.Core) || root.portListening || root.portAttested) ? Theme.palette.success : Theme.palette.warning }
                     }
                 }
 
