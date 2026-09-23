@@ -730,26 +730,9 @@ Item {
                     showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                     info: root._infoData.status; onInfoRequested: root._openInfo(info)
                 }
-                BlendCoreProgress {
-                    Layout.fillWidth: true
-                    lifecycle: root.blendLifecycle
-                    busy: root.blendBusy
-                    backendReady: root.blendBackendReady
-                    loading: root.blendLoading
-                    recoveryBusy: root.blendRecoveryBusy
-                    recoveryNeedsRead: root.blendRecoveryNeedsRead
-                    recoveryLocked: root.blendRecoveryLocked
-                    recoveryResultText: root.blendRecoveryResult
-                    recoveryResultError: root.blendRecoveryResultError
-                    onRecoverRequested: root.recoverBlendRequested()
-                    onPauseRecoveryRequested: root.pauseBlendRecoveryRequested()
-                    onResumeRecoveryRequested: root.resumeBlendRecoveryRequested()
-                    resultText: root.blendResult
-                    resultError: root.blendResultError
-                    onManageRequested: root.enableBlendRequested()
-                    onRepairRequested: root.repairBlendRequested()
-                    onRefreshRequested: root.refreshBlendRequested()
-                }
+                // Blend Core progress block moved to the Blend tab (#118). The Node page
+                // keeps the compact Blend metric tile below; the full evidence strip +
+                // enable/manage flow live under the dedicated Blend tab now.
                 // Recovery CTA — only when the node is wedged in a prolonged bootstrap
                 // (finalization frozen, falling behind). Opens the host's explain-and-confirm
                 // modal that runs stop → reset chain state → re-bootstrap from scratch.

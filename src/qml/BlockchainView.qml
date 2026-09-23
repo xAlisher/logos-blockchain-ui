@@ -26,7 +26,6 @@ Rectangle {
     // viewModuleReadyChanged signal instead.
     property bool ready: false
     readonly property bool blendRecoveryLocked: blendLifecycleController.recoveryLocked || blendLifecycleController.recoveryBusy
-    onBlendRecoveryLockedChanged: if (blendRecoveryLocked) enableBlendModal.close()
 
     Connections {
         target: logos
@@ -564,7 +563,7 @@ Rectangle {
         backend: root.backend
         bridge: logos
         ready: root.ready
-        externalBusy: enableBlendModal.mutationBusy
+        externalBusy: blendView.mutationBusy
     }
     Timer {
         interval: 5000; repeat: true; triggeredOnStart: true
@@ -887,20 +886,8 @@ Rectangle {
         ]
     }
 
-    // ── Enable / Manage Blend Core modal (epic #89) ──
-    // Full-view overlay, hidden until open()ed from the header action or the Blend
-    // tile CTA. Fed by real backend calls (getSdpFundingKey/getBalance/getNotes/
-    // checkBlendPortReachable/getBlendDeclarations for the gates; declareBlendCore
-    // to enable; withdrawBlendCore to disable). blendStatus drives the header label.
-    EnableBlendCoreModal {
-        id: enableBlendModal
-        objectName: "manualBlendModal"
-        backendReady: root.ready && !root.blendRecoveryLocked
-        enabled: !root.blendRecoveryLocked
-        anchors.fill: parent
-        z: 300
-        backend: root.backend
-    }
+    // Enable / Manage Blend Core is now the Blend TAB (BlendView, #119) — the modal
+    // overlay was removed. The tab hosts the same phase-driven flow + the evidence strip.
 
     // Node balance for the dashboard tile and the claim gate.
     //
@@ -1935,7 +1922,8 @@ Rectangle {
             onNodeRunningChanged: {
                 // Only the node-gated tab (Operations=4) strands the user when the
                 // node stops; Node/Rewards/Blocks/Proposals/Settings stay valid.
-                if (!nodeRunning && operationTabBar.currentIndex === 4)
+                if (!nodeRunning && (operationTabBar.currentIndex === 4
+                                     || operationTabBar.currentIndex === 5))  // Wallet, Blend
                     operationTabBar.currentIndex = 0
                 // A manual (re)start clears any cap auto-pause.
                 if (nodeRunning) root._autoPaused = false
@@ -1954,6 +1942,10 @@ Rectangle {
                     LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
                         text: qsTr("Wallet")
+                        enabled: opPage.nodeRunning
+                    }
+                    LogosTabButton {
+                        text: qsTr("Blend")
                         enabled: opPage.nodeRunning
                     }
                     // Settings is reachable before the node runs (configure first).
@@ -1982,28 +1974,8 @@ Rectangle {
                     HoverHandler { id: fundHover }
                 }
 
-                // Blend Core provider action (epic #89). Label follows blendStatus:
-                // "Enable Blend Core" (Edge) / "Blend: activating…" (declaration pending)
-                // / "Blend Core ✓" (Core). Opens the gated Enable/Manage modal. Enabled
-                // only once the node is Online (Blend is meaningless while bootstrapping).
-                GhostButton {
-                    id: blendBtn
-                    objectName: "manualBlendControl"
-                    Layout.alignment: Qt.AlignVCenter
-                    readonly property string bs: root.backend
-                        ? root._dashBlend(root.backend.blendStatus) : "none"
-                    readonly property bool online: root.backend
-                        && root.backend.status === BlockchainBackend.Running
-                    visible: online
-                    // Button matrix: bootstrapping (bs "none") → Enable, DISABLED · edge → Enable Core ·
-                    // declared (coredeclared/activating) → Blend Core declared · core → Blend Core active.
-                    text: bs === "core" ? qsTr("Blend Core active")
-                          : (bs === "coredeclared" || bs === "activating") ? qsTr("Blend Core declared")
-                          : bs === "edge" ? qsTr("Enable Core")
-                          : qsTr("Enable Blend Core")
-                    enabled: online && bs !== "none" && !blendLifecycleController.busy      // disabled while bootstrapping / not synced
-                    onClicked: if (!blendLifecycleController.busy) enableBlendModal.open()
-                }
+                // Blend Core header button removed (#120): the Blend TAB is the single
+                // entry point for enabling/managing Blend Core now.
 
                 // Node run/stop — small primary CTA. A bootstrapping node sits in
                 // Starting for a long time (the start RPC outlives IBD/recovery), so
@@ -2158,7 +2130,7 @@ Rectangle {
                         blendResultError: blendLifecycleController.resultError
                         onRepairBlendRequested: blendLifecycleController.repair()
                         onRefreshBlendRequested: blendLifecycleController.refresh(true)
-                        onEnableBlendRequested: if (!blendLifecycleController.busy) enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
+                        onEnableBlendRequested: operationTabBar.currentIndex = 5   // Blend tile CTA → open the Blend tab (#120)
                         onRecoverRequested: if (!root.blendRecoveryLocked) recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 
@@ -2383,6 +2355,8 @@ Rectangle {
                                 )
                             }
                             onRefreshAccountsRequested: if (root.backend) root.backend.refreshAccounts()
+                            // Fund a specific spendable key via the real faucet (#117).
+                            onFundRequested: (addressHex) => root._requestFundsFor(addressHex)
                             onCopyToClipboard: (text) => {
                                 root.copyText(text)
                             }
@@ -2461,7 +2435,16 @@ Rectangle {
                     }
                 }
 
-                // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----
+                // ---- Tab 5: Blend (Enable/manage Blend Core — replaces the modal, #119) ----
+                BlendView {
+                    id: blendView
+                    backend: root.backend
+                    backendReady: root.ready
+                    controller: blendLifecycleController
+                    onOpenWallet: operationTabBar.currentIndex = 4
+                }
+
+                // ---- Tab 6: Settings (node config, bootstrap, rewards, hardware, destructive) ----
                 SettingsView {
                     id: settingsView
                     objectName: "nodeSettingsView"

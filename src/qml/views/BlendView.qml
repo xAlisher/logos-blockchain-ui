@@ -5,24 +5,25 @@ import Logos.Theme
 import Logos.Controls
 // BlendStatus enum (Off/WaitingForOnline/Edge/Core/Broadcast/…/Activating).
 import Logos.BlockchainBackend 1.0
+import "../controls"
 
-// ── ENABLE / MANAGE BLEND CORE — real modal (epic #89, #90-#96) ─────────────
-// Ported from design/node-dashboard/prototype/EnableBlendCoreProto.qml, but fed by
-// REAL backend calls instead of mock toggles. Full Blend provider lifecycle as one
-// phase machine:
-//   gates → enabling → activated →(Done)  |  core → disabling → disabled →(Done)
-// Gates + stages mirror the declaration proven end-to-end on sneg (fund sdp funding_pk
-// → POST /blend/join {locator, locked_note_id} → declaration → active at created+2
-// epochs → Mode::Core). Disable requests withdrawal; acknowledgement does not prove stake release.
-//
-// Overlay Item: parent sets anchors.fill; open()/close() toggle visibility. Uses the
-// global `logos` context property for logos.watch, and `backend` (the .rep replica)
-// injected by BlockchainView. DS controls only.
+// ── BLEND tab — ENABLE / MANAGE BLEND CORE, wired to the real backend ───────
+// The Blend tab: the shipped BlendCoreProgress evidence strip on top (fed by the
+// real lifecycle reducer via `controller`), then the enable/manage flow as a
+// phase-driven wizard. Same phase machine as the former modal (epic #89, #90-#96):
+//   gates → enabling → activated  |  core → disabling → disabled
+// Gates + stages mirror the declaration proven on sneg (fund sdp funding_pk →
+// POST /blend/join {locator, locked_note_id} → declaration → active at created+2
+// epochs → Mode::Core). Disable requests withdrawal. This REPLACES EnableBlendCoreModal
+// (#119) and the Node-page block (#118) + header button (#120). DS controls only.
 Item {
     id: root
-    visible: false
 
     property var backend: null
+    // The blend lifecycle reducer/controller (BlockchainView owns the instance).
+    property var controller: null
+    // Ask the shell to switch to the Wallet tab (Fund the keys there).
+    signal openWallet()
     // The owner binds this to QtRO readiness, not merely replica existence.
     property bool backendReady: false
     onBackendReadyChanged: if (!backendReady) _mutationUnknown(qsTr("Connection lost"))
@@ -135,10 +136,11 @@ Item {
         // is long done); the stake is locked, so re-declaring here would be a mistake.
         root.phase = (bs === BlockchainBackend.Core || bs === BlockchainBackend.CoreDeclaredEdge) ? "core"
                    : (bs === BlockchainBackend.Activating) ? "enabling" : "gates"
-        root.visible = true
         root._refreshGates()
     }
-    function close() { root.visible = false }
+    // In a tab the StackLayout owns visibility; entering the tab (re)initialises the flow.
+    onVisibleChanged: if (visible && !mutationBusy) open()
+    function close() { /* no-op: the Blend tab is not a dismissable modal */ }
 
     function _enable() {
         if (mutationBusy || !allGreen || phase !== "gates" || !backend || !backendReady) return
@@ -385,22 +387,40 @@ Item {
         return g
     }
 
-    // ── backdrop ──
-    Rectangle {
-        anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.55)
-        MouseArea { anchors.fill: parent; onClicked: root.close() }
-    }
+    // ── the tab: the shipped evidence strip on top, then the enable/manage wizard ──
+    QQC.ScrollView {
+        anchors.fill: parent
+        contentWidth: availableWidth
+        clip: true
 
-    // ── the modal card ──
-    LogosFrame {
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 48, 480)
-        backgroundColor: Theme.palette.surface; borderColor: Theme.palette.border
-        radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
-        MouseArea { anchors.fill: parent; z: -1 }   // swallow card clicks (behind content)
-
-        contentItem: ColumnLayout {
+        ColumnLayout {
+            width: root.width - Theme.spacing.large * 2
+            x: Theme.spacing.large
             spacing: Theme.spacing.medium
+
+            // Real lifecycle evidence strip + tone status (moved here from the Node page, #118).
+            BlendCoreProgress {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing.large
+                implicitWidth: 0
+                lifecycle: root.controller ? root.controller.lifecycle : ({})
+                busy: root.controller ? root.controller.busy : false
+                backendReady: root.backendReady
+                loading: root.controller ? root.controller.loading : false
+                recoveryBusy: root.controller ? root.controller.recoveryBusy : false
+                recoveryNeedsRead: root.controller ? root.controller.recoveryNeedsRead : false
+                recoveryLocked: root.controller ? root.controller.recoveryLocked : false
+                recoveryResultText: root.controller ? root.controller.recoveryResultText : ""
+                recoveryResultError: root.controller ? root.controller.recoveryResultError : false
+                resultText: root.controller ? root.controller.resultText : ""
+                resultError: root.controller ? root.controller.resultError : false
+                onRecoverRequested: if (root.controller) root.controller.startRecovery()
+                onPauseRecoveryRequested: if (root.controller) root.controller.pauseRecovery()
+                onResumeRecoveryRequested: if (root.controller) root.controller.resumeRecovery()
+                onManageRequested: if (root.controller) root.controller.refresh(true)
+                onRepairRequested: if (root.controller) root.controller.repair()
+                onRefreshRequested: if (root.controller) root.controller.refresh(true)
+            }
 
             // header
             RowLayout {
@@ -412,11 +432,12 @@ Item {
                     LogosText { text: qsTr("Become a Blend Network core provider — mixes your proposals for proposer privacy.");
                                 color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap; Layout.fillWidth: true }
                 }
-                Item {   // close — icon button, not a big square
-                    Layout.alignment: Qt.AlignTop; implicitWidth: 28; implicitHeight: 28
-                    LogosText { anchors.centerIn: parent; text: "✕"; font.pixelSize: 15
-                                color: closeMa.containsMouse ? Theme.palette.text : Theme.palette.textSecondary }
-                    MouseArea { id: closeMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.close() }
+                LogosText {   // wizard step indicator (replaces the modal's close button)
+                    Layout.alignment: Qt.AlignTop
+                    text: (root.phase === "gates") ? qsTr("Step 1 of 3 · Declaration")
+                        : (root.phase === "enabling" || root.phase === "activated") ? qsTr("Step 2 of 3 · Activation")
+                        : qsTr("Step 3 of 3 · Active")
+                    color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
                 }
             }
 
@@ -609,9 +630,8 @@ Item {
                     color: root.allGreen ? Theme.palette.success : Theme.palette.textTertiary; font.pixelSize: 11; Layout.alignment: Qt.AlignVCenter
                 }
                 Item { Layout.fillWidth: true }
-                // Close (mid-flow) / Done (terminal)
-                LogosButton { visible: root.phase === "enabling" || root.phase === "disabling"; text: qsTr("Close"); onClicked: root.close() }
-                LogosButton { visible: root.phase === "activated" || root.phase === "disabled"; text: qsTr("Done"); onClicked: root._done() }
+                // Fund the declaration keys (Wallet tab) — shortcut while resolving gates.
+                LogosButton { visible: root.phase === "gates" && !root.allGreen; text: qsTr("Fund keys"); onClicked: root.openWallet() }
                 // Enable / Disable actions
                 LogosButton { visible: root.phase === "gates"; variant: LogosButton.Variant.Primary
                     text: root.withdrawEpoch >= 0 ? qsTr("Re-declare after epoch %1").arg(root.withdrawEpoch) : qsTr("Enable Blend Core")

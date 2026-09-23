@@ -18,6 +18,7 @@ ColumnLayout {
     property string lastBalanceErrorAddress: ""
 
     signal getBalanceRequested(string addressHex)
+    signal fundRequested(string addressHex)
     signal refreshAccountsRequested()
     signal copyToClipboard(string text)
 
@@ -89,6 +90,7 @@ ColumnLayout {
                     balanceError: root.lastBalanceErrorAddress === model.address ?
                                       root.lastBalanceError : ""
                     onGetBalanceRequested: (addr) => root.getBalanceRequested(addr)
+                    onFundRequested: (addr) => root.fundRequested(addr)
                     onCopyRequested: (text) => root.copyToClipboard(text)
                 }
             }
