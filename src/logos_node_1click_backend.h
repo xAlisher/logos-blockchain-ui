@@ -159,7 +159,10 @@ private:
     qint64 blendMissingBindingAt(qint64 runStart) const;
     qint64 blendBindingLoadedAt(qint64 runStart, const QString& declId) const;
     // Core-peer roster + message telemetry, merged from the live /blend/info API and the node log.
-    QVariantMap blendCoreTelemetry(const QJsonValue& core, const QString& ourId) const;
+    // Non-const: the membership roster (logged only ~once per epoch) is cached so the table stays
+    // stable across polls where the roster line has scrolled out of the scanned log tail.
+    QVariantMap blendCoreTelemetry(const QJsonValue& core, const QString& ourId);
+    QMap<QString, QString> m_coreRoster;   // peerId -> address, last seen in the node log
     // Last-resort force stop: SIGKILL the module host on the node's HTTP port.
     bool forceStopNode();
     // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).

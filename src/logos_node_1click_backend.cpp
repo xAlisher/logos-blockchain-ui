@@ -1569,7 +1569,7 @@ qint64 LogosNode1clickBackend::blendMissingBindingAt(qint64 runStart) const
 // per-peer reachability / message-send counters live ONLY in the node log; the live /blend/info
 // API contributes the currently-connected peers and their health bool. We merge both and tag each
 // row with its source(s) so the UI never implies more certainty than the source provides.
-QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, const QString& ourId) const
+QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, const QString& ourId)
 {
     QVariantMap out;
     // ---- API: peers we're currently connected to (id -> healthy) ----
@@ -1580,7 +1580,7 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
         if (pair.size() == 2 && pair[0].isString()) apiHealth.insert(pair[0].toString(), pair[1].toBool());
     }
     // ---- Log: full roster (id -> address), unreachable ids, latest message window, missed count ----
-    QMap<QString, QString> rosterAddr;
+    QMap<QString, QString> foundRoster;   // roster seen in THIS scan (may be empty if it scrolled out)
     QSet<QString> unreachable;
     QString window; qint64 windowTs = 0; int missed = 0;
     if (!userConfig().isEmpty()) {
@@ -1601,7 +1601,7 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
                     auto it = reRoster.globalMatch(line);
                     QMap<QString, QString> fresh;
                     while (it.hasNext()) { const auto m = it.next(); fresh.insert(m.captured(1), m.captured(2)); }
-                    if (!fresh.isEmpty()) rosterAddr = fresh;   // keep the latest complete roster
+                    if (!fresh.isEmpty()) foundRoster = fresh;   // keep the latest complete roster
                 }
                 if (line.contains(QStringLiteral("Dialing error")) || line.contains(QStringLiteral("Giving up on message delivery"))) {
                     const auto m = reDial.match(line);
@@ -1620,6 +1620,11 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
             }
         }
     }
+    // Cache the log roster so the table/count stay stable on polls where the ~hourly membership
+    // line has scrolled out of the scanned tail; a fresh scan supersedes it. Kept log-only so the
+    // Log/API source tags stay accurate (API-only peers are folded into the union below, not here).
+    if (!foundRoster.isEmpty()) m_coreRoster = foundRoster;
+    const QMap<QString, QString>& rosterAddr = m_coreRoster;
     // ---- merge: union of log roster + API peers, tagged by source, connected peers first ----
     QStringList ids = rosterAddr.keys();
     for (const QString& id : apiHealth.keys()) if (!ids.contains(id)) ids << id;

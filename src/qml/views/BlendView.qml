@@ -528,13 +528,16 @@ Item {
         icon.color: hovered ? Theme.palette.primary : Theme.palette.textMuted
         onClicked: if (payload) { infoModal.info = payload; infoModal.open() }
     }
-    // a compact stat card (small gray label + value) for the Messages row
+    // a compact stat card (small gray label + value + optional (i)) for the Messages row
     component MsgCard: Rectangle {
         property string label: ""; property string value: ""; property color valColor: Theme.palette.text
+        property var info: null
         Layout.fillWidth: true; Layout.preferredWidth: 1; implicitHeight: 56
         radius: Theme.spacing.radiusSmall; color: Theme.palette.surfaceRecessed
         ColumnLayout { anchors.fill: parent; anchors.margins: 10; spacing: 2
-            LogosText { text: label; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            RowLayout { Layout.fillWidth: true; spacing: 4
+                LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                InfoDot { payload: info } }
             LogosText { Layout.fillWidth: true; text: value; color: valColor; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight } }
     }
     // label/sub (left) · value (right, mono) · [copy] · (i)
@@ -1003,12 +1006,15 @@ Item {
                             Layout.fillWidth: true; columns: width < 520 ? 1 : 3
                             columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
                             MsgCard { label: qsTr("Last send window")
-                                value: (root.blendMsgs.window && root.blendMsgs.window.length) ? root.blendMsgs.window : qsTr("no data in logs") }
+                                value: (root.blendMsgs.window && root.blendMsgs.window.length) ? root.blendMsgs.window : qsTr("no data in logs")
+                                info: ({ "title": qsTr("Blend send window"), "what": qsTr("Each release window the Blend core reports the messages it emitted: data (real payloads it originated or forwards), processed (messages relayed for others), cover (dummy traffic that hides real activity). Source: the node log (blend::service::core, DEBUG) — no HTTP API exposes this, so it is blank if the node runs above DEBUG."), "states": [], "docs": root.docsUrl }) }
                             MsgCard { label: qsTr("Activity delivery")
                                 value: (root.blendMsgs.missed > 0) ? qsTr("%1 missed deadline").arg(root.blendMsgs.missed) : (root.blendMsgs.fromLog ? qsTr("on time") : qsTr("—"))
-                                valColor: (root.blendMsgs.missed > 0) ? Theme.palette.warning : (root.blendMsgs.fromLog ? Theme.palette.success : Theme.palette.textTertiary) }
+                                valColor: (root.blendMsgs.missed > 0) ? Theme.palette.warning : (root.blendMsgs.fromLog ? Theme.palette.success : Theme.palette.textTertiary)
+                                info: ({ "title": qsTr("Delivery deadline"), "what": qsTr("A payload this node originates is onion-routed through several Blend hops and must reappear on the broadcast channel within T_M = layers × (max_per_hop_hold + 2) rounds. If it does not, the node broadcasts it in the clear (no Blend privacy for that one message) and logs a miss. Misses usually mean too few reachable Core peers to complete a mix path — it is per-message, not the whole network halting. Source: node source services/blend/src/delivery + the node log."), "states": [{ "label": qsTr("on time"), "meaning": qsTr("Recent payloads completed the mix within the deadline.") }, { "label": qsTr("N missed deadline"), "meaning": qsTr("N payloads fell back to clear broadcast — check reachable-peer count below.") }], "docs": root.docsUrl }) }
                             MsgCard { label: qsTr("Connected peers")
-                                value: (root.blendMsgs.connected !== undefined) ? (root.blendMsgs.connected + " / " + root.blendMsgs.total) : qsTr("—") }
+                                value: (root.blendMsgs.connected !== undefined) ? (root.blendMsgs.connected + " / " + root.blendMsgs.total) : qsTr("—")
+                                info: ({ "title": qsTr("Connected Core peers"), "what": qsTr("Core peers this node currently holds a healthy connection to (live /blend/info current_epoch_peers) out of the full epoch membership (from the node log). A message mixes through these nodes, so more reachable peers means more reliable mixed delivery and fewer missed deadlines."), "states": [], "docs": root.docsUrl }) }
                         }
                     }
                 }
@@ -1019,6 +1025,7 @@ Item {
                         RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
                             LogosText { text: qsTr("Core nodes"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                             LogosText { text: qsTr("this epoch's membership · API + log"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            InfoDot { payload: ({ "title": qsTr("Core nodes"), "what": qsTr("This epoch's Blend Core membership. Your messages mix through these nodes, so unreachable members reduce delivery reliability. Tags mark the source of each row and status shows what we can prove."), "states": [{ "label": qsTr("API"), "meaning": qsTr("From live /blend/info current_epoch_peers — a peer this node is connected to, with its health.") }, { "label": qsTr("Log"), "meaning": qsTr("From the node log's epoch membership roster (peer id + address).") }, { "label": qsTr("Connected / Degraded"), "meaning": qsTr("The API health bool for a connected peer.") }, { "label": qsTr("Unreachable"), "meaning": qsTr("A real dial/delivery failure for this peer in the log.") }, { "label": qsTr("In set"), "meaning": qsTr("In the membership roster but not currently connected from here.") }], "docs": root.docsUrl }) }
                             Item { Layout.fillWidth: true }
                             LogosText { text: qsTr("%1 shown").arg(root.corePeers.length); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
                         Repeater {
