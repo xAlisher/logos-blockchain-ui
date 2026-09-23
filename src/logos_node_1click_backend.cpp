@@ -2087,6 +2087,13 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
         out["mineInactiveSince"] = active < 0 ? -1 : active + 3;
         out["mineLive"] = active >= 0 && nowEpoch >= 0 && active + 2 >= nowEpoch
             && (withdrawal < 0 || withdrawal > nowEpoch);
+        // Full record fields for the Activation/Active pages' provider record + stake.
+        out["mineNonce"] = d.value("nonce", -1);
+        out["mineNote"] = d.value("locked_note_id").toString();
+        out["mineProvider"] = d.value("provider_id").toString();
+        out["mineZk"] = d.value("zk_id").toString();
+        const QVariantList locs = d.value("locators").toList();
+        out["mineLocator"] = locs.isEmpty() ? QString() : locs.first().toString();
     }
     return out;
 }

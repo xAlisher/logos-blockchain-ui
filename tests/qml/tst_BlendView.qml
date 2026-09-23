@@ -33,12 +33,16 @@ TestCase {
             return "mutation"
         }
         function declareBlendCore(locator, note) { test.calls++; return "mutation" }
+        property int status: 2            // BlockchainStatus.Running (node up)
+        property string lastErrorMessage: ""
         function getSdpFundingKey() { return "read" }
         function getBalance(k) { return "read" }
         function getNotes(k, tip) { return "read" }
         function checkBlendPortReachable() { return "read" }
         function getBlendDeclarations() { return "read" }
+        function getBlendIdentity() { return "read" }
         function requestFaucetFunds(k) { return }
+        function startBlockchain() { return }
     }
     QtObject {
         id: logos

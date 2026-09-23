@@ -93,6 +93,25 @@ Item {
     property bool   mineLive: false        // our declaration is is_active this epoch
     property int    mineInactiveSince: -1  // epoch our declaration went/goes inactive (active + 2)
     property int    nowEpoch: -1           // current epoch (from the declarations poll)
+    // Full on-chain record of our declaration (Activation/Active pages). All real.
+    property int    createdEpoch: -1       // record.created
+    property int    recNonce: -1           // record.nonce (liveness signal — not proof alone)
+    property string recNote: ""            // record.locked_note_id (staked note)
+    property string recProvider: ""        // record.provider_id (Blend signing key)
+    property string recZk: ""              // record.zk_id (BlendZk key)
+    property string recLocator: ""         // record.locators[0] (published address)
+    // Config identity (for the pre-declare "what you'll publish" block).
+    property string identProvider: ""      // non_ephemeral_signing_key_id
+    property string identZk: ""            // blend.core.zk secret_key_kms_id
+    // node run state for the node-not-running gate (BlockchainStatus enum)
+    readonly property int nodeStatus: (backend && typeof backend.status === "number") ? backend.status : -1
+    readonly property bool nodeUp: nodeStatus === BlockchainBackend.Running
+    // activation progress from real epoch math (created → active); 0..1
+    readonly property real activationProgress: (createdEpoch >= 0 && coreEpoch > createdEpoch && nowEpoch >= 0)
+        ? Math.max(0, Math.min(1, (nowEpoch - createdEpoch) / (coreEpoch - createdEpoch))) : 0
+    readonly property int epochsToActive: (coreEpoch >= 0 && nowEpoch >= 0) ? Math.max(0, coreEpoch - nowEpoch) : -1
+    function _elide(s) { s = "" + s; return s.length > 22 ? s.substring(0,12) + "…" + s.substring(s.length-6) : s }
+    function _openInfo(i) { if (i) { infoModal.info = i; infoModal.open() } }
 
     // ── derived gates ──
     readonly property bool gSynced: backend
@@ -241,10 +260,27 @@ Item {
                 root.mineLive = (r.mineLive === true)
                 root.mineInactiveSince = (r.mineInactiveSince !== undefined) ? r.mineInactiveSince : -1
                 root.nowEpoch = (r.nowEpoch !== undefined) ? r.nowEpoch : -1
+                // Full record fields for the Activation/Active pages (provider record + stake).
+                root.createdEpoch = (r.mineCreated !== undefined) ? r.mineCreated : -1
+                root.recNonce = (r.mineNonce !== undefined) ? r.mineNonce : -1
+                root.recNote = (r.mineNote !== undefined) ? String(r.mineNote) : ""
+                root.recProvider = (r.mineProvider !== undefined) ? String(r.mineProvider) : ""
+                root.recZk = (r.mineZk !== undefined) ? String(r.mineZk) : ""
+                root.recLocator = (r.mineLocator !== undefined) ? String(r.mineLocator) : ""
                 // We already have a LIVE declaration on-chain → we're declared, not eligible to declare
                 // again. Leave the gates checklist for the manage view (guards against a stale blendStatus
                 // that still reads Edge during the pre-active maturing window, epoch < active).
                 if (root.mineLive && root.phase === "gates") root.phase = "core"
+            },
+            function(e) {}
+        )
+        // 5) config identity (provider_id / zk_id) for the pre-declare "what you'll publish".
+        logos.watch(
+            backend.getBlendIdentity(),
+            function(r) {
+                if (!r) return
+                root.identProvider = r.providerId || ""
+                root.identZk = r.zkId || ""
             },
             function(e) {}
         )
@@ -352,23 +388,28 @@ Item {
     // ── gate model (rebuilt from the real state) ──
     readonly property var gates: {
         var g = [
-        { ok: gSynced,    label: qsTr("Node synced"),
+        { ok: gSynced,    label: qsTr("Node status"),
           val: gSynced ? qsTr("Online") : qsTr("Bootstrapping"),
-          fix: qsTr("Wait for the node to finish syncing before declaring."), action: "", docs: "", kind: "" },
+          fix: qsTr("Wait for the node to finish syncing before declaring."), action: "", docs: "", kind: "", addr: "",
+          info: ({ "title": qsTr("Node status"), "what": qsTr("Declaring needs a running, synced node — it signs the declaration, binds the Blend port and proves reachability."), "states": [{ "label": qsTr("Online"), "meaning": qsTr("Synced — ready to declare.") }, { "label": qsTr("Bootstrapping"), "meaning": qsTr("Still catching up — wait.") }], "docs": docsUrl }) },
         { ok: gFunded,    label: qsTr("SDP funding key funded"),
           val: gFunded ? _lgo(sdpBalance) : (sdpBalance === 0 ? qsTr("0 LGO") : qsTr("checking…")),
           fix: qsTr("The declaration pays a small fee from your SDP funding key."),
-          action: qsTr("Request test funds"), docs: "", kind: "faucet" },
+          action: qsTr("Request test funds"), docs: "", kind: "faucet", addr: sdpKey,
+          info: ({ "title": qsTr("SDP funding key"), "what": qsTr("Pays the fee to submit the declaration on-chain. Funded from the faucet or any wallet."), "states": [], "docs": docsUrl }) },
         { ok: gStakeNote, label: qsTr("Lockable stake note"),
           val: gStakeNote ? qsTr("%1 note(s) available").arg(noteCount) : (noteCount === 0 ? qsTr("none") : qsTr("checking…")),
-          fix: qsTr("Fund a node key so there's a note to lock as your provider stake."), action: "", docs: "", kind: "" },
+          fix: qsTr("Fund a node key so there's a note to lock as your provider stake."), action: "", docs: "", kind: "", addr: lockNoteId,
+          info: ({ "title": qsTr("Lockable stake note"), "what": qsTr("Declaring locks one of your node's notes as the provider stake — bonded, not spent, and returned when you withdraw."), "states": [{ "label": qsTr("available"), "meaning": qsTr("A note is lockable.") }, { "label": qsTr("none"), "meaning": qsTr("Fund a node key.") }], "docs": docsUrl }) },
         { ok: gPort,      label: qsTr("UDP %1 forwarded").arg(blendPort),
           val: gPort ? (portAttested && !portListening ? qsTr("confirmed") : qsTr("open")) : qsTr("needs your confirmation"),
           fix: qsTr("The node only opens udp/%1 once it's a Core provider, so this can't be auto-checked yet — that's expected. Make sure udp/%1 is forwarded to this machine on your router (see the guide), then mark it below.").arg(blendPort),
-          action: qsTr("I've forwarded this port"), docs: docsUrl, kind: "attest" },
+          action: qsTr("I've forwarded this port"), docs: docsUrl, kind: "attest", addr: locator,
+          info: ({ "title": qsTr("Reachability (Blend port)"), "what": qsTr("Peers must be able to dial your Blend port. The node only opens udp/%1 once it's a Core provider, so it can't be auto-verified before then — confirm the router forward yourself.").arg(blendPort), "states": [{ "label": qsTr("open"), "meaning": qsTr("A local listener holds the port.") }, { "label": qsTr("confirmed"), "meaning": qsTr("You attested the router forward.") }], "docs": docsUrl }) },
         { ok: gNetwork,   label: qsTr("Blend network size"),
           val: netCount >= 0 ? qsTr("%1 provider(s)").arg(netCount) : qsTr("checking…"),
-          fix: qsTr("Needs at least 2 active providers on the network."), action: "", docs: "", kind: "" }
+          fix: qsTr("Needs at least 2 active providers on the network."), action: "", docs: "", kind: "", addr: "",
+          info: ({ "title": qsTr("Blend network size"), "what": qsTr("A mix needs a minimum number of active providers to form. Below it, Blend can't run."), "states": [{ "label": qsTr("≥ 2 providers"), "meaning": qsTr("A mix can form.") }], "docs": docsUrl }) }
         ]
         // Only surfaced when a stale declaration actually blocks a fresh declare — no noise on a
         // first-time enable. Two honest sub-states: withdrawing (wait for it to clear) vs aged-out
@@ -382,9 +423,112 @@ Item {
                     ? qsTr("Your previous declaration is being withdrawn. A new one can't take until it clears at epoch %1 and the staked note unlocks — re-declare after that. Re-declaring now is a no-op.").arg(withdrawEpoch)
                     : qsTr("A stale declaration is still on-chain and makes a fresh declare a no-op. Withdraw it first, then re-declare once it clears (~2 epochs)."),
               action: withdrawEpoch >= 0 ? "" : qsTr("Withdraw stale declaration"),
-              docs: "", kind: withdrawEpoch >= 0 ? "" : "withdraw" })
+              docs: "", kind: withdrawEpoch >= 0 ? "" : "withdraw", addr: mineId,
+              info: ({ "title": qsTr("Declaration slot"), "what": qsTr("A node holds one Blend declaration at a time. While a previous one is withdrawing or stale, a fresh declare is a no-op until it clears."), "states": [{ "label": qsTr("free"), "meaning": qsTr("You can declare.") }, { "label": qsTr("withdrawing"), "meaning": qsTr("Wait for it to clear.") }], "docs": docsUrl }) })
         }
         return g
+    }
+
+    // Structured (i) → the shared InfoModal (what / states / docs), like the dashboard tiles.
+    InfoModal { id: infoModal }
+    component InfoDot: QQC.Button {
+        property var payload: null
+        visible: payload !== null
+        Layout.alignment: Qt.AlignVCenter; implicitWidth: 22; implicitHeight: 22
+        display: QQC.AbstractButton.IconOnly; flat: true; padding: 3
+        background: Rectangle { color: "transparent" }
+        icon.source: Qt.resolvedUrl("../icons/info.svg"); icon.width: 15; icon.height: 15
+        icon.color: hovered ? Theme.palette.primary : Theme.palette.textMuted
+        onClicked: if (payload) { infoModal.info = payload; infoModal.open() }
+    }
+    // label/sub (left) · value (right, mono) · [copy] · (i)
+    component KV: RowLayout {
+        property string k; property string sub: ""; property string v; property string copyValue: ""
+        property var info: null; property color valColor: Theme.palette.text
+        Layout.fillWidth: true; spacing: Theme.spacing.small
+        ColumnLayout {
+            spacing: 1; Layout.fillWidth: true
+            LogosText { Layout.fillWidth: true; text: k; color: Theme.palette.textSecondary; font.pixelSize: 11 }
+            LogosText { visible: sub.length > 0; Layout.fillWidth: true; text: sub; color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap }
+        }
+        LogosText { Layout.alignment: Qt.AlignVCenter; text: v; color: valColor; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace" }
+        BcCopyButton { visible: (""+copyValue).length > 0; Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 22; Layout.preferredWidth: 22
+                       onCopyText: if (root.backend) root.backend.copyToClipboard(copyValue) }
+        InfoDot { payload: info }
+    }
+    // a titled card (white title + gray desc) with KV rows
+    component FieldBlock: LogosFrame {
+        property string title: ""; property string desc: ""; property var rows: []
+        Layout.fillWidth: true
+        backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing.small
+            RowLayout {
+                Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                LogosText { text: title; color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LogosText { visible: desc.length > 0; text: desc; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            }
+            Repeater { model: rows
+                delegate: KV { required property var modelData; k: modelData.k; sub: modelData.sub || ""; v: modelData.v; copyValue: modelData.copyValue || ""; info: modelData.info || null; valColor: modelData.valColor || Theme.palette.text } }
+        }
+    }
+    // node-not-running gate (shared by Declaration + Activation)
+    component NodeGate: LogosFrame {
+        Layout.fillWidth: true
+        backgroundColor: Theme.palette.surfaceRaised
+        borderColor: root.nodeStatus === BlockchainBackend.Error ? Theme.palette.error : "transparent"
+        radius: Theme.spacing.radiusMedium; padding: Theme.spacing.large
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing.small
+            LogosText {
+                text: root.nodeStatus === BlockchainBackend.Error ? qsTr("Node error")
+                    : root.nodeStatus === BlockchainBackend.Starting ? qsTr("Node is starting…")
+                    : root.nodeStatus === BlockchainBackend.Stopped ? qsTr("Node is stopped") : qsTr("Node isn't running")
+                color: root.nodeStatus === BlockchainBackend.Error ? Theme.palette.error : Theme.palette.text
+                font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold
+            }
+            LogosText {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap
+                text: root.nodeStatus === BlockchainBackend.Error ? qsTr("%1. Resolve it, then come back to Blend Core.").arg(root.backend && root.backend.lastErrorMessage ? root.backend.lastErrorMessage : qsTr("The node reported an error"))
+                    : root.nodeStatus === BlockchainBackend.Starting ? qsTr("Blend Core becomes available once the node is Online — it signs the declaration, binds the Blend port, and proves reachability.")
+                    : qsTr("You can't declare or activate Blend Core without a running node. Start it, then return here.")
+                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
+            }
+            LogosButton { visible: root.nodeStatus !== BlockchainBackend.Starting; text: qsTr("Start node")
+                          variant: LogosButton.Variant.Primary
+                          onClicked: if (root.backend) root.backend.startBlockchain() }
+        }
+    }
+
+    // a liveness row (green tick / amber ? / red !) with a fix line
+    component LivenessRow: LogosFrame {
+        property bool ok: false
+        property bool warn: false
+        property string label: ""
+        property string okText: ""
+        property string badText: ""
+        property string fix: ""
+        Layout.fillWidth: true
+        backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+        contentItem: RowLayout {
+            spacing: Theme.spacing.medium
+            Rectangle {
+                Layout.alignment: Qt.AlignTop; width: 18; height: 18; radius: 9
+                color: ok ? Theme.palette.success : "transparent"; border.width: 2
+                border.color: ok ? Theme.palette.success : warn ? Theme.palette.warning : Theme.palette.error
+                LogosText { anchors.centerIn: parent; visible: ok; text: "✓"; color: Theme.palette.surfaceRaised; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LogosText { anchors.centerIn: parent; visible: !ok; text: warn ? "?" : "!"; color: warn ? Theme.palette.warning : Theme.palette.error; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+            }
+            ColumnLayout {
+                Layout.fillWidth: true; spacing: 2
+                RowLayout {
+                    Layout.fillWidth: true
+                    LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
+                    LogosText { text: ok ? okText : badText; color: ok ? Theme.palette.success : warn ? Theme.palette.warning : Theme.palette.error; font.pixelSize: Theme.typography.secondaryText }
+                }
+                LogosText { visible: !ok && fix.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: fix; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+            }
+        }
     }
 
     // ── the tab: the shipped evidence strip on top, then the enable/manage wizard ──
@@ -446,10 +590,14 @@ Item {
                 }
             }
 
+            // ── node-not-running gate (shared across Declaration/Activation) ──
+            NodeGate { visible: !root.nodeUp && root.phase !== "activated" }
+
             // ── gates checklist (phase: gates) ──
             ColumnLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
-                visible: root.phase === "gates"
+                visible: root.phase === "gates" && root.nodeUp
+                LogosText { text: qsTr("CHECKS"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 Repeater {
                     model: root.gates
                     delegate: LogosFrame {
@@ -496,9 +644,18 @@ Item {
                                     LogosText { text: modelData.label; color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
                                     Item { Layout.fillWidth: true }
                                     LogosText { text: modelData.val; color: modelData.ok ? Theme.palette.success : Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText }
+                                    InfoDot { payload: modelData.info || null }
                                 }
                                 LogosText { visible: !modelData.ok; Layout.fillWidth: true; wrapMode: Text.WordWrap
                                             text: modelData.fix; color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                                // on-failure copyable key/address (not for the faucet gate, which shows its key below)
+                                RowLayout {
+                                    visible: !modelData.ok && (modelData.addr || "").length > 0 && modelData.kind !== "faucet"
+                                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; spacing: Theme.spacing.small
+                                    LogosText { Layout.fillWidth: true; text: root._elide(modelData.addr || ""); color: Theme.palette.textSecondary; font.pixelSize: 11; font.family: "monospace" }
+                                    BcCopyButton { Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 22; Layout.preferredWidth: 22
+                                                   onCopyText: if (root.backend) root.backend.copyToClipboard(modelData.addr || "") }
+                                }
                                 // SDP funding key — shown on the funded gate so the operator can
                                 // send test LGO here from any wallet (manual alternative to the faucet).
                                 ColumnLayout {
@@ -546,81 +703,155 @@ Item {
                             text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
             }
 
-            // ── enabling progress (phase: enabling) ──
+            // ── WHAT YOU'LL PUBLISH AND LOCK (phase: gates) ──
             ColumnLayout {
+                visible: root.phase === "gates" && root.nodeUp
                 Layout.fillWidth: true; spacing: Theme.spacing.small
-                visible: root.phase === "enabling"
-                LogosText { Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; text: root.withdrawEpoch >= 0 ? qsTr("Previous declaration still withdrawing")
-                                 : root.step === 0 ? qsTr("Submitting declaration…")
-                                 : root.step === 1 ? qsTr("Submitted — awaiting chain confirmation")
-                                 : (root.coreEpoch > 0 ? qsTr("Activating — Core at epoch %1").arg(root.coreEpoch)
-                                                       : qsTr("Activating — Core in ~2 epochs"))
-                            color: root.withdrawEpoch >= 0 ? Theme.palette.warning : Theme.palette.text
-                            font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
-                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: root.withdrawEpoch >= 0 ? qsTr("Your key can't re-declare until the previous declaration clears at epoch %1 and its stake unlocks. Re-declare after that.").arg(root.withdrawEpoch)
-                                 : root.step === 0 ? qsTr("Signing the declaration from your node's blend keys.")
-                                 : root.step === 1 ? (root.txId.length > 0 ? qsTr("Declaration acknowledged (id %1…). Inclusion is not yet confirmed.").arg(root.txId.substring(0, 8)) : qsTr("Declaration acknowledged. Inclusion is not yet confirmed."))
-                                 : qsTr("You can leave this tab — activation continues in the background (~2 epochs).")
-                            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                RowLayout {
-                    Layout.fillWidth: true; Layout.topMargin: Theme.spacing.tiny; spacing: Theme.spacing.small
-                    Repeater { model: 3
-                        delegate: Rectangle { required property int index
-                            Layout.fillWidth: true; height: 4; radius: 2
-                            color: index <= root.step ? Theme.palette.primary : Theme.palette.border } }
+                LogosText { text: qsTr("WHAT YOU'LL PUBLISH AND LOCK"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                FieldBlock {
+                    title: qsTr("Identity")
+                    rows: [
+                        ({ "k": qsTr("Blend signing key"), "sub": qsTr("provider_id · your on-chain identity — the key that earns"), "v": root._elide(root.identProvider), "copyValue": root.identProvider,
+                           "info": ({ "title": qsTr("Blend signing key (provider_id)"), "what": qsTr("Your node's on-chain Blend identity; in the referral program it's the key that accrues points."), "states": [], "docs": root.docsUrl }) }),
+                        ({ "k": qsTr("BlendZk key"), "sub": qsTr("zk_id · does the private mixing"), "v": root._elide(root.identZk), "copyValue": root.identZk,
+                           "info": ({ "title": qsTr("BlendZk key (zk_id)"), "what": qsTr("Performs the zero-knowledge mixing. Published in the declaration."), "states": [], "docs": root.docsUrl }) }),
+                        ({ "k": qsTr("Service type"), "v": "BN", "copyValue": "",
+                           "info": ({ "title": qsTr("Service type"), "what": qsTr("Marks this SDP declaration as a Blend Network provider (BN)."), "states": [], "docs": root.docsUrl }) })
+                    ]
+                }
+                FieldBlock {
+                    title: qsTr("Address"); desc: qsTr("published on-chain, public")
+                    rows: [
+                        ({ "k": qsTr("Published address (locator)"), "sub": qsTr("forward THIS udp/%1 — not your 3000 blockchain port").arg(root.blendPort),
+                           "v": root._elide(root.locator), "copyValue": root.locator, "valColor": Theme.palette.info,
+                           "info": ({ "title": qsTr("Published address (locator)"), "what": qsTr("The address peers use to reach your Blend port — your public IP + the Blend Core port (%1), written on-chain.").arg(root.blendPort), "states": [], "docs": root.docsUrl }) })
+                    ]
+                }
+                FieldBlock {
+                    title: qsTr("Stake"); desc: qsTr("locked, not spent")
+                    rows: [
+                        ({ "k": qsTr("Note to lock"), "sub": qsTr("one of your node's notes — returned when you withdraw"),
+                           "v": root.lockNoteId.length ? root._elide(root.lockNoteId) : qsTr("none yet"), "copyValue": root.lockNoteId,
+                           "info": ({ "title": qsTr("Stake"), "what": qsTr("Declaring bonds one note as your provider stake (Sybil resistance). Locked, not spent — returned ~2 epochs after you withdraw."), "states": [], "docs": root.docsUrl }) })
+                    ]
                 }
             }
 
-            // ── activated success (phase: activated) ──
-            LogosText {
-                visible: root.phase === "activated"; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                Layout.topMargin: Theme.spacing.medium; Layout.bottomMargin: Theme.spacing.medium
-                text: qsTr("You're a Blend Core provider ✦"); color: "#d9a521"
-                font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold
-            }
-
-            // ── core manage (phase: core) ──
+            // ── ACTIVATION (phase enabling, or declared-but-maturing) ──
             ColumnLayout {
-                Layout.fillWidth: true; spacing: Theme.spacing.small
-                visible: root.phase === "core"
+                readonly property bool show: root.phase === "enabling" || (root.phase === "core" && root._declaredNotMixing)
+                visible: show && root.nodeUp
+                Layout.fillWidth: true; spacing: Theme.spacing.medium
+
+                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: root.phase === "enabling"
+                            ? (root.step === 0 ? qsTr("Submitting declaration…") : root.step === 1 ? qsTr("Submitted — awaiting chain confirmation") : qsTr("Activating — awaiting Core membership"))
+                            : (root._maturing ? qsTr("Declared — activating at epoch %1").arg(root.coreEpoch) : qsTr("Core declared — not active this epoch"))
+                    color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
+                LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                    text: qsTr("\"Activated\" means the network has admitted your node as Core — not merely the clock passing 2 epochs. Keep it reachable and heartbeating.")
+                    color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+
+                LogosText { visible: root.mineId.length > 0; text: qsTr("ON-CHAIN"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame {
-                    Layout.fillWidth: true
-                    backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
-                    contentItem: RowLayout {
-                        spacing: Theme.spacing.medium
-                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 18; height: 18; radius: 9
-                            color: root._declaredNotMixing ? Theme.palette.info : "#d9a521" }
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 1
-                            LogosText { text: !root._declaredNotMixing ? qsTr("Active — mixing your proposals")
-                                            : root._maturing ? qsTr("Declared — activating at epoch %1").arg(root.coreEpoch)
-                                            : qsTr("Core declared — not active this epoch")
-                                        color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
-                            LogosText { Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; text: !root._declaredNotMixing
-                                            ? qsTr("Accepted activity not verified here — check the lifecycle evidence")
-                                            : root._maturing ? qsTr("enters the Core set at epoch %1 (~2 epochs)").arg(root.coreEpoch)
-                                            : qsTr("running as Edge · not in this epoch's Core set"); color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                        }
+                    visible: root.mineId.length > 0
+                    Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: ColumnLayout {
+                        spacing: Theme.spacing.small
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.small
+                            LogosText { text: "✓"; color: Theme.palette.success; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold }
+                            LogosText { Layout.fillWidth: true; text: qsTr("Declaration accepted on-chain"); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium } }
+                        KV { k: qsTr("Declaration ID"); v: root._elide(root.mineId); copyValue: root.mineId
+                             info: ({ "title": qsTr("Declaration ID"), "what": qsTr("The on-chain record of your Blend provider declaration."), "states": [], "docs": root.docsUrl }) }
+                        KV { visible: root.createdEpoch >= 0; k: qsTr("Created at epoch"); v: "" + root.createdEpoch; copyValue: "" }
+                        KV { k: qsTr("Service type"); v: "BN"; copyValue: "" }
                     }
                 }
-                // declared-but-Edge: explain the honest state + head off a re-declare (stake is locked)
-                LogosText { visible: root._declaredNotMixing
-                            Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: root._maturing
-                                ? qsTr("Your declaration is live on-chain and your stake is locked — you don't need to declare again. It's maturing and enters the Core mixing set at epoch %1 (~2 epochs). You can leave this tab; activation continues in the background.").arg(root.coreEpoch)
-                                : qsTr("Your Core declaration is active on-chain and your stake is locked — you don't need to declare again. The node is running as Edge and isn't in this epoch's Core mixing set. It may rejoin at the next epoch. If it keeps missing epochs, the node reports a Blend membership issue (blend_tsi_outage) worth raising with the team.")
-                            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                LogosText { visible: !root._declaredNotMixing
-                            Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: qsTr("Disabling requests withdrawal. Inclusion, the scheduled withdrawal epoch, and stake release require chain confirmation; frozen snapshots may delay the mode change.")
-                            color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                // withdrawal error (e.g. the staked note is still inside its lock period)
-                LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap
-                            text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
+
+                LogosText { visible: root.coreEpoch >= 0; text: qsTr("ACTIVATION"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LogosFrame {
+                    visible: root.coreEpoch >= 0
+                    Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: ColumnLayout {
+                        spacing: Theme.spacing.small
+                        RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
+                            LogosText { text: qsTr("Activating…"); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.weight: Theme.typography.weightMedium }
+                            Item { Layout.fillWidth: true }
+                            LogosText { text: root.epochsToActive > 0 ? qsTr("active at epoch %1 · ~%2 epoch(s) left").arg(root.coreEpoch).arg(root.epochsToActive) : qsTr("active at epoch %1").arg(root.coreEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            InfoDot { payload: ({ "title": qsTr("Activation window"), "what": qsTr("A new declaration becomes active at created + 2 epochs, provided the node stays reachable and keeps sending Active heartbeats. Membership, not the clock alone, decides."), "states": [], "docs": root.docsUrl }) } }
+                        Rectangle { Layout.fillWidth: true; height: 6; radius: 3; color: Theme.palette.backgroundTertiary
+                            Rectangle { width: parent.width * root.activationProgress; height: parent.height; radius: 3; color: Theme.palette.primary } }
+                        RowLayout { Layout.fillWidth: true
+                            LogosText { text: qsTr("epoch %1 (created)").arg(root.createdEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 }
+                            Item { Layout.fillWidth: true }
+                            LogosText { text: qsTr("epoch %1 (active)").arg(root.coreEpoch); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
+                    }
+                }
+
+                LogosText { text: qsTr("WHILE YOU WAIT — KEEP THESE GREEN"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LivenessRow {
+                    ok: root.backend && (root.backend.blendStatus === BlockchainBackend.Edge || root.backend.blendStatus === BlockchainBackend.Core || root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
+                    label: qsTr("Active heartbeat"); okText: qsTr("Sending"); badText: qsTr("Not sending")
+                    fix: qsTr("The node emits periodic Active messages while it's up. If they stop, activation won't complete — keep the node running.")
+                }
+                LivenessRow {
+                    ok: root.portListening; warn: root.portAttested && !root.portListening
+                    label: qsTr("Reachability (Blend port)"); okText: root.portListening ? qsTr("Reachable") : qsTr("Confirmed"); badText: qsTr("Not verified")
+                    fix: qsTr("Peers must be able to dial your Blend port. If your IP changed or the forward broke, fix it before the window passes.")
+                }
+
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                        text: qsTr("Note: in this release the Active heartbeat is not work-verified. \"Active\" means declared, heartbeating and reachable — not proof your node is mixing traffic.")
+                        color: Theme.palette.textTertiary; font.pixelSize: 11 } }
+
+                LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
             }
 
-            // ── disabling / disabled (phases: disabling, disabled) ──
+            // ── ACTIVE / mixing (phase core mixing, or the brief activated flash) ──
+            ColumnLayout {
+                readonly property bool show: (root.phase === "core" && !root._declaredNotMixing) || root.phase === "activated"
+                visible: show && root.nodeUp
+                Layout.fillWidth: true; spacing: Theme.spacing.medium
+
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: Theme.palette.success; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.large
+                    contentItem: RowLayout { spacing: Theme.spacing.medium
+                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 40; height: 40; radius: 20; color: Theme.palette.success
+                            LogosText { anchors.centerIn: parent; text: "✓"; color: Theme.palette.surfaceRaised; font.pixelSize: 18; font.weight: Theme.typography.weightBold } }
+                        ColumnLayout { Layout.fillWidth: true; spacing: 2
+                            LogosText { text: qsTr("Blend Core active"); color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold }
+                            LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.coreEpoch >= 0 ? qsTr("Current Core member · active since epoch %1").arg(root.coreEpoch) : qsTr("Current Core member — mixing your proposals"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText } } } }
+
+                LogosText { text: qsTr("LIVENESS"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        KV { k: qsTr("Provider nonce"); sub: qsTr("one signal of activity — read with membership, not proof alone"); v: root.recNonce >= 0 ? "" + root.recNonce : "—"; valColor: Theme.palette.success
+                             info: ({ "title": qsTr("Provider nonce"), "what": qsTr("An on-chain counter that advances with accepted activity. A rising nonce is one signal you're live, not sufficient alone — liveness = membership AND healthy peers AND recent activity."), "states": [], "docs": root.docsUrl }) }
+                        KV { k: qsTr("Active heartbeat"); v: qsTr("Sending"); valColor: Theme.palette.success }
+                        KV { k: qsTr("Reachability (Blend port)"); v: root.portListening ? qsTr("Reachable") : (root.portAttested ? qsTr("Confirmed") : qsTr("Not verified")); valColor: (root.portListening || root.portAttested) ? Theme.palette.success : Theme.palette.warning }
+                    }
+                }
+
+                LogosText { text: qsTr("PROVIDER RECORD"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: ColumnLayout { spacing: Theme.spacing.small
+                        KV { k: qsTr("Blend signing key"); sub: qsTr("provider_id · the key that earns"); v: root._elide(root.recProvider || root.identProvider); copyValue: root.recProvider || root.identProvider }
+                        KV { k: qsTr("BlendZk key"); sub: "zk_id"; v: root._elide(root.recZk || root.identZk); copyValue: root.recZk || root.identZk }
+                        KV { k: qsTr("Service type"); v: "BN"; copyValue: "" }
+                        KV { k: qsTr("Published address"); v: root.recLocator.length ? root._elide(root.recLocator) : root._elide(root.locator); copyValue: root.recLocator.length ? root.recLocator : root.locator; valColor: Theme.palette.success }
+                        KV { visible: root.createdEpoch >= 0; k: qsTr("Created / active epoch"); v: root.createdEpoch + " / " + (root.coreEpoch >= 0 ? root.coreEpoch : "—"); copyValue: "" }
+                        KV { visible: root.withdrawEpoch >= 0; k: qsTr("Withdraw at epoch"); v: "" + root.withdrawEpoch; copyValue: "" }
+                    }
+                }
+
+                LogosText { text: qsTr("STAKE"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
+                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
+                    contentItem: KV { k: qsTr("Locked note"); sub: qsTr("bonded as your provider stake — returned ~2 epochs after withdrawal"); v: root._elide(root.recNote); copyValue: root.recNote } }
+
+                LogosText { visible: root.errorText.length > 0; Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.errorText; color: Theme.palette.error; font.pixelSize: 11 }
+            }
+
+            // ── WITHDRAWAL (phases disabling, disabled) ──
             ColumnLayout {
                 Layout.fillWidth: true; spacing: Theme.spacing.small
                 visible: root.phase === "disabling" || root.phase === "disabled"
@@ -628,7 +859,8 @@ Item {
                             color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightMedium }
                 LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
                             text: root.phase === "disabling" ? qsTr("Requesting withdrawal; inclusion and stake release must be verified.")
-                                                             : qsTr("Request acknowledged, not proof of removal or unlocked stake. Check the lifecycle block for the scheduled epoch and chain evidence.")
+                                : (root.withdrawEpoch >= 0 ? qsTr("Request acknowledged. Your stake unlocks at epoch %1 (~2 epochs). Not proof of removal until confirmed on-chain.").arg(root.withdrawEpoch)
+                                                           : qsTr("Request acknowledged, not proof of removal or unlocked stake. Check the strip for the scheduled epoch and chain evidence."))
                             color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
             }
 
@@ -643,11 +875,19 @@ Item {
                 Item { Layout.fillWidth: true }
                 // Fund the declaration keys (Wallet tab) — shortcut while resolving gates.
                 LogosButton { visible: root.phase === "gates" && !root.allGreen; text: qsTr("Fund keys"); onClicked: root.openWallet() }
-                // Enable / Disable actions
+                // Enable (gates)
                 LogosButton { visible: root.phase === "gates"; variant: LogosButton.Variant.Primary
                     text: root.withdrawEpoch >= 0 ? qsTr("Re-declare after epoch %1").arg(root.withdrawEpoch) : qsTr("Enable Blend Core")
                     enabled: root.backendReady && root.allGreen && !root.mutationBusy; onClicked: root._enable() }
-                LogosButton { visible: root.phase === "core"; enabled: root.backendReady && !root.mutationBusy && root.withdrawEpoch < 0; text: qsTr("Disable Blend Core"); onClicked: root._disable() }
+                // Cancel while maturing (withdraw the just-made declaration)
+                LogosButton { visible: root.phase === "core" && root._declaredNotMixing; enabled: root.backendReady && !root.mutationBusy && root.withdrawEpoch < 0
+                    text: qsTr("Cancel declaration"); onClicked: root._disable() }
+                // Withdraw while actively mixing
+                LogosButton { visible: root.phase === "core" && !root._declaredNotMixing; enabled: root.backendReady && !root.mutationBusy && root.withdrawEpoch < 0
+                    text: qsTr("Withdraw stake"); onClicked: root._disable() }
+                // Declare again after a completed withdrawal
+                LogosButton { visible: root.phase === "disabled"; variant: LogosButton.Variant.Primary
+                    text: qsTr("Declare again"); onClicked: { root.phase = "gates"; root._refreshGates() } }
             }
         }
     }
