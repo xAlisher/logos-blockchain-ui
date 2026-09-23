@@ -42,6 +42,16 @@ Item {
     signal copyText(string t)
     property var blendLifecycle: ({})
     property bool blendBusy: false
+    property bool blendBackendReady: false
+    property bool blendLoading: false
+    property bool blendRecoveryBusy: false
+    property bool blendRecoveryNeedsRead: false
+    property bool blendRecoveryLocked: false
+    property string blendRecoveryResult: ""
+    property bool blendRecoveryResultError: false
+    signal recoverBlendRequested()
+    signal pauseBlendRecoveryRequested()
+    signal resumeBlendRecoveryRequested()
     property string blendResult: ""
     property bool blendResultError: false
     signal repairBlendRequested()
@@ -53,7 +63,7 @@ Item {
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.33-blend.2"
+    property string moduleVersion: "0.2.33-blend.4"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -724,6 +734,16 @@ Item {
                     Layout.fillWidth: true
                     lifecycle: root.blendLifecycle
                     busy: root.blendBusy
+                    backendReady: root.blendBackendReady
+                    loading: root.blendLoading
+                    recoveryBusy: root.blendRecoveryBusy
+                    recoveryNeedsRead: root.blendRecoveryNeedsRead
+                    recoveryLocked: root.blendRecoveryLocked
+                    recoveryResultText: root.blendRecoveryResult
+                    recoveryResultError: root.blendRecoveryResultError
+                    onRecoverRequested: root.recoverBlendRequested()
+                    onPauseRecoveryRequested: root.pauseBlendRecoveryRequested()
+                    onResumeRecoveryRequested: root.resumeBlendRecoveryRequested()
                     resultText: root.blendResult
                     resultError: root.blendResultError
                     onManageRequested: root.enableBlendRequested()
@@ -735,7 +755,7 @@ Item {
                 // modal that runs stop → reset chain state → re-bootstrap from scratch.
                 RowLayout {
                     Layout.fillWidth: true; visible: root.nodeStalled && root._prolonged
-                    LogosButton { text: qsTr("Recover node"); onClicked: root.recoverRequested() }
+                    LogosButton { text: qsTr("Recover node"); enabled: !root.blendRecoveryLocked; onClicked: if (enabled) root.recoverRequested() }
                     Item { Layout.fillWidth: true }
                 }
                 GridLayout {

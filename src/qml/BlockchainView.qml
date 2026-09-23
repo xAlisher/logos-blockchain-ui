@@ -25,6 +25,8 @@ Rectangle {
     // when the replica transitions to Valid. Drive it from the bridge's
     // viewModuleReadyChanged signal instead.
     property bool ready: false
+    readonly property bool blendRecoveryLocked: blendLifecycleController.recoveryLocked || blendLifecycleController.recoveryBusy
+    onBlendRecoveryLockedChanged: if (blendRecoveryLocked) enableBlendModal.close()
 
     Connections {
         target: logos
@@ -130,6 +132,7 @@ Rectangle {
         }
 
         function _doReset() {
+            if (root.blendRecoveryLocked) return
             resetConfirmDialog.close()
             if (!root.backend) return
             logos.watch(
@@ -151,6 +154,7 @@ Rectangle {
             },
             LogosButton {
                 text: qsTr("Reset")
+                enabled: !root.blendRecoveryLocked
                 implicitWidth: 110
                 implicitHeight: 40
                 onClicked: resetConfirmDialog._doReset()
@@ -187,6 +191,7 @@ Rectangle {
             },
             LogosButton {
                 text: qsTr("Reset & re-bootstrap")
+                enabled: !root.blendRecoveryLocked
                 implicitWidth: 180; implicitHeight: 40
                 // Same proven path as Settings → Reset chain state, now that stop is async +
                 // force-kill-verified: stop → wipe chain → start. Progress shows on the hero.
@@ -240,6 +245,7 @@ Rectangle {
     property int    _wipeTries: 0
     property int    _wipeAttempts: 0
     function _wipeAndStart() {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         root._wipeError = ""
         root._wipeTries = 0
@@ -290,6 +296,7 @@ Rectangle {
         root._resetChainState()
     }
     function _resetChainState() {
+        if (root.blendRecoveryLocked) return
         logos.watch(
             root.backend.resetChainState(),
             function(result) {
@@ -537,7 +544,7 @@ Rectangle {
                 text: root._wipeStage.length > 0 ? root._wipeStageText()
                                                  : qsTr("Wipe the database and start over")
                 implicitWidth: 260; implicitHeight: 40
-                enabled: root._wipeStage.length === 0
+                enabled: root._wipeStage.length === 0 && !root.blendRecoveryLocked
                 onClicked: root._wipeAndStart()
                 // Gentle pulse while a stage runs, so it reads as working.
                 SequentialAnimation on opacity {
@@ -848,6 +855,7 @@ Rectangle {
                 }
                 MouseArea {
                     id: resetM
+                    enabled: !root.blendRecoveryLocked
                     anchors.fill: parent; hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     // Close first, then open the confirm modal on the NEXT tick — two modals
@@ -886,6 +894,9 @@ Rectangle {
     // to enable; withdrawBlendCore to disable). blendStatus drives the header label.
     EnableBlendCoreModal {
         id: enableBlendModal
+        objectName: "manualBlendModal"
+        backendReady: root.ready && !root.blendRecoveryLocked
+        enabled: !root.blendRecoveryLocked
         anchors.fill: parent
         z: 300
         backend: root.backend
@@ -1135,6 +1146,7 @@ Rectangle {
     // restart the node (the node reads bootstrap.ibd.peers from initial_peers at start).
     property var _pendingPeerApply: null
     function applyBootstrapPeers(peersText) {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         var peers = String(peersText).split("\n").map(function(s){ return s.trim() })
                     .filter(function(s){ return s.length > 0 })
@@ -1162,7 +1174,7 @@ Rectangle {
     Connections {
         target: root.backend
         function onStatusChanged() {
-            if (!root.backend || root.backend.status !== BlockchainBackend.Stopped) return
+            if (!root.backend || root.backend.status !== BlockchainBackend.Stopped || root.blendRecoveryLocked) return
             if (root._pendingPeerApply) {
                 var fn = root._pendingPeerApply
                 root._pendingPeerApply = null
@@ -1182,6 +1194,7 @@ Rectangle {
     // firing the backend call against a running node (which it rejects).
     property var _pendingAfterStop: null
     function _stopThenRun(fn) {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         if (root.backend.status === BlockchainBackend.Running
             || root.backend.status === BlockchainBackend.Starting) {
@@ -1195,6 +1208,7 @@ Rectangle {
     // Settings "Reset chain state" — stop, wipe chain db/state (keeps keys+config),
     // restart to re-sync from genesis. Feedback surfaces on settingsView.actionResult.
     function _resetChainThenRestart() {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         settingsView.actionResult = qsTr("Stopping the node…")
         root._stopThenRun(function() {
@@ -1213,6 +1227,7 @@ Rectangle {
     // Settings "Regenerate keys" — stop, back up + remove the keystore, restart so the
     // node mints a fresh identity. Feedback surfaces on settingsView.actionResult.
     function _regenerateKeysThenRestart() {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         settingsView.actionResult = qsTr("Stopping the node…")
         root._stopThenRun(function() {
@@ -1810,7 +1825,7 @@ Rectangle {
     // Loading state before backend connects
     ColumnLayout {
         anchors.centerIn: parent
-        visible: !root.ready
+        visible: !root.ready && !root.blendRecoveryLocked
         spacing: 12
         Text {
             Layout.alignment: Qt.AlignHCenter
@@ -1825,7 +1840,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.spacing.large
         currentIndex: _d.currentPage
-        visible: root.ready
+        visible: root.ready || root.blendRecoveryLocked
 
         // Page 1: Config choice
         ScrollView {
@@ -1973,6 +1988,7 @@ Rectangle {
                 // only once the node is Online (Blend is meaningless while bootstrapping).
                 GhostButton {
                     id: blendBtn
+                    objectName: "manualBlendControl"
                     Layout.alignment: Qt.AlignVCenter
                     readonly property string bs: root.backend
                         ? root._dashBlend(root.backend.blendStatus) : "none"
@@ -1986,7 +2002,7 @@ Rectangle {
                           : bs === "edge" ? qsTr("Enable Core")
                           : qsTr("Enable Blend Core")
                     enabled: online && bs !== "none" && !blendLifecycleController.busy      // disabled while bootstrapping / not synced
-                    onClicked: enableBlendModal.open()
+                    onClicked: if (!blendLifecycleController.busy) enableBlendModal.open()
                 }
 
                 // Node run/stop — small primary CTA. A bootstrapping node sits in
@@ -1995,6 +2011,7 @@ Rectangle {
                 // brief Stopping transition disables the button.
                 CtaButton {
                     id: nodeCtlBtn
+                    objectName: "nodeRunControl"
                     compact: true
                     Layout.alignment: Qt.AlignVCenter
                     readonly property int st: root.backend ? root.backend.status : -1
@@ -2003,12 +2020,16 @@ Rectangle {
                     readonly property bool stopping: st === BlockchainBackend.Stopping
                     // Live (running OR still starting/bootstrapping) → offer Stop.
                     readonly property bool live: running || starting
-                    enabled: root.backend && !stopping
+                    // A confirmed pause permits Stop without releasing the plan's
+                    // identity/reset locks; a stopped node can still be started.
+                    enabled: root.backend && root.ready && !stopping
+                        && (!root.blendRecoveryLocked || blendLifecycleController.recoveryCanStop
+                            || st === BlockchainBackend.NotStarted || st === BlockchainBackend.Stopped)
                     text: stopping ? qsTr("Stopping…")
                           : live ? qsTr("Stop")
                           : qsTr("Start")
                     onClicked: {
-                        if (!root.backend || nodeCtlBtn.stopping) return
+                        if (!nodeCtlBtn.enabled) return
                         if (nodeCtlBtn.live) root.backend.stopBlockchain()
                         else root.backend.startBlockchain()
                     }
@@ -2122,13 +2143,23 @@ Rectangle {
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
                         blendLifecycle: blendLifecycleController.lifecycle
-                        blendBusy: blendLifecycleController.busy || blendLifecycleController.loading
+                        blendBusy: blendLifecycleController.repairing || blendLifecycleController.externalBusy
+                        blendBackendReady: root.ready
+                        blendLoading: blendLifecycleController.loading
+                        blendRecoveryBusy: blendLifecycleController.recoveryBusy
+                        blendRecoveryNeedsRead: blendLifecycleController.recoveryNeedsRead
+                        blendRecoveryLocked: root.blendRecoveryLocked
+                        blendRecoveryResult: blendLifecycleController.recoveryResultText
+                        blendRecoveryResultError: blendLifecycleController.recoveryResultError
+                        onRecoverBlendRequested: blendLifecycleController.startRecovery()
+                        onPauseBlendRecoveryRequested: blendLifecycleController.pauseRecovery()
+                        onResumeBlendRecoveryRequested: blendLifecycleController.resumeRecovery()
                         blendResult: blendLifecycleController.resultText
                         blendResultError: blendLifecycleController.resultError
                         onRepairBlendRequested: blendLifecycleController.repair()
                         onRefreshBlendRequested: blendLifecycleController.refresh(true)
                         onEnableBlendRequested: if (!blendLifecycleController.busy) enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
-                        onRecoverRequested: recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
+                        onRecoverRequested: if (!root.blendRecoveryLocked) recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 
                 }
@@ -2433,6 +2464,8 @@ Rectangle {
                 // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----
                 SettingsView {
                     id: settingsView
+                    objectName: "nodeSettingsView"
+                    enabled: !root.blendRecoveryLocked
                     // real config paths (keystore sits beside the node config)
                     nodeConfigPath: root.backend
                         ? ((root.backend.userConfig && root.backend.userConfig.length)

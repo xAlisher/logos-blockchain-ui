@@ -9,10 +9,74 @@ QtObject {
     property bool externalBusy: false
     property bool loading: false
     property bool repairing: false
-    readonly property bool busy: repairing || externalBusy
+    readonly property bool busy: repairing || externalBusy || recoveryLocked || recoveryBusy
+    property bool recoveryBusy: false
+    property bool recoveryHeld: false
+    property bool recoveryNeedsRead: false
+    property bool recoveryPausedConfirmed: false
+    readonly property bool recoveryCanStop: ready && !!backend && recoveryPausedConfirmed
+        && !recoveryBusy && !repairing && !externalBusy
+    property var lastRecovery: ({})
+    property var recoveryReply: ({})
+    readonly property bool backendRecoveryActive: !!(backend && backend.blendRecoveryActive)
+    onBackendRecoveryActiveChanged: if (backendRecoveryActive) recoveryHeld = true
+    onLifecycleChanged: {
+        if (lifecycle && lifecycle.recovery) {
+            lastRecovery = lifecycle.recovery
+            if (lastRecovery.active) recoveryHeld = true
+        }
+    }
+    readonly property bool recoveryLocked: recoveryHeld || backendRecoveryActive
+    property int recoveryGeneration: 0
+    property string recoveryResultText: ""
+    property bool recoveryResultError: false
+    property Timer recoveryDeadline: Timer {
+        interval: root.timeoutMs
+        onTriggered: root.recoveryUnknown(qsTr("Recovery request timed out; outcome unknown. Refresh to reconcile before another action."))
+    }
+    function recoveryUnknown(message) {
+        recoveryGeneration++; recoveryDeadline.stop(); recoveryBusy = false
+        recoveryPausedConfirmed = false
+        recoveryHeld = true; recoveryNeedsRead = true
+        recoveryResultError = true; recoveryResultText = message
+    }
+    function startRecovery() { requestRecovery("start") }
+    function pauseRecovery() { requestRecovery("pause") }
+    function resumeRecovery() { requestRecovery("resume") }
+    function requestRecovery(action) {
+        var r = lifecycle.recovery || ({})
+        if (!ready || !backend || !bridge || recoveryBusy || repairing || externalBusy) return
+        // Pause only restricts an already-authorized job. A telemetry failure
+        // must not prevent the operator from stopping future submissions.
+        if (action !== "pause" && recoveryNeedsRead) return
+        if (action === "start" ? (recoveryLocked || !r.canStart)
+            : action === "pause" ? !r.canPause : !r.canResume) return
+        recoveryBusy = true; recoveryHeld = true; recoveryNeedsRead = true
+        recoveryPausedConfirmed = false
+        recoveryResultText = qsTr("Sending recovery request…"); recoveryResultError = false
+        var token = ++recoveryGeneration
+        recoveryDeadline.restart()
+        function failed(error) {
+            if (token !== root.recoveryGeneration) return
+            root.recoveryUnknown(qsTr("Recovery request outcome unknown: %1. Refresh before another action.").arg(String(error || qsTr("Connection failed"))))
+        }
+        try {
+            var call = action === "start" ? backend.startBlendRecovery()
+                : action === "pause" ? backend.pauseBlendRecovery() : backend.resumeBlendRecovery()
+            bridge.watch(call, function(reply) {
+                if (token !== root.recoveryGeneration) return
+                if (!reply || typeof reply.ok !== "boolean") { failed(qsTr("Invalid response")); return }
+                root.recoveryGeneration++; root.recoveryDeadline.stop(); root.recoveryBusy = false
+                root.recoveryReply = reply
+                root.recoveryPausedConfirmed = reply.ok && action === "pause"
+                root.recoveryResultError = !reply.ok
+                root.recoveryResultText = (reply.error ? String(reply.error) + ": " : "") + String(reply.message || reply.error || (reply.ok ? qsTr("Recovery request acknowledged. Refresh for verified progress.") : qsTr("Recovery request rejected.")))
+            }, failed)
+        } catch (e) { failed(e) }
+    }
     property int timeoutMs: 20000
     property int generation: 0
-    property var lifecycle: unavailable(qsTr("Waiting for lifecycle evidence."))
+    property var lifecycle: ({ok:false, state:"unavailable", title:qsTr("Status unavailable"), detail:qsTr("Waiting for lifecycle evidence."), tone:"warning", action:"refresh", steps:[]})
     property string resultText: ""
     property bool resultError: false
     property bool manualRefreshPending: false
@@ -24,7 +88,7 @@ QtObject {
             : unchanged ? qsTr("Checked — no change.") : qsTr("Status updated.")
     }
     function unavailable(detail) {
-        return {ok:false, state:"unavailable", title:qsTr("Status unavailable"), detail:detail, tone:"warning", action:"refresh", actionLabel:qsTr("Refresh"), steps:[], evidence:qsTr("Current evidence unavailable; no activity or earnings inferred.")}
+        return {ok:false, state:"unavailable", title:qsTr("Status unavailable"), detail:detail, tone:"warning", action:"refresh", actionLabel:qsTr("Refresh"), steps:[], evidence:qsTr("Current evidence unavailable; no activity or earnings inferred."), recovery:lastRecovery || ({})}
     }
     property Timer deadline: Timer {
         interval: root.timeoutMs
@@ -37,10 +101,17 @@ QtObject {
             }
             root.loading = false
             root.finishRefreshFeedback(qsTr("Request timed out."), false)
+            root.recoveryNeedsRead = true
             root.lifecycle = root.unavailable(qsTr("Lifecycle request timed out. Refresh to try again."))
         }
     }
-    onReadyChanged: if (!ready) {
+    onReadyChanged: if (!ready) connectionLost()
+    onBackendChanged: connectionLost()
+    onBridgeChanged: connectionLost()
+    function connectionLost() {
+        recoveryPausedConfirmed = false
+        if (Object.keys(lastRecovery).length) recoveryNeedsRead = true
+        if (recoveryBusy) recoveryUnknown(qsTr("Connection changed during recovery request; outcome unknown. Refresh to reconcile."))
         generation++; deadline.stop(); loading = false
         finishRefreshFeedback(qsTr("Node connection unavailable."), false)
         if (repairing) { resultError = true; resultText = qsTr("Connection lost during binding request; outcome unknown."); repairing = false }
@@ -56,12 +127,13 @@ QtObject {
             finishRefreshFeedback(qsTr("Node connection unavailable."), false)
             return
         }
-        if (busy) {
+        if (repairing || externalBusy) {
             finishRefreshFeedback(qsTr("Another Blend operation is in progress."), false)
             return
         }
         if (loading) return
         var previous = JSON.stringify(lifecycle)
+        var recoveryToken = recoveryGeneration
         loading = true
         var token = ++generation
         deadline.restart()
@@ -70,20 +142,33 @@ QtObject {
             error = String(error || qsTr("Request failed."))
             root.deadline.stop(); root.loading = false
             root.generation++
+            root.recoveryNeedsRead = true
             root.lifecycle = root.unavailable(String(error))
             root.finishRefreshFeedback(error, false)
         }
         try {
             bridge.watch(backend.getBlendLifecycle(), function(r) {
                 if (token !== root.generation) return
-                if (!r || !r.state || r.ok !== true) {
+                if (!r || !r.state || typeof r.ok !== "boolean") {
                     failed(r && (r.error || r.detail) ? (r.error || r.detail) : qsTr("Invalid lifecycle response."))
                     return
                 }
                 root.deadline.stop(); root.loading = false
                 root.generation++
+                // A structured unavailable result still carries durable recovery evidence.
+                var hasRecovery = r.recovery && typeof r.recovery.active === "boolean"
+                if (!hasRecovery && Object.keys(root.lastRecovery).length) r.recovery = root.lastRecovery
                 root.lifecycle = r
-                root.finishRefreshFeedback("", JSON.stringify(r) === previous)
+                // Durable pause does not require healthy chain telemetry. Never
+                // use a cached fallback or a read predating a mutation reply.
+                if (hasRecovery && !root.recoveryBusy && recoveryToken === root.recoveryGeneration)
+                    root.recoveryPausedConfirmed = r.recovery.active === true && r.recovery.phase === "paused"
+                if (r.ok && hasRecovery
+                        && !root.recoveryBusy && recoveryToken === root.recoveryGeneration) {
+                    root.recoveryHeld = r.recovery.active
+                    root.recoveryNeedsRead = false
+                }
+                root.finishRefreshFeedback(r.ok ? "" : (r.message || r.detail || r.error || qsTr("Status unavailable.")), JSON.stringify(r) === previous)
             }, failed)
         } catch (e) { failed(e) }
     }
@@ -95,7 +180,7 @@ QtObject {
         deadline.restart()
         function finish(ok, message) {
             if (token !== root.generation) return
-            root.deadline.stop(); root.repairing = false
+            root.generation++; root.deadline.stop(); root.repairing = false
             root.resultError = !ok
             root.resultText = ok ? qsTr("Binding acknowledged. Waiting for chain-accepted activity; no earnings confirmed.") : String(message)
             // Invalidate stale repair eligibility. A subsequent read must offer repair anew.

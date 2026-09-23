@@ -15,6 +15,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/rep_BlockchainBackend_sou
 # Deliberately NO backend .cpp, reducer copy, or backend moc here: all implementation
 # and metaobject symbols must come from the actual packaged shared library.
 add_library(harness_object OBJECT native_backend.cpp "${CMAKE_CURRENT_BINARY_DIR}/rep_BlockchainBackend_source.h")
+target_compile_definitions(harness_object PRIVATE BLEND_RECOVERY_TICK=advanceBlendRecovery)
 target_include_directories(harness_object PRIVATE "${BLEND_SOURCE}/src" "${CMAKE_CURRENT_BINARY_DIR}" "${LOGOS_QT_INCLUDE}")
 target_link_libraries(harness_object PRIVATE Qt6::Core Qt6::Gui Qt6::Network Qt6::RemoteObjects)
 if(BLEND_PLUGIN)

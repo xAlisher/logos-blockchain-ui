@@ -9,6 +9,20 @@ LogosFrame {
     id: root
     property var lifecycle: ({})
     property bool busy: false
+    property bool backendReady: false
+    property bool loading: false
+    property bool recoveryBusy: false
+    property bool recoveryNeedsRead: false
+    property bool recoveryLocked: !!recovery.active
+    property string recoveryResultText: ""
+    property bool recoveryResultError: false
+    readonly property var recovery: data.recovery || ({})
+    readonly property bool canRecover: backendReady && !busy && !recoveryBusy && !recoveryNeedsRead && !recoveryLocked && recovery.canStart === true
+    readonly property color recoveryAccent: recovery.tone === "error" ? Theme.palette.error
+        : recovery.tone === "warning" ? Theme.palette.warning : Theme.palette.textSecondary
+    signal recoverRequested()
+    signal pauseRecoveryRequested()
+    signal resumeRecoveryRequested()
     property string resultText: ""
     property bool resultError: false
     property bool expanded: false
@@ -27,6 +41,46 @@ LogosFrame {
     background: Rectangle { color: root.backgroundColor; radius: Theme.spacing.radiusLarge }
     padding: Theme.spacing.large
     implicitWidth: 920
+    QQC.Dialog {
+        id: recoveryConfirmation
+        objectName: "blendRecoveryConfirmation"
+        parent: QQC.Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(460, parent ? parent.width - 24 : 460)
+        modal: true
+        title: qsTr("Recover Core?")
+        background: Rectangle { color: Theme.palette.surfaceRaised; radius: Theme.spacing.radiusLarge }
+        header: LogosText { text: recoveryConfirmation.title; padding: 20; color: Theme.palette.text; font.pixelSize: 22 }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing.medium
+            LogosText {
+                objectName: "blendRecoveryDisclosure"
+                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                text: qsTr("Recovery requests one withdrawal, waits for chain removal, then makes a fresh declaration and restores binding. Transaction fees apply. The node will temporarily operate as Edge; Core activation can take epochs. Your wallet keys and node identity are preserved.")
+                color: Theme.palette.textSecondary
+            }
+            LogosText {
+                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                text: qsTr("The backend runs and saves this workflow. Pausing stops automation only — it cannot undo an on-chain withdrawal. Resume reconciles progress, not blindly retries paid transactions. Accepted renewals are monitored; lasting Core membership is not guaranteed.")
+                color: Theme.palette.textSecondary
+            }
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.spacing.small
+                LogosButton { text: qsTr("Cancel"); onClicked: recoveryConfirmation.close() }
+                LogosButton {
+                    objectName: "blendRecoveryConfirm"
+                    text: qsTr("Recover Core")
+                    enabled: root.canRecover
+                    onClicked: {
+                        if (!root.canRecover || !recoveryConfirmation.opened) return
+                        recoveryConfirmation.close()
+                        root.recoverRequested()
+                    }
+                }
+            }
+        }
+    }
     contentItem: ColumnLayout {
         spacing: Theme.spacing.small
         RowLayout {
@@ -110,6 +164,88 @@ LogosFrame {
                 }
             }
         }
+        ColumnLayout {
+            objectName: "blendRecoveryProgress"
+            Layout.fillWidth: true
+            visible: root.recoveryLocked || root.recovery.canStart === true || root.recovery.canResume === true
+                || root.recoveryResultText.length > 0 || (!!root.recovery.phase && root.recovery.phase !== "idle")
+            spacing: Theme.spacing.small
+            LogosText {
+                objectName: "blendRecoveryTitle"
+                Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                text: root.recovery.title || (root.recoveryLocked ? qsTr("Recovery status pending") : qsTr("Recover Core"))
+                color: root.recoveryAccent; font.weight: Theme.typography.weightBold
+            }
+            LogosText {
+                objectName: "blendRecoveryDetail"
+                Layout.fillWidth: true; wrapMode: Text.Wrap; textFormat: Text.PlainText
+                text: root.recovery.detail || qsTr("Refresh for verified recovery progress. No recovery transaction is sent until you confirm.")
+                color: Theme.palette.textSecondary
+            }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: width < 520 ? 2 : 3
+                columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
+                Repeater {
+                    model: root.recovery.steps || []
+                    delegate: Rectangle {
+                        required property int index
+                        required property var modelData
+                        objectName: "blendRecoveryStep" + index
+                        Layout.fillWidth: true; Layout.preferredWidth: 1
+                        implicitHeight: Math.max(34, recoveryStepLabel.implicitHeight + 12)
+                        radius: Theme.spacing.radiusSmall
+                        color: modelData.state === "current" || modelData.state === "error" ? Theme.palette.surface : Theme.palette.surfaceRecessed
+                        LogosText {
+                            id: recoveryStepLabel
+                            anchors.centerIn: parent; width: parent.width - 16
+                            wrapMode: Text.Wrap; textFormat: Text.PlainText
+                            text: (modelData.state === "complete" ? "✓ " : modelData.state === "current" ? "• " : "") + modelData.label
+                            font.pixelSize: 12
+                            color: modelData.state === "error" ? Theme.palette.error
+                                : modelData.state === "current" ? root.recoveryAccent : Theme.palette.textSecondary
+                        }
+                    }
+                }
+            }
+            LogosText {
+                objectName: "blendRecoveryResult"
+                Layout.fillWidth: true; visible: root.recoveryResultText.length > 0
+                text: root.recoveryResultText; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                color: root.recoveryResultError ? Theme.palette.error : Theme.palette.textSecondary
+            }
+            LogosText {
+                Layout.fillWidth: true; visible: root.recoveryLocked
+                text: qsTr("Pause stops automation only, not an on-chain withdrawal. Refresh remains available.")
+                wrapMode: Text.Wrap; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
+            }
+            Flow {
+                Layout.fillWidth: true; spacing: Theme.spacing.small
+                LogosButton {
+                    objectName: "blendRecover"; text: qsTr("Recover Core")
+                    visible: root.recovery.canStart === true && !root.recoveryLocked
+                    enabled: root.canRecover
+                    onClicked: if (root.canRecover) recoveryConfirmation.open()
+                }
+                LogosButton {
+                    objectName: "blendRecoveryPause"; text: qsTr("Pause recovery")
+                    visible: root.recovery.canPause === true
+                    enabled: root.backendReady && !root.recoveryBusy
+                    onClicked: if (enabled) root.pauseRecoveryRequested()
+                }
+                LogosButton {
+                    objectName: "blendRecoveryResume"; text: qsTr("Resume recovery")
+                    visible: root.recovery.canResume === true
+                    enabled: root.backendReady && !root.recoveryBusy && !root.recoveryNeedsRead
+                    onClicked: if (enabled) root.resumeRecoveryRequested()
+                }
+                LogosButton {
+                    objectName: "blendRecoveryRefresh"; text: qsTr("Refresh")
+                    enabled: root.backendReady && !root.loading
+                    onClicked: root.refreshRequested()
+                }
+            }
+        }
         LogosText {
             objectName: "blendResult"
             Layout.fillWidth: true
@@ -138,9 +274,9 @@ LogosFrame {
                 Layout.maximumWidth: parent.width
                 text: root.data.actionLabel || qsTr("Refresh")
                 visible: ["manage", "repair", "refresh"].indexOf(root.data.action) >= 0
-                enabled: !root.busy
+                enabled: !root.busy && (!root.recoveryLocked || root.data.action === "refresh")
                 onClicked: {
-                    if (root.busy) return
+                    if (!enabled) return
                     if (root.data.action === "manage") root.manageRequested()
                     else if (root.data.action === "repair") root.repairRequested()
                     else if (root.data.action === "refresh") root.refreshRequested()

@@ -43,11 +43,22 @@ def main():
     assert not any(k in os.environ for k in ('LD_LIBRARY_PATH', 'LD_PRELOAD', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH')), 'Loader env not stripped'
     response = routes[key]
     if method != 'GET':
-        assert method == 'POST' and url.path == '/sdp/set-declaration-id'
-        assert json.loads(body) == 'b' * 64, 'Repair body must be bare owned DeclarationId JSON string'
+        assert method == 'POST' and url.path in ('/sdp/set-declaration-id', '/sdp/withdrawal', '/blend/join'), 'Forbidden mutation route'
+        actual = json.loads(body)
+        expected = response.get('expect_body', 'b' * 64 if url.path == '/sdp/set-declaration-id' else None)
+        assert expected is not None and actual == expected, 'POST body differs from exact authorized fixture'
+        if url.path in ('/sdp/set-declaration-id', '/sdp/withdrawal'):
+            assert actual == 'b' * 64, 'Body must be bare synthetic owned DeclarationId JSON string'
+        else:
+            assert set(actual) == {'locator', 'locked_note_id'}, 'Join request must match pinned JoinBlendRequestBody'
     with (root / 'requests.jsonl').open('a') as out:
         out.write(json.dumps({'method': method, 'path': url.path, 'body': body}) + '\n')
-    sys.stdout.write(json.dumps(response['body']))
+    # A received mutation whose response is lost: no stdout or HTTP status. The
+    # production request/pending-journal implementation handles this uncertainty.
+    if response.get('exit'):
+        assert response['exit'] == 28, 'Only curl timeout injection is supported'
+        sys.exit(28)
+    sys.stdout.write(response['raw'] if 'raw' in response else json.dumps(response['body']))
     if writeout:
         sys.stdout.write('\n' + str(response.get('code', 200)))
 

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 
+sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 ID, PROVIDER = 'b' * 64, 'a' * 64
 
@@ -105,11 +106,12 @@ def prepare(root, case):
     shutil.copyfile(root / 'user_config.yaml', instance / 'user_config.yaml')
     record = dict(provider_id='c' * 64 if case.get('foreign') else PROVIDER,
                   service_type='BN', created=10, active=case.get('active', 12), nonce=9,
-                  withdraw_at=case.get('withdraw_at'), locator='/ip4/192.0.2.1/udp/3400/quic-v1')
+                  locked_note_id='e' * 64, zk_id='3' * 64,
+                  withdraw_at=case.get('withdraw_at'), locators=['/ip4/192.0.2.1/udp/3400/quic-v1'])
     declarations = {} if case.get('empty') else {ID: record}
     if case.get('ambiguous'):
         declarations['d' * 64] = record.copy()
-    store = dict(declaration_id=ID, locked_note_id='e' * 64, locator=record['locator'])
+    store = dict(declaration_id=ID, locked_note_id='e' * 64, locator=record['locators'][0])
     if case.get('pending'):
         store['withdraw_pending'] = True
     if case.get('removed'):
@@ -117,7 +119,9 @@ def prepare(root, case):
     if not case.get('empty') or case.get('removed'):
         (root / 'blend-declaration.json').write_text(json.dumps(store))
     responses = {
-        'GET /cryptarchia/info': {'body': {'cryptarchia_info': {'state': case.get('mode', 'Online')}}},
+        'GET /cryptarchia/info': {'body': {'cryptarchia_info': {
+            'state': case.get('mode', 'Online'), 'tip': '1' * 64,
+            'slot': case.get('epoch', 12) * 100, 'lib_slot': case.get('epoch', 12) * 100 - 100}}},
         'GET /time/info': {'body': {'current_epoch': case.get('epoch', 12)}},
         'GET /blend/info': {'body': {'node_id': peer_id('c' * 64 if case.get('wrong_api') else PROVIDER),
             'core_info': {'current_epoch_peers': [['synthetic-peer', True], ['unhealthy-peer', False]]} if case.get('core', True) else None}},
@@ -146,6 +150,8 @@ def main():
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--output', type=Path, default=Path('/extra/tmp'))
     parser.add_argument('--self-test', action='store_true', help='Test isolation/shim only, not native implementation')
+    parser.add_argument('--suite', choices=('all', 'lifecycle', 'recovery'), default='all')
+    parser.add_argument('--case', help='Run matching recovery case names only (for diagnosis)')
     args = parser.parse_args()
     if not args.self_test and (not args.binary or not args.binary.is_file()):
         parser.error('Native executable missing: build against the packaged .so first (no mock fallback)')
@@ -153,6 +159,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix='blend-native-', dir=args.output))
     cases = fixtures() if not args.self_test else [dict(name='transport-self-test', state='collecting', posts=1)]
+    if not args.self_test and (args.suite == 'recovery' or args.case):
+        cases = []
     failures = []
     for case in cases:
         root = output / case['name']
@@ -180,6 +188,14 @@ def main():
         print(('FAIL ' if errors else 'PASS ') + case['name'] + (': ' + '; '.join(errors) if errors else ''))
         if errors:
             failures.append(case['name'])
+    if not args.self_test and args.suite != 'lifecycle':
+        # -I removes the script directory from sys.path; load exactly the sibling
+        # fixture module, never an ambient module or user site package.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('blend_recovery_cases', HERE / 'recovery_cases.py')
+        recovery = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(recovery)
+        failures.extend(recovery.run_suite(sys.modules[__name__], output, args.binary, args.case))
     print(f'Evidence: {output}')
     if args.self_test:
         print('Isolation/shim self-test only; NOT native integration coverage.')

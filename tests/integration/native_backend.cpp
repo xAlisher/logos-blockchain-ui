@@ -8,6 +8,9 @@
 #include "logos_ui_plugin_context.h"
 #include "AccountsModel.h"
 #include "BlockModel.h"
+#if __has_include("BlendRecovery.h")
+#include "BlendRecovery.h"
+#endif
 // Test-only cached-PID seeding prevents the real implementation's process scanner
 // from selecting a live node. Dependencies are included first so only this class's
 // access labels change; layout and every production method remain unchanged.
@@ -20,6 +23,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaMethod>
+#include <QMetaProperty>
 #include <QTimer>
 #include <iostream>
 #include <stdexcept>
@@ -56,6 +60,65 @@ public:
     using LogosNode1clickBackend::setStatus;
     using LogosNode1clickBackend::setGeneratedUserConfigPath;
 };
+// Recovery commands are driven by the parent Python fixture controller. Reading
+// stdin never dispatches Qt events: the controller replaces responses.json only
+// between acknowledged commands, never from inside a mocked backend method.
+static void stopTimers(QObject& object)
+{
+    for (auto* timer : object.findChildren<QTimer*>()) timer->stop();
+}
+static void emitReport(const QVariantMap& report)
+{
+    std::cout << "BLEND_REPORT "
+              << QJsonDocument::fromVariant(report).toJson(QJsonDocument::Compact).constData()
+              << std::endl;
+}
+static int recoverySession(HarnessBackend& backend)
+{
+    for (const char* name : {"startBlendRecovery()", "pauseBlendRecovery()", "resumeBlendRecovery()"}) {
+        require(backend.metaObject()->indexOfMethod(name) >= 0, QString("Packaged recovery slot missing: ") + name);
+        require(BlockchainBackendSource::staticMetaObject.indexOfMethod(name) >= 0,
+                QString("Regenerated QtRO recovery slot missing: ") + name);
+    }
+    for (const QMetaObject* meta : {backend.metaObject(), &BlockchainBackendSource::staticMetaObject}) {
+        const int property = meta->indexOfProperty("blendRecoveryActive");
+        require(property >= 0, "Recovery active property missing");
+        require(meta->property(property).metaType() == QMetaType::fromType<bool>(),
+                "Recovery active property must be bool");
+    }
+    emitReport({{"ready", true}, {"pid", QCoreApplication::applicationPid()}});
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        const auto command = QJsonDocument::fromJson(QByteArray::fromStdString(line)).object();
+        const QString op = command.value("op").toString();
+        if (op == "exit") return 0;
+        QVariantMap result;
+        if (op == "tick") {
+#ifdef BLEND_RECOVERY_TICK
+            backend.BLEND_RECOVERY_TICK();
+#else
+            require(false, "Recovery tick seam not configured; compile matching final backend header");
+#endif
+        } else if (op == "setStopped") {
+            backend.setStatus(BlockchainBackendSource::Stopped);
+        } else if (op == "setNotStarted") {
+            backend.setStatus(BlockchainBackendSource::NotStarted);
+        } else if (op == "startBlockchain") {
+            backend.startBlockchain();
+            result = {{"error", backend.lastErrorMessage()}, {"status", backend.status()}};
+        } else if (op == "declareBlendCore") {
+            result = backend.declareBlendCore(QStringLiteral("/ip4/192.0.2.1/udp/3400/quic-v1"), QString(64, 'e'));
+        } else {
+            const QStringList allowed{"getBlendLifecycle", "startBlendRecovery", "pauseBlendRecovery",
+                "resumeBlendRecovery", "withdrawBlendCore", "repairBlendBinding", "getBlendDeclarations"};
+            require(allowed.contains(op), "Unapproved harness command " + op);
+            result = invoke(&backend, op.toLatin1().constData());
+        }
+        stopTimers(backend); // Never let resource sampling or autonomous timers race fixture changes.
+        emitReport({{"op", op}, {"result", result}, {"activeProperty", backend.property("blendRecoveryActive")}});
+    }
+    return 0;
+}
 int main(int argc, char** argv)
 {
     try {
@@ -85,6 +148,7 @@ int main(int argc, char** argv)
             require(log.write(line) == line.size(), "Cannot write synthetic binding evidence");
             log.close();
         }
+        if (test.value("recoverySession").toBool()) return recoverySession(backend);
         // Check both packaged methods and the independently regenerated .rep source.
         require(BlockchainBackendSource::staticMetaObject.indexOfMethod("getBlendLifecycle()") >= 0,
                 "Generated QtRO source lacks lifecycle contract");

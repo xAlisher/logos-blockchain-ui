@@ -3,6 +3,7 @@
 #include "BlendRegistration.h"
 #include "BlendIdentity.h"
 #include "BlendLifecycleIO.h"
+#include "BlendRecoverySnapshot.h"
 #include <QScopedValueRollback>
 #include "logos_sdk.h"
 #include "logos_api.h"
@@ -511,6 +512,14 @@ LogosNode1clickBackend::LogosNode1clickBackend(QObject* parent)
     m_resourceTimer->setInterval(2000);
     connect(m_resourceTimer, &QTimer::timeout, this, [this]() { sampleNodeResources(); });
     m_resourceTimer->start();
+
+    // Backend-owned: navigation destroys QML cards, not this timer or its journal.
+    ensureBlendRecovery();
+    connect(this, &BlockchainBackendSimpleSource::userConfigChanged, this, [this]() { ensureBlendRecovery(); });
+    m_blendRecoveryTimer = new QTimer(this);
+    m_blendRecoveryTimer->setInterval(5000);
+    connect(m_blendRecoveryTimer, &QTimer::timeout, this, [this]() { advanceBlendRecovery(); });
+    m_blendRecoveryTimer->start();
 }
 
 // PREVIEW (#65/#66): locate the sibling blockchain_module host process by scanning
@@ -1553,17 +1562,201 @@ qint64 LogosNode1clickBackend::blendMissingBindingAt(qint64 runStart) const
     return latest;
 }
 
+void LogosNode1clickBackend::ensureBlendRecovery()
+{
+    const QString config = toLocalPath(userConfig());
+    const QString scope = config.isEmpty() ? QString() : QFileInfo(config).absoluteFilePath();
+    if (m_blendRecovery && scope != m_recoveryScope && (m_blendRecovery->active() || m_recoveryTick)) {
+        m_blendRecovery->fail(QStringLiteral("Config changed during unfinished recovery. Original journal retained; no mutations permitted."));
+        setBlendRecoveryActive(true);
+        return;
+    }
+    if (!m_blendRecovery || scope != m_recoveryScope) {
+        m_blendRecovery.reset();
+        m_recoveryScope = scope;
+        if (!scope.isEmpty()) {
+            m_blendRecovery = std::make_unique<BlendRecovery::Controller>();
+            m_blendRecovery->open(QFileInfo(scope).absoluteDir().filePath(QStringLiteral("blend-recovery.json")), scope);
+        }
+    }
+    setBlendRecoveryActive(m_blendRecovery && m_blendRecovery->active());
+}
+
+bool LogosNode1clickBackend::blendRecoveryBlocks()
+{
+    ensureBlendRecovery();
+    return m_recoveryTick || (m_blendRecovery && m_blendRecovery->active());
+}
+
+QVariantMap LogosNode1clickBackend::withBlendRecovery(QVariantMap lifecycle)
+{
+    ensureBlendRecovery();
+    QVariantMap recovery = m_blendRecovery ? m_blendRecovery->view(m_recoverySnapshot)
+        : BlendRecovery::Controller().view(BlendRecovery::Snapshot());
+    const auto& s = m_recoverySnapshot;
+    recovery["snapshot"] = QVariantMap{{"valid", s.valid}, {"running", s.running},
+        {"identity", s.identity}, {"online", s.online}, {"core", s.core},
+        {"present", s.present}, {"pending", s.pending}, {"provider", s.provider},
+        {"id", s.id}, {"note", s.note}, {"locator", s.locator}, {"created", s.created},
+        {"activity", s.activity}, {"withdrawal", s.withdrawal}, {"epoch", s.epoch},
+        {"tip", s.tip}, {"slot", s.slot}, {"lib", s.lib}};
+    const QJsonObject journal = m_blendRecovery ? m_blendRecovery->state() : QJsonObject();
+    recovery["originalId"] = journal.value("originalId").toString();
+    recovery["originalCreated"] = journal.value("originalCreated").toInt(-1);
+    recovery["originalNote"] = journal.value("note").toString();
+    recovery["originalLocator"] = journal.value("locator").toString();
+    recovery["withdrawAt"] = journal.value("withdrawAt").toInt(-1);
+    lifecycle["recovery"] = recovery;
+    return lifecycle;
+}
+
+QVariantMap LogosNode1clickBackend::startBlendRecovery()
+{
+    if (m_recoveryTick || m_blendMutation || m_blendReading || blendRecoveryBlocks())
+        return {{"ok", false}, {"error", "A Blend operation or unfinished recovery already exists."}};
+    QScopedValueRollback<bool> guard(m_recoveryTick, true);
+    getBlendLifecycle(); // fresh verified canonical evidence; never authorizes on read
+    const bool ok = m_blendRecovery && m_blendRecovery->start(m_recoverySnapshot);
+    ensureBlendRecovery();
+    return {{"ok", ok}, {"error", ok ? QString() : QStringLiteral("Recovery requires a verified owned stale declaration, valid canonical collateral/address, no pending operation, and writable recovery storage.")},
+        {"message", ok ? QStringLiteral("Authorized one controlled withdrawal and one fresh declaration with the same collateral and address. Backend monitoring continues across navigation. Transaction fees apply.") : QString()}};
+}
+
+QVariantMap LogosNode1clickBackend::pauseBlendRecovery()
+{
+    ensureBlendRecovery();
+    // May run during the transport's nested event loop; the controller preserves this intent.
+    const bool ok = m_blendRecovery && m_blendRecovery->pause();
+    ensureBlendRecovery();
+    return {{"ok", ok}, {"error", ok ? QString() : QStringLiteral("Cannot persist a pause; recovery is blocked or not active.")},
+        {"message", "Pause stops future mutations, not requests already sent or on-chain actions."}};
+}
+
+QVariantMap LogosNode1clickBackend::resumeBlendRecovery()
+{
+    ensureBlendRecovery();
+    if (m_recoveryTick || m_blendReading || m_blendMutation)
+        return {{"ok", false}, {"error", "Wait for the current snapshot/request to finish."}};
+    const bool ok = m_blendRecovery && m_blendRecovery->resume();
+    ensureBlendRecovery();
+    return {{"ok", ok}, {"error", ok ? QString() : QStringLiteral("Recovery is not resumable; attention/journal faults require manual review.")},
+        {"message", "Recovery monitoring resumed. Unknown paid outcomes remain pending and are never retried."}};
+}
+
+void LogosNode1clickBackend::readBlendRecoveryFunding(BlendRecovery::Snapshot& snapshot)
+{
+    snapshot.funded = false;
+    snapshot.noteSpendable = false;
+    if (!m_blendRecovery || !snapshot.valid) return;
+    const QString funding = sdpFundingKey().toLower();
+    const QString collateral = m_blendRecovery->state().value("note").toString();
+    QStringList keys{funding, leaderFundingKey().toLower(), primaryAddress().toLower()};
+    if (m_blockchainClient) {
+        const LogosResult known = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(BLOCKCHAIN_MODULE_NAME, "wallet_get_known_addresses"));
+        if (known.success) {
+            for (const QVariant& key : known.value.toList()) keys << key.toString().toLower();
+            keys += known.value.toStringList();
+        }
+    }
+    keys.removeDuplicates();
+    QStringList paths;
+    for (const QString& key : keys) if (BlendLifecycle::isId(key) && paths.size() < 32)
+        paths << QStringLiteral("/wallet/%1/balance").arg(key);
+    if (paths.isEmpty()) return;
+    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), paths);
+    for (const QString& path : paths) {
+        const auto reply = replies.value(path);
+        const QJsonDocument doc = QJsonDocument::fromJson(reply.body.toUtf8());
+        if (!reply.ok() || !doc.isObject()) continue;
+        const QJsonObject wallet = doc.object();
+        const QString address = wallet.value("address").toString().toLower();
+        if (path != QStringLiteral("/wallet/%1/balance").arg(address) || !wallet.value("notes").isObject()
+            || !BlendRecovery::number(wallet.value("balance")) || wallet.value("tip").toString() != snapshot.tip) continue;
+        const QJsonObject notes = wallet.value("notes").toObject();
+        bool notesValid = true, feeNote = false, collateralFound = false;
+        for (auto it = notes.begin(); it != notes.end(); ++it) {
+            if (!BlendLifecycle::isId(it.key()) || !BlendRecovery::number(it.value())) { notesValid = false; break; }
+            if (it.value().toDouble() <= 0) continue;
+            if (it.key().compare(collateral, Qt::CaseInsensitive) == 0) collateralFound = true;
+            else feeNote = true;
+        }
+        if (!notesValid) continue;
+        // Balance includes locked notes: presence is only a prerequisite, not
+        // proof of unlocked collateral/fee sufficiency. Removal + LIB gate join.
+        snapshot.noteSpendable = snapshot.noteSpendable || collateralFound;
+        if (address == funding) snapshot.funded = wallet.value("balance").toDouble() > 0 && feeNote;
+    }
+}
+
+void LogosNode1clickBackend::advanceBlendRecovery()
+{
+    ensureBlendRecovery();
+    if (!m_blendRecovery || !m_blendRecovery->active() || !m_blendRecovery->error().isEmpty()
+        || m_recoveryTick || m_blendReading || m_blendMutation) return;
+    QScopedValueRollback<bool> tick(m_recoveryTick, true);
+    QScopedValueRollback<bool> mutation(m_blendMutation, true);
+    const QString infoPath = QStringLiteral("/cryptarchia/info");
+    auto chainTip = [&]() {
+        const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {infoPath}).value(infoPath);
+        if (!reply.ok()) return QString();
+        return QJsonDocument::fromJson(reply.body.toUtf8()).object().value("cryptarchia_info").toObject().value("tip").toString();
+    };
+    const QString before = status() == Running ? chainTip() : QString();
+    getBlendLifecycle();
+    BlendRecovery::Snapshot snapshot = m_recoverySnapshot;
+    const QString phase = m_blendRecovery->phase();
+    if (snapshot.valid && (phase == "preflight" || phase == "withdraw-ready" || phase == "removal-wait"))
+        readBlendRecoveryFunding(snapshot);
+    const QString after = status() == Running ? chainTip() : QString();
+    snapshot.valid = snapshot.valid && BlendLifecycle::isId(before) && before == snapshot.tip && before == after;
+    snapshot.running = status() == Running;
+    // Check the selected config/public identity again after nested event loops.
+    snapshot.identity = snapshot.identity && blendSigningKey().compare(snapshot.provider, Qt::CaseInsensitive) == 0;
+    ensureBlendRecovery();
+    m_blendRecovery->tick(snapshot, [this](BlendRecovery::Action action, const QJsonObject& body) {
+        using namespace BlendRecovery;
+        if (status() != Running || m_blendRecovery->paused() || !m_blendRecovery->error().isEmpty())
+            return Reply{}; // conservative no-submit: journal remains pending, never guess delivery
+        const bool join = action == Action::Declare;
+        const QString path = join ? QStringLiteral("/blend/join") : action == Action::Withdraw ? QStringLiteral("/sdp/withdrawal") : QStringLiteral("/sdp/set-declaration-id");
+        const QString payload = join ? QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact))
+            : QStringLiteral("\"%1\"").arg(body.value("id").toString());
+        const bool binding = action == Action::BindOriginal || action == Action::BindNew;
+        const qint64 runStart = binding ? blendRunStartedAt() : 0;
+        if (action == Action::Withdraw) {
+            // The pinned engine clears the binding when it submits withdrawal.
+            m_blendRepairedAt = 0;
+            m_blendRepairedId.clear();
+        }
+        const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {path}, QStringLiteral("POST"), payload).value(path);
+        if (binding && reply.ok()) {
+            if (runStart <= 0 || runStart != blendRunStartedAt()) return Reply{};
+            m_blendRepairedAt = QDateTime::currentMSecsSinceEpoch();
+            m_blendRepairedId = body.value("id").toString();
+        }
+        // Pinned service failures return 500 and are ambiguous. Only router/extractor
+        // rejects below establish no paid service invocation (408/409/429/5xx do NOT).
+        const QStringList noSubmit{"400", "401", "403", "404", "405", "415", "422"};
+        const Outcome outcome = reply.ok() ? Outcome::Accepted : noSubmit.contains(reply.code) ? Outcome::RejectedNoSubmit : Outcome::Unknown;
+        return Reply{outcome, join ? BlendLifecycle::joinId(reply.body) : QString()};
+    });
+    ensureBlendRecovery();
+}
+
 QVariantMap LogosNode1clickBackend::getBlendLifecycle()
 {
+    // Never retain authorization/removal evidence across failed or nested reads.
+    m_recoverySnapshot = BlendRecovery::Snapshot();
+    m_recoverySnapshot.running = status() == Running;
     QVariantMap input{{"running", status() == Running}};
     if (status() != Running) {
         m_blendRepairedAt = 0;
         m_blendRepairedId.clear();
-        return BlendLifecycle::reduce(input);
+        return withBlendRecovery(BlendLifecycle::reduce(input));
     }
     if (m_blendReading) {
         input["evidence"] = QStringLiteral("A Blend snapshot is already in progress.");
-        return BlendLifecycle::reduce(input);
+        return withBlendRecovery(BlendLifecycle::reduce(input));
     }
     QScopedValueRollback<bool> reading(m_blendReading, true);
     const QString declarationsPath = QStringLiteral("/mantle/sdp/declarations");
@@ -1582,13 +1775,34 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
     bool apiOk = true;
     for (const QString& path : {declarationsPath, timePath, blendPath, modePath})
         apiOk = apiOk && replies.value(path).ok() && json(path).isObject();
+    const QJsonObject chain = mode.value("cryptarchia_info").toObject();
+    const bool telemetryValid = apiOk
+        && BlendRecovery::number(time.value("current_epoch"), std::numeric_limits<int>::max() - 8)
+        && BlendLifecycle::isId(chain.value("tip").toString())
+        && BlendRecovery::number(chain.value("slot"))
+        && BlendRecovery::number(chain.value("lib_slot"))
+        && chain.value("lib_slot").toDouble() <= chain.value("slot").toDouble()
+        && chain.value("state").isString() && !chain.value("state").toString().isEmpty()
+        && blend.contains("core_info")
+        && (blend.value("core_info").isNull() || blend.value("core_info").isObject());
+    if (telemetryValid) {
+        m_recoverySnapshot = BlendRecovery::canonical(declarations.object(), provider);
+        m_recoverySnapshot.identity = runtimeIdentityOk;
+        m_recoverySnapshot.online = chain.value("state").toString() == QStringLiteral("Online");
+        m_recoverySnapshot.core = blend.value("core_info").isObject();
+        m_recoverySnapshot.epoch = time.value("current_epoch").toInt();
+        m_recoverySnapshot.tip = chain.value("tip").toString();
+        m_recoverySnapshot.slot = static_cast<qint64>(chain.value("slot").toDouble());
+        m_recoverySnapshot.lib = static_cast<qint64>(chain.value("lib_slot").toDouble());
+    }
+    m_recoverySnapshot.running = status() == Running;
     input["running"] = status() == Running;
     input["apiOk"] = apiOk;
     input["identityOk"] = runtimeIdentityOk && identity.value("ok").toBool();
     input["mode"] = mode.value("cryptarchia_info").toObject().value("state").toString(mode.value("state").toString());
     input["epoch"] = time.value("current_epoch").toInt(-1);
     const QVariantMap record = identity.value("record").toMap();
-    if (apiOk && input["identityOk"].toBool() && input["epoch"].toInt() >= 0) {
+    if (m_recoverySnapshot.valid && input["identityOk"].toBool()) {
         const QJsonObject reconciled = BlendLifecycle::reconcileRegistration(store, record,
             identity.value("id").toString(), input["epoch"].toInt());
         if (reconciled != store) { saveBlendDecl(reconciled); store = reconciled; }
@@ -1611,6 +1825,7 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
     const qint64 runStart = blendRunStartedAt();
     const qint64 repairedAt = m_blendRepairedId == identity.value("id").toString() ? m_blendRepairedAt : 0;
     input["bindingStatus"] = BlendLifecycle::binding(runStart, blendMissingBindingAt(runStart), repairedAt, QDateTime::currentMSecsSinceEpoch());
+    m_recoverySnapshot.bindingKnown = input["bindingStatus"] == "confirmed";
     QStringList evidence;
     if (apiOk) {
         evidence << QStringLiteral("Epoch %1 · %2 · %3 healthy peers")
@@ -1638,13 +1853,30 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
         reconciled["withdraw_pending"] = false;
         reconciled["withdraw_removed"] = true;
         saveBlendDecl(reconciled); // retain identity/history; never clear on HTTP acknowledgement
+        store = reconciled;
     }
-    return result;
+    // Legacy submissionPending includes a confirmed stored ID for the old UI.
+    // Only unresolved operations block recovery, never confirmed history.
+    const bool completedSubmission = m_recoverySnapshot.valid && m_recoverySnapshot.identity
+        && (m_recoverySnapshot.present || store.value("withdraw_removed").toBool());
+    const bool completedWithdrawal = m_recoverySnapshot.valid && m_recoverySnapshot.identity
+        && store.value("withdraw_removed").toBool();
+    m_recoverySnapshot.pending = (!completedSubmission
+        && (m_blendSubmissionPending || store.value("submission_pending").toBool()
+            || (!store.value("declaration_id").toString().isEmpty()
+                && !store.value("observed_on_chain").toBool())))
+        || (!completedWithdrawal && (m_blendWithdrawalPending || store.value("withdraw_pending").toBool()))
+        || (m_blendMutation && !m_recoveryTick);
+    return withBlendRecovery(result);
 }
 
 QVariantMap LogosNode1clickBackend::repairBlendBinding()
 {
     QVariantMap out{{"ok", false}, {"error", QString()}, {"message", QString()}};
+    if (blendRecoveryBlocks()) {
+        out["error"] = QStringLiteral("Unfinished Blend recovery owns the declaration and binding; manual repair is blocked, including while paused.");
+        return out;
+    }
     if (m_blendMutation || m_blendReading) {
         out["error"] = QStringLiteral("A Blend operation is already in progress.");
         return out;
@@ -1675,6 +1907,8 @@ QVariantMap LogosNode1clickBackend::repairBlendBinding()
 
 QVariantMap LogosNode1clickBackend::declareBlendCore(QString locator, QString lockedNoteId)
 {
+    if (blendRecoveryBlocks())
+        return {{"ok", false}, {"tx", QString()}, {"error", "Unfinished Blend recovery owns this declaration; manual declaration is blocked, including while paused."}};
     QVariantMap out;
     out.insert(QStringLiteral("ok"), false);
     out.insert(QStringLiteral("tx"), QString());
@@ -1845,6 +2079,8 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
 
 QVariantMap LogosNode1clickBackend::withdrawBlendCore()
 {
+    if (blendRecoveryBlocks())
+        return {{"ok", false}, {"error", "Unfinished Blend recovery owns this declaration; manual withdrawal is blocked, including while paused."}};
     QVariantMap out;
     out.insert(QStringLiteral("ok"), false);
     out.insert(QStringLiteral("error"), QString());
@@ -3320,6 +3556,16 @@ static void injectIbdPeersFromInitialPeers(const QString& configPath)
 
 void LogosNode1clickBackend::startBlockchain()
 {
+    const bool recoveryLocked = blendRecoveryBlocks();
+    const bool sameRecoveryNode = m_blendRecovery
+        && QFileInfo(toLocalPath(userConfig())).absoluteFilePath() == m_recoveryScope
+        && !m_blendRecovery->state().value("provider").toString().isEmpty()
+        && blendSigningKey().compare(m_blendRecovery->state().value("provider").toString(), Qt::CaseInsensitive) == 0;
+    const bool stopped = status() == NotStarted || status() == Stopped;
+    if (recoveryLocked && (!stopped || m_recoveryTick || !sameRecoveryNode)) {
+        setLastErrorMessage(QStringLiteral("Unfinished Blend recovery blocks restarting a live node or changing its identity/configuration. Only the same stopped node may be explicitly started."));
+        return;
+    }
     m_blendRunFloor = QDateTime::currentMSecsSinceEpoch();
     m_blendRepairedAt = 0;
     m_blendRepairedId.clear();
@@ -3352,6 +3598,10 @@ void LogosNode1clickBackend::startBlockchain()
 
 void LogosNode1clickBackend::stopBlockchain()
 {
+    if (blendRecoveryBlocks()) {
+        setLastErrorMessage(QStringLiteral("Unfinished Blend recovery blocks stopping the node, including while paused."));
+        return;
+    }
     m_blendRunFloor = QDateTime::currentMSecsSinceEpoch();
     m_blendRepairedAt = 0;
     m_blendRepairedId.clear();
@@ -3409,6 +3659,7 @@ void LogosNode1clickBackend::confirmStopped()
 // still surfaces as an error rather than silently claiming success.
 bool LogosNode1clickBackend::forceStopNode()
 {
+    if (blendRecoveryBlocks()) return false;
     // Node HTTP port from the config's api.backend.listen_address; default 8080.
     int port = 8080;
     const QString cfg = userConfig();
@@ -3642,6 +3893,8 @@ QVariantMap LogosNode1clickBackend::generateConfig(
     QString httpAddr, QString externalAddress, bool noPublicIpCheck,
     int deploymentMode, QString deploymentConfigPath, QString statePath)
 {
+    if (blendRecoveryBlocks())
+        return result::toVariantMap(result::err(QStringLiteral("Unfinished Blend recovery blocks config/identity generation, including while paused.")));
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
 
@@ -3751,6 +4004,8 @@ void LogosNode1clickBackend::clearBlocks()
 
 QVariantMap LogosNode1clickBackend::resetChainState()
 {
+    if (blendRecoveryBlocks())
+        return result::toVariantMap(result::err(QStringLiteral("Unfinished Blend recovery blocks chain-state reset, including while paused.")));
     // Recover a node wedged after an unclean shutdown (logos-blockchain#3171:
     // the chain service spams "channel closed" and the API never becomes
     // serviceable). Wiping the chain database + consensus state forces a clean
@@ -3805,6 +4060,10 @@ QVariantMap LogosNode1clickBackend::resetChainState()
 // and only a Basecamp reopen respawns it, so a following in-app Start will fail until then.
 void LogosNode1clickBackend::forceStopNow()
 {
+    if (blendRecoveryBlocks()) {
+        setLastErrorMessage(QStringLiteral("Unfinished Blend recovery blocks force-stop, including while paused."));
+        return;
+    }
     writeNodeIntent(QStringLiteral("stopped"));
     forceStopNode();
     setStatus(Stopped);
@@ -3842,6 +4101,9 @@ QVariantMap LogosNode1clickBackend::backupUserConfig()
 // "Download keystore.yaml" action. Overwrites the destination if the user picked one.
 QVariantMap LogosNode1clickBackend::saveKeystore(QString destPath)
 {
+    // Save-as can overwrite identity/config material through an arbitrary destination.
+    if (blendRecoveryBlocks())
+        return result::toVariantMap(result::err(QStringLiteral("Unfinished Blend recovery blocks keystore export/overwrite, including while paused.")));
     const QString cfg = userConfig();
     if (cfg.isEmpty())
         return result::toVariantMap(result::err(QStringLiteral("No config loaded — can't locate the keystore.")));
@@ -3864,6 +4126,8 @@ QVariantMap LogosNode1clickBackend::saveKeystore(QString destPath)
 // Settings "Regenerate keys" action until the node exposes a safe key-rotation API.
 QVariantMap LogosNode1clickBackend::regenerateNodeKeys()
 {
+    if (blendRecoveryBlocks())
+        return result::toVariantMap(result::err(QStringLiteral("Unfinished Blend recovery blocks identity/key replacement, including while paused.")));
     if (status() == Running || status() == Starting || status() == Stopping)
         return result::toVariantMap(result::err(QStringLiteral("Stop the node before regenerating keys.")));
     const QString cfg = userConfig();

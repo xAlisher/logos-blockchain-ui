@@ -39,14 +39,17 @@ with tarfile.open(a.archive) as archive:
 variant = a.extract / 'variants/linux-amd64'
 plugin = variant / manifest['main']['linux-amd64']
 syms = subprocess.check_output(['nm', '-D', '-C', str(plugin)], text=True)
-for method in ('getBlendLifecycle()', 'repairBlendBinding()'):
+methods = ('getBlendLifecycle', 'repairBlendBinding', 'startBlendRecovery',
+           'pauseBlendRecovery', 'resumeBlendRecovery')
+for name in methods:
+    method = name + '()'
     assert any(' T ' in line and 'LogosNode1clickBackend::' + method in line for line in syms.splitlines()), method
 replica = variant / 'logos_node_1click_replica_factory.so'
 assert replica.is_file()
 replica_bytes = replica.read_bytes()
-for name in (b'getBlendLifecycle', b'repairBlendBinding'):
+for name in tuple(method.encode() for method in methods) + (b'blendRecoveryActive',):
     assert name in replica_bytes, f'Replica missing {name!r}'
 print(json.dumps({'version': manifest['version'], 'variant': 'linux-amd64', 'qml_js_files_matched': count,
-    'backend_methods': ['getBlendLifecycle', 'repairBlendBinding'], 'replica_contract': 'present',
+    'backend_methods': list(methods), 'replica_contract': 'present',
     'archive_bytes': a.archive.stat().st_size, 'sha256': hashlib.sha256(a.archive.read_bytes()).hexdigest(),
     'extracted': str(variant)}, indent=2))

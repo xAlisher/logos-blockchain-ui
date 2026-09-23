@@ -13,8 +13,8 @@ if [[ ! -f "$plugin" || "$plugin" != /* ]]; then
 fi
 cd "$repo"
 # Pin the same Qt/toolchain as the module; do not mix local Qt 6.9.3 with Nix 6.9.2.
-nix develop --command cmake -S "$here" -B "$build" \
+nix develop --offline --command cmake -S "$here" -B "$build" \
     -DLOGOS_QT_INCLUDE="$include" -DBLEND_SOURCE="$repo" -DBLEND_PLUGIN="$plugin"
-nix develop --command cmake --build "$build" --target blend_native -j2
+nix develop --offline --command cmake --build "$build" --target blend_native -j2
 sha256sum "$plugin"
 exec /usr/bin/python3 -I "$here/run.py" --binary "$build/blend_native"

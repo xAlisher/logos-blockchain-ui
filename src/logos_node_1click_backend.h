@@ -13,6 +13,7 @@
 
 #include "AccountsModel.h"
 #include "BlockModel.h"
+#include "BlendRecovery.h"
 
 class LogosAPI;
 class LogosAPIClient;
@@ -117,6 +118,9 @@ public slots:
     QVariantMap getBlendDeclarations() override;
     QVariantMap getBlendLifecycle() override;
     QVariantMap repairBlendBinding() override;
+    QVariantMap startBlendRecovery() override;
+    QVariantMap pauseBlendRecovery() override;
+    QVariantMap resumeBlendRecovery() override;
     // Per-epoch blend-mode history (write-ahead store) for the dashboard "Blend type" strip.
     QVariantMap getBlendModeHistory() override;
     // Per-epoch max block height (write-ahead) → blocks-per-epoch (Δheight) chart.
@@ -132,6 +136,16 @@ protected:
     void onContextReady() override;
 
 private:
+    std::unique_ptr<BlendRecovery::Controller> m_blendRecovery;
+    BlendRecovery::Snapshot m_recoverySnapshot;
+    QString m_recoveryScope;
+    QTimer* m_blendRecoveryTimer = nullptr;
+    bool m_recoveryTick = false;
+    void ensureBlendRecovery();
+    bool blendRecoveryBlocks();
+    QVariantMap withBlendRecovery(QVariantMap lifecycle);
+    void advanceBlendRecovery();
+    void readBlendRecoveryFunding(BlendRecovery::Snapshot& snapshot);
     bool m_blendMutation = false;
     bool m_blendReading = false;
     bool m_blendSubmissionPending = false;

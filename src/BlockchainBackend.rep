@@ -20,6 +20,7 @@ class BlockchainBackend
     PROP(QString leaderKey READONLY)
     PROP(BlendStatus blendStatus READONLY)
     PROP(QString lastBlendEvent READONLY)
+    PROP(bool blendRecoveryActive=false READONLY)
     // Size of the epoch's Blend CORE set (membership_count from the blend log) — the "N core
     // nodes" the dashboard shows for Edge/Core. <0 = unknown (log rotated / not yet written).
     PROP(int blendCoreNodes READONLY)
@@ -102,6 +103,9 @@ class BlockchainBackend
     SLOT(QVariantMap getBlendDeclarations())
     SLOT(QVariantMap getBlendLifecycle())
     SLOT(QVariantMap repairBlendBinding())
+    SLOT(QVariantMap startBlendRecovery())
+    SLOT(QVariantMap pauseBlendRecovery())
+    SLOT(QVariantMap resumeBlendRecovery())
     // Per-epoch blend-mode history (write-ahead store) → {success, value: JSON [{epoch,mode}]}.
     SLOT(QVariantMap getBlendModeHistory())
     // Per-epoch max block height (write-ahead) for the blocks-per-epoch chart.
