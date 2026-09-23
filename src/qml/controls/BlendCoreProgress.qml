@@ -159,22 +159,40 @@ LogosFrame {
             }
             Repeater {
                 model: lane.steps
-                LogosText {
+                Item {
+                    id: stepCell
                     required property int index
                     required property var modelData
                     objectName: "blendStep" + index
                     x: lane.segmentLeft(index) + (index > 0 ? 14 : 0)
                     width: lane.segmentWidth - (index > 0 ? 14 : 0) - (index < lane.steps.length - 1 ? 14 : 0)
                     height: lane.height
-                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                    text: (modelData.state === "complete" ? "✓ " : "") + modelData.label
-                    font.pixelSize: 12; elide: Text.ElideRight; textFormat: Text.PlainText
-                    // completed stages show a green check (matches the dashboard lifecycle lane);
-                    // the current stage takes the state accent (yellow while in-progress), pending is muted.
-                    color: modelData.state === "error" ? Theme.palette.error : modelData.state === "current" ? root.accent
-                        : modelData.state === "complete" ? Theme.palette.success : Theme.palette.textTertiary
+                    // Like the dashboard lifecycle lane: a GREEN check for completed stages, with the
+                    // label itself in muted GRAY; the current stage takes the state accent (yellow
+                    // while in-progress), pending is faint.
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        LogosText {
+                            id: stepCheck
+                            visible: stepCell.modelData.state === "complete"
+                            text: "✓"; color: Theme.palette.success
+                            font.pixelSize: 12; font.weight: Theme.typography.weightBold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        LogosText {
+                            text: stepCell.modelData.label
+                            font.pixelSize: 12; textFormat: Text.PlainText; elide: Text.ElideRight
+                            width: Math.min(implicitWidth, stepCell.width - (stepCheck.visible ? stepCheck.implicitWidth + parent.spacing : 0))
+                            color: stepCell.modelData.state === "error" ? Theme.palette.error
+                                : stepCell.modelData.state === "current" ? root.accent
+                                : stepCell.modelData.state === "complete" ? Theme.palette.textSecondary
+                                : Theme.palette.textTertiary
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
                     QQC.ToolTip.visible: stepHover.hovered
-                    QQC.ToolTip.text: modelData.label + " · " + modelData.state
+                    QQC.ToolTip.text: stepCell.modelData.label + " · " + stepCell.modelData.state
                     HoverHandler { id: stepHover }
                 }
             }

@@ -94,7 +94,7 @@ var data = {
     },
     blendModeByEpoch: {
         title: "Blend type by epoch",
-        what: "The Blend mode this node was in each epoch — Core (mixing), Declared (edge) (an on-chain Core declaration but running edge), Edge, Activating, or Off — one coloured cell per epoch.",
+        what: "The Blend mode this node was in each epoch — Core (declared active in the Core set), Declared (edge) (an on-chain Core declaration but running edge), Edge, Activating, or Off — one coloured cell per epoch.",
         calc: "Recorded by the app into a small write-ahead store (blend-mode-history.json) each time it refreshes the Blend status: the current epoch's cell is set to the resolved mode (last-seen wins within an epoch). This is why it survives even though the node's own log — the only other source — rotates after ~10h. A blank/faint cell means the node was down or the mode was unknown that epoch. History begins the first time you run this app version; older epochs it never observed won't appear."
     },
     peersSeries: {

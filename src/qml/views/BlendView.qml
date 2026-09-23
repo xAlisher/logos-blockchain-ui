@@ -167,6 +167,10 @@ Item {
     readonly property bool _maturing: mineLive && coreEpoch > 0 && nowEpoch >= 0 && nowEpoch < coreEpoch
     // declared + live but not (yet) mixing in this epoch's Core set — the "no need to re-declare" state
     readonly property bool _declaredNotMixing: (backend && backend.blendStatus === BlockchainBackend.CoreDeclaredEdge) || (mineLive && !_isCore)
+    // "active" (vs merely a "member") only once real accepted activity is visible: the nonce has
+    // advanced past 0, or the active field moved past the created+2 baseline. Until then we're a
+    // Core member collecting activity, not yet a proven-active provider (see the strip's "collecting").
+    readonly property bool _activityAccepted: recNonce > 0 || (createdEpoch >= 0 && coreEpoch > createdEpoch + 2)
 
     readonly property string docsUrl: "https://docs.logos.co/blockchain/blend/join-the-blend-network-as-a-core-node"
 
@@ -892,8 +896,13 @@ Item {
                         Rectangle { Layout.alignment: Qt.AlignVCenter; width: 40; height: 40; radius: 20; color: Theme.palette.success
                             LogosText { anchors.centerIn: parent; text: "✓"; color: Theme.palette.surfaceRaised; font.pixelSize: 18; font.weight: Theme.typography.weightBold } }
                         ColumnLayout { Layout.fillWidth: true; spacing: 2
-                            LogosText { text: qsTr("Blend Core active"); color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold }
-                            LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap; text: root.coreEpoch >= 0 ? qsTr("Current Core member · active since epoch %1").arg(root.coreEpoch) : qsTr("Current Core member — mixing your proposals"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText } } } }
+                            LogosText { text: root._activityAccepted ? qsTr("Blend Core active") : qsTr("Blend Core member"); color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold }
+                            // No claim that the node is "mixing" — that is not work-verified in this release.
+                            LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
+                                text: root.coreEpoch < 0 ? qsTr("In the active Core set")
+                                    : root._activityAccepted ? qsTr("Active provider · in the Core set since epoch %1").arg(root.coreEpoch)
+                                    : qsTr("In the Core set since epoch %1 · collecting activity").arg(root.coreEpoch)
+                                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText } } } }
 
                 LogosText { text: qsTr("LIVENESS"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium

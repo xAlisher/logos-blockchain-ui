@@ -349,7 +349,7 @@ Item {
                           sub: qsTr("⚠ Activity at risk — check Blend Core evidence below"),
                           c: Theme.palette.warning })
             return ({ value: qsTr("Core"),
-                      sub: qsTr("Node mixing proposals"),
+                      sub: qsTr("In the active Core set"),   // not "mixing" — that isn't work-verified in this release
                       c: "#d9a521" })
         }
         // edge or coredeclared → both honestly read as Edge (the node's live mode)
