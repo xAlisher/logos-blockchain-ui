@@ -42,6 +42,16 @@ LogosFrame {
     signal refreshRequested()
     signal explainRequested()   // (i) tapped → parent opens the stages modal
     readonly property var data: lifecycle || ({})
+    // Titles of the form "Main; description" split into a big title + a gray description line
+    // (e.g. "Binding confirmed; awaiting activity" → title "Binding confirmed" / desc "Awaiting activity").
+    readonly property string _fullTitle: data.title || qsTr("Status unavailable")
+    readonly property int _semi: _fullTitle.indexOf(";")
+    readonly property string _titleMain: _semi >= 0 ? _fullTitle.substring(0, _semi).trim() : _fullTitle
+    readonly property string _titleDesc: {
+        if (_semi < 0) return ""
+        var s = _fullTitle.substring(_semi + 1).trim()
+        return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : ""
+    }
     readonly property color accent: data.tone === "error" ? Theme.palette.error
         : data.tone === "warning" ? Theme.palette.warning
         : data.tone === "success" ? Theme.palette.success : Theme.palette.textSecondary
@@ -100,7 +110,7 @@ LogosFrame {
             LogosText {
                 objectName: "blendTitle"
                 Layout.fillWidth: true
-                text: root.data.title || qsTr("Status unavailable")
+                text: root._titleMain
                 color: root.accent; font.pixelSize: 32; font.weight: Theme.typography.weightBold   // hero size, matches the dashboard Status card
                 wrapMode: Text.WordWrap; textFormat: Text.PlainText
                 Accessible.name: (root.expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + text
@@ -109,9 +119,17 @@ LogosFrame {
                     onTapped: { root.userToggled = true; root.expanded = !root.expanded }
                 }
             }
+            // description: top-right next to the (i), like the dashboard Status card's sub
+            LogosText {
+                objectName: "blendSubtitle"
+                visible: root._titleDesc.length > 0
+                Layout.alignment: Qt.AlignTop; text: root._titleDesc
+                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; textFormat: Text.PlainText
+            }
             Rectangle {
                 objectName: "blendInfo"
-                Layout.alignment: Qt.AlignTop; width: 16; height: 16; radius: 8; color: "transparent"; border.width: 1
+                Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small
+                width: 16; height: 16; radius: 8; color: "transparent"; border.width: 1
                 border.color: infoIma.containsMouse ? Theme.palette.text : Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
                 LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: infoIma.containsMouse ? Theme.palette.text : Theme.palette.textMuted }
                 MouseArea { id: infoIma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.explainRequested() }

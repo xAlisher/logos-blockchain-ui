@@ -1647,6 +1647,17 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
     // Log/API source tags stay accurate (API-only peers are folded into the union below, not here).
     if (!foundRoster.isEmpty()) m_coreRoster = foundRoster;
     const QMap<QString, QString>& rosterAddr = m_coreRoster;
+    // Bootstrap peer ids = the config's initial_peers (matched by peer id, since a node's blend
+    // port differs from the consensus port it's dialed on). A Core member on this list is tagged.
+    QSet<QString> bootstrapIds;
+    if (!userConfig().isEmpty()) {
+        QFile cfg(userConfig());
+        if (cfg.open(QIODevice::ReadOnly)) {
+            static const QRegularExpression reBoot(QStringLiteral("-\\s*/ip[0-9].*?/p2p/([1-9A-HJ-NP-Za-km-z]+)"));
+            const auto lines = QString::fromUtf8(cfg.readAll()).split('\n');
+            for (const QString& line : lines) { const auto m = reBoot.match(line); if (m.hasMatch()) bootstrapIds.insert(m.captured(1)); }
+        }
+    }
     // ---- merge: union of log roster + API peers, tagged by source, connected peers first ----
     QStringList ids = rosterAddr.keys();
     for (const QString& id : apiHealth.keys()) if (!ids.contains(id)) ids << id;
@@ -1654,6 +1665,7 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
     for (const QString& id : ids) {
         const bool inApi = apiHealth.contains(id), inLog = rosterAddr.contains(id);
         QStringList src; if (inApi) src << QStringLiteral("API"); if (inLog) src << QStringLiteral("Log");
+        if (bootstrapIds.contains(id)) src << QStringLiteral("Bootstrap");
         QString status = inApi ? (apiHealth.value(id) ? QStringLiteral("Connected") : QStringLiteral("Degraded"))
             : unreachable.contains(id) ? QStringLiteral("Unreachable") : QStringLiteral("In set");
         peers << QVariantMap{{"id", id}, {"address", rosterAddr.value(id)}, {"sources", src},

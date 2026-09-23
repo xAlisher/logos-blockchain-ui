@@ -31,7 +31,7 @@ TestCase {
     QtObject { id: logos; function watch(c, ok, e) { return } }
     QtObject {
         id: controller
-        property var lifecycle: ({ ok: true, state: "collecting", title: "Binding confirmed; awaiting activity",
+        property var lifecycle: ({ ok: true, state: "collecting", title: "Collecting Blend activity",
             detail: "d", tone: "neutral", action: "refresh", actionLabel: "Refresh",
             steps: ["Online","Declared","Activated","Connected","Activity","Maintaining"].map(function(l,i){ return {label:l, state: i<4?"complete":i===4?"current":"pending"} }),
             corePeers: [], messages: ({}) })

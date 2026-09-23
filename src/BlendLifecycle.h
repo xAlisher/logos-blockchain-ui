@@ -61,7 +61,7 @@ inline QVariantMap reduce(const QVariantMap& in)
     else if (accepted && connected)
         set("healthy", "Maintaining Blend Core", "Recent accepted activity and Core connectivity are observed. This is not a payout or future eligibility guarantee.", "success");
     else if (!accepted && out["bindingStatus"] == "confirmed")
-        set("binding-confirmed", "Binding confirmed; awaiting activity", "The local service accepted the binding. Wait for activity and the next epoch snapshot; no activity success is claimed.");
+        set("binding-confirmed", "Binding confirmed; awaiting activity", "The local service accepted the binding. Wait for activity and the next epoch snapshot; no activity success is claimed.", "warning");
     else if (accepted && !connected)
         set("at-risk", "Core connectivity uncertain", "Accepted activity exists, but current Core connectivity is not healthy or is unknown.", "warning");
     else
