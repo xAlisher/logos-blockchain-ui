@@ -578,14 +578,20 @@ Rectangle {
     property string _fundStage: ""    // "", "requesting", "success", "error"
     property string _fundResult: ""   // tx / response text, or the error text
     property int _fundDots: 0
+    // The key the Fund dialog targets. "" = the node's primary address (header Fund);
+    // set to a specific key by the per-account Fund buttons (#117).
+    property string _fundTargetKey: ""
+    readonly property string _fundEffectiveKey: (_fundTargetKey && _fundTargetKey.length)
+        ? _fundTargetKey : (root.backend ? (root.backend.primaryAddress || "") : "")
     Timer {
         interval: 400; repeat: true; running: root._fundStage === "requesting"
         onTriggered: root._fundDots = (root._fundDots + 1) % 4
     }
     function _fundDotStr() { return ["", ".", "..", "..."][root._fundDots] }
-    // Dashboard fund: primaryAddress (the backend also tops up the leader key).
+    // Dashboard fund: the dialog's effective target (primary address, or the
+    // specific key a per-account Fund button selected).
     function _requestFunds() {
-        root._requestFundsFor(root.backend ? (root.backend.primaryAddress || "") : "")
+        root._requestFundsFor(root._fundEffectiveKey)
     }
     // Fund a specific key. Onboarding passes the LEADER funding key so only that
     // one key is funded (requestFaucetFunds skips its duplicate leader top-up when
@@ -666,7 +672,7 @@ Rectangle {
                     width: parent.width; spacing: Theme.spacing.small
                     LogosText {
                         width: parent.width - 26
-                        text: root.backend ? (root.backend.primaryAddress || "—") : "—"
+                        text: root._fundEffectiveKey.length ? root._fundEffectiveKey : "—"
                         font.pixelSize: Theme.typography.primaryText
                         font.family: Theme.typography.publicSans
                         color: Theme.palette.text
@@ -678,7 +684,7 @@ Rectangle {
                         MouseArea {
                             id: keyCopyM; anchors.fill: parent; anchors.margins: -4
                             hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: if (root.backend) root.backend.copyToClipboard(root.backend.primaryAddress)
+                            onClicked: if (root.backend) root.backend.copyToClipboard(root._fundEffectiveKey)
                         }
                     }
                 }
@@ -1968,7 +1974,7 @@ Rectangle {
                         && (root.backend.primaryAddress || "").length > 0
                     text: qsTr("Fund")
                     enabled: ready
-                    onClicked: if (ready) fundDialog.open()
+                    onClicked: if (ready) { root._fundTargetKey = ""; fundDialog.open() }
                     ToolTip.visible: fundHover.hovered && !fundBtn.ready
                     ToolTip.text: qsTr("Fund the node once it's online")
                     HoverHandler { id: fundHover }
@@ -2355,8 +2361,9 @@ Rectangle {
                                 )
                             }
                             onRefreshAccountsRequested: if (root.backend) root.backend.refreshAccounts()
-                            // Fund a specific spendable key via the real faucet (#117).
-                            onFundRequested: (addressHex) => root._requestFundsFor(addressHex)
+                            // Fund a specific spendable key: open the Fund dialog targeted at
+                            // that key so the operator sees requesting/success/error (#117).
+                            onFundRequested: (addressHex) => { root._fundTargetKey = addressHex; fundDialog.open() }
                             onCopyToClipboard: (text) => {
                                 root.copyText(text)
                             }

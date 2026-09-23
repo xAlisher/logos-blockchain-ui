@@ -1,24 +1,65 @@
-"""Static integration guards supplement real Qt component tests; no live backend."""
+"""Static integration guards supplement real Qt component tests; no live backend.
+
+Updated for the Blend TAB (BlendView) that replaced the modal (#112/#119): the
+evidence strip + enable/manage flow live under a dedicated tab, the Node page no
+longer carries the strip (#118), the header Enable-Blend button is gone (#120),
+and every spendable wallet key has a real Fund action (#117).
+"""
 from pathlib import Path
 import unittest
 ROOT = Path(__file__).resolve().parents[1] / 'src/qml'
 
+
 class Integration(unittest.TestCase):
-    def test_panel_below_node(self):
-        text = (ROOT / 'views/NodeDashboardView.qml').read_text()
-        self.assertLess(text.index('showLane: true; laneSteps:'), text.index('BlendCoreProgress {'))
-        self.assertIn('onRepairRequested: root.repairBlendRequested()', text)
-    def test_controller_wired(self):
+    def test_blend_tab_hosts_strip(self):
+        # The evidence strip now lives in the Blend tab, not the Node page (#118).
+        blend = (ROOT / 'views/BlendView.qml').read_text()
+        self.assertIn('BlendCoreProgress {', blend)
+        self.assertIn('lifecycle: root.controller', blend)
+        node = (ROOT / 'views/NodeDashboardView.qml').read_text()
+        self.assertNotIn('BlendCoreProgress {', node)
+        # BlendView is registered in the views module so `BlendView {}` resolves.
+        qmldir = (ROOT / 'views/qmldir').read_text()
+        self.assertIn('BlendView 1.0 BlendView.qml', qmldir)
+
+    def test_controller_wired_to_tab(self):
         text = (ROOT / 'BlockchainView.qml').read_text()
         self.assertIn('BlendLifecycleController {', text)
         self.assertIn('bridge: logos', text)
-        self.assertIn('onRepairBlendRequested: blendLifecycleController.repair()', text)
+        self.assertIn('BlendView {', text)
+        self.assertIn('controller: blendLifecycleController', text)
+
+    def test_modal_removed(self):
+        # The modal file is gone and nothing references it any more (#119).
+        self.assertFalse((ROOT / 'views/EnableBlendCoreModal.qml').exists())
+        text = (ROOT / 'BlockchainView.qml').read_text()
+        self.assertNotIn('enableBlendModal', text)
+        self.assertNotIn('EnableBlendCoreModal 1.0', (ROOT / 'views/qmldir').read_text())
+
+    def test_header_button_removed(self):
+        # No header "Enable Blend Core" GhostButton; the tile CTA opens the tab (#120).
+        text = (ROOT / 'BlockchainView.qml').read_text()
+        self.assertNotIn('id: blendBtn', text)
+        self.assertIn('onEnableBlendRequested: operationTabBar.currentIndex', text)
+
+    def test_wallet_fund_wired(self):
+        # A real Fund action on every spendable key → faucet (#117).
+        delegate = (ROOT / 'controls/AccountDelegate.qml').read_text()
+        self.assertIn('signal fundRequested(string addressHex)', delegate)
+        self.assertIn('text: qsTr("Fund")', delegate)
+        view = (ROOT / 'views/AccountsView.qml').read_text()
+        self.assertIn('signal fundRequested(string addressHex)', view)
+        blockchain = (ROOT / 'BlockchainView.qml').read_text()
+        self.assertIn('onFundRequested:', blockchain)
+
     def test_honest_copy(self):
-        modal = (ROOT / 'views/EnableBlendCoreModal.qml').read_text()
+        blend = (ROOT / 'views/BlendView.qml').read_text()
         helptext = (ROOT / 'views/infoContent.js').read_text()
         for claim in ['Included in a block', 'Your staked note is unlocked.', 'emitting the active heartbeat']:
-            self.assertNotIn(claim, modal)
+            self.assertNotIn(claim, blend)
         self.assertNotIn('does NOT emit', helptext)
         self.assertNotIn('and earning rewards.', helptext)
 
-if __name__ == '__main__': unittest.main()
+
+if __name__ == '__main__':
+    unittest.main()

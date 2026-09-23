@@ -23,3 +23,12 @@ Known runner warning: reference design system Theme uses QSettings without organ
 Run `tests/qml/BlendCoreHarness.qml` in the Qt QML runner, with the same design-system import path. It loads only the production panel with a missing-binding fixture and signal-only fake action handlers (no mutations). The parent window exposes `panelWidth`, `fixture`, and `componentUrl`; set `componentUrl` to the unpacked LGX's **actual** `controls/BlendCoreProgress.qml` URL to prove packaging. The loader item exposes `expanded`, `busy`, `resultText`, and `resultError` for screenshot variants. At 320 px labels elide inside individual chevrons; hover reveals full stage/state. Capture blocked expanded, healthy collapsed, error-result collapsed, and busy/narrow variants. Verify the full dashboard with the parent's isolated packaged harness to confirm node-panel adjacency and modal integration.
 
 Do not run `BlockchainView.qml` standalone against a real logos backend for these tests. Live epoch transitions, actual repair and withdrawal, and installation remain manual acceptance outside this suite.
+
+## BlendView tab test (tst_BlendView.qml)
+
+Covers the Blend tab that replaced the modal: component loads to Ready (imports +
+qmldir resolve — the headless catch for QML-load errors the nix build misses), the
+phase→step-indicator mapping, the openWallet shortcut, that it is not a dismissable
+modal, and the mutation/invalidation invariants carried over from the modal. Needs a
+**current** design system (LogosFrame `radius`); the older `~/basecamp/refs` DS lacks
+it — point `-import` at a recent logos-design-system checkout/build.

@@ -364,7 +364,7 @@ Item {
           fix: qsTr("Fund a node key so there's a note to lock as your provider stake."), action: "", docs: "", kind: "" },
         { ok: gPort,      label: qsTr("UDP %1 forwarded").arg(blendPort),
           val: gPort ? (portAttested && !portListening ? qsTr("confirmed") : qsTr("open")) : qsTr("needs your confirmation"),
-          fix: qsTr("The node only opens udp/%1 once it's a Core provider, so this can't be auto-checked yet — that's expected. Make sure udp/%1 is forwarded to this machine on your router (see the guide), then mark it below.").arg(blendPort).arg(blendPort),
+          fix: qsTr("The node only opens udp/%1 once it's a Core provider, so this can't be auto-checked yet — that's expected. Make sure udp/%1 is forwarded to this machine on your router (see the guide), then mark it below.").arg(blendPort),
           action: qsTr("I've forwarded this port"), docs: docsUrl, kind: "attest" },
         { ok: gNetwork,   label: qsTr("Blend network size"),
           val: netCount >= 0 ? qsTr("%1 provider(s)").arg(netCount) : qsTr("checking…"),
@@ -506,19 +506,25 @@ Item {
                                         LogosText { Layout.fillWidth: true; text: root.sdpKey
                                                     color: Theme.palette.textSecondary; font.pixelSize: 11
                                                     font.family: "monospace"; elide: Text.ElideMiddle }
-                                        LogosCopyButton { value: root.sdpKey; Layout.alignment: Qt.AlignVCenter }
+                                        BcCopyButton { Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 24; Layout.preferredWidth: 24
+                                                       onCopyText: if (root.backend) root.backend.copyToClipboard(root.sdpKey) }
                                     }
                                 }
-                                // docs link (copies the URL, like InfoModal's DOCS link) + an action link
+                                // docs link (copies the URL) + an action link — local controls only.
                                 RowLayout {
                                     visible: !modelData.ok && (modelData.docs || "").length > 0
                                     Layout.fillWidth: true; spacing: Theme.spacing.small
-                                    LogosLink { Layout.fillWidth: true; text: modelData.docs; font.pixelSize: 11; elide: Text.ElideRight; onActivated: gcb.copy() }
-                                    LogosCopyButton { id: gcb; value: modelData.docs || ""; Layout.alignment: Qt.AlignVCenter }
+                                    LogosText { Layout.fillWidth: true; text: modelData.docs || ""; font.pixelSize: 11; elide: Text.ElideRight
+                                                color: Theme.palette.info
+                                                TapHandler { onTapped: if (root.backend) root.backend.copyToClipboard(modelData.docs || "") } }
+                                    BcCopyButton { Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 24; Layout.preferredWidth: 24
+                                                   onCopyText: if (root.backend) root.backend.copyToClipboard(modelData.docs || "") }
                                 }
                                 // action link (faucet / port attestation)
-                                LogosLink { visible: !modelData.ok && (modelData.action || "").length > 0
-                                            enabled: root.backendReady && !root.mutationBusy; text: modelData.action; font.pixelSize: 11; onActivated: root._gateAction(modelData.kind) }
+                                LogosText { visible: !modelData.ok && (modelData.action || "").length > 0
+                                            text: modelData.action; font.pixelSize: 11
+                                            color: (root.backendReady && !root.mutationBusy) ? Theme.palette.info : Theme.palette.textTertiary
+                                            TapHandler { enabled: root.backendReady && !root.mutationBusy; onTapped: root._gateAction(modelData.kind) } }
                                 // faucet feedback — requesting / result / why-nothing (the click
                                 // used to no-op silently; now it always says what happened).
                                 LogosText { visible: modelData.kind === "faucet" && root.faucetMsg.length > 0
