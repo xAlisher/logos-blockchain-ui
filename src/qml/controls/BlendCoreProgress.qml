@@ -26,6 +26,11 @@ LogosFrame {
     signal dismissRecoveryRequested()   // clear a terminally-stopped (attention) recovery
     property string resultText: ""
     property bool resultError: false
+    // Auto-hide the refresh result (e.g. "Checked — no change.") a few seconds after it lands,
+    // shown to the right of the action button instead of permanently on top.
+    property bool _showResult: false
+    onResultTextChanged: if (resultText.length > 0) { _showResult = true; resultHideTimer.restart() }
+    Timer { id: resultHideTimer; interval: 4000; repeat: false; onTriggered: root._showResult = false }
     property bool expanded: false
     property bool userToggled: false
     onDataChanged: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error"
@@ -266,13 +271,6 @@ LogosFrame {
                 }
             }
         }
-        LogosText {
-            objectName: "blendResult"
-            Layout.fillWidth: true
-            visible: root.resultText.length > 0
-            text: root.resultText; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
-            color: root.resultError ? Theme.palette.error : Theme.palette.textSecondary
-        }
         ColumnLayout {
             objectName: "blendExplanation"
             visible: root.expanded
@@ -281,7 +279,7 @@ LogosFrame {
             LogosText {
                 Layout.fillWidth: true; text: root.data.detail || qsTr("Refresh to check the node's current evidence.")
                 wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
-                color: Theme.palette.textSecondary
+                color: Theme.palette.text                 // white
             }
             LogosText {
                 objectName: "blendEvidence"
@@ -289,17 +287,28 @@ LogosFrame {
                 wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
                 color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
             }
-            LogosButton {
-                objectName: "blendAction"
-                Layout.maximumWidth: parent.width
-                text: root.data.actionLabel || qsTr("Refresh")
-                visible: ["manage", "repair", "refresh"].indexOf(root.data.action) >= 0
-                enabled: !root.busy && (!root.recoveryLocked || root.data.action === "refresh")
-                onClicked: {
-                    if (!enabled) return
-                    if (root.data.action === "manage") root.manageRequested()
-                    else if (root.data.action === "repair") root.repairRequested()
-                    else if (root.data.action === "refresh") root.refreshRequested()
+            RowLayout {
+                Layout.fillWidth: true; spacing: Theme.spacing.medium
+                LogosButton {
+                    objectName: "blendAction"
+                    text: root.data.actionLabel || qsTr("Refresh")
+                    visible: ["manage", "repair", "refresh"].indexOf(root.data.action) >= 0
+                    enabled: !root.busy && (!root.recoveryLocked || root.data.action === "refresh")
+                    onClicked: {
+                        if (!enabled) return
+                        if (root.data.action === "manage") root.manageRequested()
+                        else if (root.data.action === "repair") root.repairRequested()
+                        else if (root.data.action === "refresh") root.refreshRequested()
+                    }
+                }
+                // Refresh result to the RIGHT of the button; auto-hides after a few seconds.
+                LogosText {
+                    objectName: "blendResult"
+                    Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter
+                    visible: root._showResult && root.resultText.length > 0
+                    text: root.resultText; textFormat: Text.PlainText; elide: Text.ElideRight
+                    color: root.resultError ? Theme.palette.error : Theme.palette.textSecondary
+                    font.pixelSize: Theme.typography.secondaryText
                 }
             }
         }

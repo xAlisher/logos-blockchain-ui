@@ -866,7 +866,7 @@ Item {
                     ok: _verified || _core || root.portListening || root.portAttested
                     warn: !ok && !_failed     // amber unless a real unreachable verdict → red
                     label: qsTr("Reachability (Blend port)")
-                    okText: _verified ? qsTr("Reachable (verified)") : _core ? qsTr("Reachable") : root.portListening ? qsTr("Listening") : qsTr("Confirmed")
+                    okText: _verified ? qsTr("Reachable") : _core ? qsTr("Reachable") : root.portListening ? qsTr("Listening") : qsTr("Confirmed")
                     badText: root.reachChecking ? qsTr("Checking…") : _failed ? qsTr("Not reachable") : qsTr("Needs confirmation")
                     fix: root.reachChecking ? root.reachDetail
                         : _failed ? qsTr("The prober couldn't reach udp/%1 — fix your router's port-forward, then re-check.").arg(root.blendPort)
