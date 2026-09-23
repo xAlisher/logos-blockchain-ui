@@ -37,10 +37,12 @@ class Integration(unittest.TestCase):
         self.assertNotIn('EnableBlendCoreModal 1.0', (ROOT / 'views/qmldir').read_text())
 
     def test_header_button_removed(self):
-        # No header "Enable Blend Core" GhostButton; the tile CTA opens the tab (#120).
+        # No header "Enable Blend Core" GhostButton; the Blend tab button is the entry (#120).
         text = (ROOT / 'BlockchainView.qml').read_text()
         self.assertNotIn('id: blendBtn', text)
-        self.assertIn('onEnableBlendRequested: operationTabBar.currentIndex', text)
+        # The dead enableBlendRequested signal + handler are gone (no tile CTA).
+        self.assertNotIn('enableBlendRequested', text)
+        self.assertIn('text: qsTr("Blend")', text)   # Blend tab button is the entry point
 
     def test_wallet_fund_wired(self):
         # A real Fund action on every spendable key → faucet (#117).

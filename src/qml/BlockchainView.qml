@@ -2126,9 +2126,8 @@ Rectangle {
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
                         // Blend progress block moved to the Blend tab (#118); only the
-                        // Recover-node gate + the tile→tab CTA remain wired here.
+                        // Recover-node gate remains wired to the Node dashboard.
                         blendRecoveryLocked: root.blendRecoveryLocked
-                        onEnableBlendRequested: operationTabBar.currentIndex = 5   // Blend tile CTA → open the Blend tab (#120)
                         onRecoverRequested: if (!root.blendRecoveryLocked) recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 

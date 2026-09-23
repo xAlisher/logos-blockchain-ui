@@ -44,7 +44,6 @@ Item {
     // so its relay props/signals are gone. blendRecoveryLocked stays — the Recover-node
     // (bootstrap-stuck) button below still gates on it.
     property bool blendRecoveryLocked: false
-    signal enableBlendRequested()             // Blend tile CTA → open the Blend tab (#120)
     signal recoverRequested()                 // "Bootstrap stuck" hero CTA → host runs stop → reset chain → re-bootstrap
 
     // Version footer. This fork ships ONE module version — the /release in-UI guard
@@ -734,8 +733,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Last claim fee: %1% of reward").arg(root.feePct) : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendUi.value; sub: root._blendUi.sub; accent: root._blendUi.c; shine: root._blendPhase === "core"
-                            // Tile CTA opens the Blend tab (the header button was removed, #120).
-                            cta: qsTr("Open Blend"); onCtaClicked: root.enableBlendRequested()
+                            // No tile CTA — the tile shows Blend status only; the Blend tab is the entry point.
                             info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; progress: root._epochFrac; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.text) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }

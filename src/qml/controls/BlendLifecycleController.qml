@@ -75,7 +75,20 @@ QtObject {
                 root.recoveryReply = reply
                 root.recoveryPausedConfirmed = reply.ok && action === "pause"
                 root.recoveryResultError = !reply.ok
-                root.recoveryResultText = (reply.error ? String(reply.error) + ": " : "") + String(reply.message || reply.error || (reply.ok ? qsTr("Recovery request acknowledged. Refresh for verified progress.") : qsTr("Recovery request rejected.")))
+                if (action === "dismiss" && reply.ok) {
+                    // Dismiss cleared the stopped recovery — clear the result and refresh so the
+                    // recovery block hides (nothing left to show), instead of lingering.
+                    root.recoveryResultText = ""
+                    root.refresh(true)
+                } else {
+                    // Show "error: message" only when BOTH are present and add information;
+                    // a single field alone (or an empty message) must not be doubled.
+                    root.recoveryResultText = reply.ok
+                        ? String(reply.message || qsTr("Recovery request acknowledged. Refresh for verified progress."))
+                        : (reply.error && reply.message
+                            ? String(reply.error) + ": " + String(reply.message)
+                            : String(reply.error || reply.message || qsTr("Recovery request rejected.")))
+                }
             }, failed)
         } catch (e) { failed(e) }
     }
