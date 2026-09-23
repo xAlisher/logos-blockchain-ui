@@ -305,6 +305,21 @@ Window {
     // ── Blend wizard (tab 6): which step is showing ──
     property int blendStep: 1   // 1 Declaration · 2 Activation · 3 Active
 
+    // Lifecycle strip (i) modal — the six lane stages (mirrors the shipped module).
+    readonly property var _blendLifecycleInfo: ({
+        "title": qsTr("Blend Core lifecycle"),
+        "what": qsTr("The stages your node passes through to become and stay an active Blend Core provider. A stage shows a green check once reached; the current stage is highlighted (yellow while in progress); a red stage flags a problem; later stages stay grey."),
+        "states": [
+            ({ "label": qsTr("Online"), "meaning": qsTr("Node running and following the chain (mode Online).") }),
+            ({ "label": qsTr("Declared"), "meaning": qsTr("Your Blend declaration is recorded on-chain.") }),
+            ({ "label": qsTr("Activated"), "meaning": qsTr("In the Core set — the runtime reports Core (created + 2 epochs).") }),
+            ({ "label": qsTr("Connected"), "meaning": qsTr("Connected to at least one healthy Core peer.") }),
+            ({ "label": qsTr("Activity"), "meaning": qsTr("Recent activity accepted on-chain — active advanced past the baseline.") }),
+            ({ "label": qsTr("Maintaining"), "meaning": qsTr("All of the above holding together — healthy.") })
+        ],
+        "docs": "https://docs.logos.co/nodes/blend-core"
+    })
+
     // The SHIPPED BlendCoreProgress reducer output, mapped from the wizard's
     // current evidence. Deliberately NOT a linear wizard readout: the strip
     // reflects independent evidence per stage (per the state-gallery critique).
@@ -656,6 +671,7 @@ Window {
                         onRefreshRequested: {}
                         onManageRequested: win.blendStep = 3
                         onRepairRequested: {}
+                        onExplainRequested: { blendStripInfo.info = win._blendLifecycleInfo; blendStripInfo.open() }
                     }
                     StackLayout {
                         Layout.fillWidth: true; Layout.fillHeight: true
@@ -809,6 +825,9 @@ Window {
         onReachedCore: st.blend = "core"     // activated → Core
         onDisabled: st.blend = "edge"        // withdrawal → back to Edge
     }
+
+    // lifecycle strip (i) → stages modal
+    V.InfoModal { id: blendStripInfo }
 
     // Drag-reorder experiment — fixed Status hero on top, draggable metric tiles below.
     Rectangle {

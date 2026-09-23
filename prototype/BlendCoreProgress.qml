@@ -23,22 +23,41 @@ LogosFrame {
     signal recoverRequested()
     signal pauseRecoveryRequested()
     signal resumeRecoveryRequested()
+    signal dismissRecoveryRequested()   // clear a terminally-stopped (attention) recovery
     property string resultText: ""
     property bool resultError: false
+    // Auto-hide the refresh result (e.g. "Checked — no change.") a few seconds after it lands,
+    // shown to the right of the action button instead of permanently on top.
+    property bool _showResult: false
+    onResultTextChanged: if (resultText.length > 0) { _showResult = true; resultHideTimer.restart() }
+    Timer { id: resultHideTimer; interval: 4000; repeat: false; onTriggered: root._showResult = false }
     property bool expanded: false
     property bool userToggled: false
-    onDataChanged: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error"
+    onDataChanged: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error" || root.resultError
     Component.onCompleted: if (!userToggled) expanded = data.tone === "warning" || data.tone === "error"
+    // An error result keeps the panel open so it stays visible (it lives in the detail area).
+    onResultErrorChanged: if (resultError && !userToggled) expanded = true
     signal manageRequested()
     signal repairRequested()
     signal refreshRequested()
+    signal explainRequested()   // (i) tapped → parent opens the stages modal
     readonly property var data: lifecycle || ({})
+    // Titles of the form "Main; description" split into a big title + a gray description line
+    // (e.g. "Binding confirmed; awaiting activity" → title "Binding confirmed" / desc "Awaiting activity").
+    readonly property string _fullTitle: data.title || qsTr("Status unavailable")
+    readonly property int _semi: _fullTitle.indexOf(";")
+    readonly property string _titleMain: _semi >= 0 ? _fullTitle.substring(0, _semi).trim() : _fullTitle
+    readonly property string _titleDesc: {
+        if (_semi < 0) return ""
+        var s = _fullTitle.substring(_semi + 1).trim()
+        return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : ""
+    }
     readonly property color accent: data.tone === "error" ? Theme.palette.error
         : data.tone === "warning" ? Theme.palette.warning
         : data.tone === "success" ? Theme.palette.success : Theme.palette.textSecondary
     backgroundColor: Theme.palette.surfaceRaised
     borderColor: "transparent"
-    background: Rectangle { color: root.backgroundColor; radius: Theme.spacing.radiusLarge }
+    radius: Theme.spacing.radiusLarge   // same mechanism as the dashboard tiles (frame radius, not a custom bg)
     padding: Theme.spacing.large
     implicitWidth: 920
     QQC.Dialog {
@@ -83,32 +102,45 @@ LogosFrame {
     }
     contentItem: ColumnLayout {
         spacing: Theme.spacing.small
+        // The big state title doubles as the expand/collapse control (tap to toggle);
+        // no separate "Blend Core" label or chevron row — the card lives in the Blend tab.
+        // An (i) (same 16×16 bordered glyph as the dashboard tiles) opens the stages modal.
         RowLayout {
-            Layout.fillWidth: true
-            ColumnLayout {
+            Layout.fillWidth: true; spacing: Theme.spacing.small
+            LogosText {
+                objectName: "blendTitle"
                 Layout.fillWidth: true
-                LogosText { text: qsTr("Blend Core"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                LogosText {
-                    objectName: "blendTitle"
-                    Layout.fillWidth: true
-                    text: root.data.title || qsTr("Status unavailable")
-                    color: root.accent; font.pixelSize: 24; font.weight: Theme.typography.weightBold
-                    wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                text: root._titleMain
+                color: root.accent; font.pixelSize: 32; font.weight: Theme.typography.weightBold   // hero size, matches the dashboard Status card
+                wrapMode: Text.WordWrap; textFormat: Text.PlainText
+                Accessible.name: (root.expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + text
+                TapHandler {
+                    objectName: "blendToggle"
+                    onTapped: { root.userToggled = true; root.expanded = !root.expanded }
                 }
             }
-            QQC.ToolButton {
-                objectName: "blendToggle"
-                text: root.expanded ? "⌃" : "⌄"
-                Accessible.name: root.expanded ? qsTr("Collapse Blend Core details") : qsTr("Expand Blend Core details")
-                onClicked: { root.userToggled = true; root.expanded = !root.expanded }
-                contentItem: LogosText { text: parent.text; color: Theme.palette.textSecondary; horizontalAlignment: Text.AlignHCenter; font.pixelSize: 24 }
-                background: Rectangle { color: "transparent" }
+            // description: top-right next to the (i), like the dashboard Status card's sub
+            LogosText {
+                objectName: "blendSubtitle"
+                visible: root._titleDesc.length > 0
+                Layout.alignment: Qt.AlignTop; text: root._titleDesc
+                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; textFormat: Text.PlainText
+            }
+            Rectangle {
+                objectName: "blendInfo"
+                Layout.alignment: Qt.AlignTop; Layout.leftMargin: Theme.spacing.small
+                width: 16; height: 16; radius: 8; color: "transparent"; border.width: 1
+                border.color: infoIma.containsMouse ? Theme.palette.text : Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
+                LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: infoIma.containsMouse ? Theme.palette.text : Theme.palette.textMuted }
+                MouseArea { id: infoIma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.explainRequested() }
             }
         }
         Item {
             id: lane
             objectName: "blendStrip"
             Layout.fillWidth: true
+            Layout.topMargin: Theme.spacing.large       // gap title→lane, matches the dashboard Status card (spacing+topMargin)
+            Layout.bottomMargin: Theme.spacing.medium   // breathing room between the strip and the text below it
             implicitHeight: 30
             readonly property var steps: root.data.steps && root.data.steps.length ? root.data.steps
                 : [qsTr("Online"), qsTr("Declared"), qsTr("Activated"), qsTr("Connected"), qsTr("Activity"), qsTr("Maintaining")].map(function(label) { return {label: label, state: "pending"} })
@@ -117,6 +149,17 @@ LogosFrame {
             function segmentLeft(i) { return i * (segmentWidth - 12) }
             onStepsChanged: canvas.requestPaint()
             onWidthChanged: canvas.requestPaint()
+            // Breathe the CURRENT chevron (like the dashboard's aged lane): ease up, ease down.
+            readonly property bool hasCurrent: {
+                var s = steps; for (var i = 0; i < s.length; ++i) if (s[i].state === "current") return true; return false
+            }
+            property real breathe: 0
+            onBreatheChanged: canvas.requestPaint()
+            SequentialAnimation on breathe {
+                running: lane.hasCurrent; loops: Animation.Infinite
+                NumberAnimation { from: 0; to: 1; duration: 1400; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 1; to: 0; duration: 1400; easing.type: Easing.InOutSine }
+            }
             Canvas {
                 id: canvas
                 anchors.fill: parent
@@ -128,7 +171,8 @@ LogosFrame {
                         var state = lane.steps[i].state
                         var c = state === "error" ? Theme.palette.error : root.accent
                         ctx.fillStyle = state === "complete" ? Theme.palette.surface
-                            : state === "pending" ? Theme.palette.surfaceRecessed : Qt.rgba(c.r, c.g, c.b, 0.20)
+                            : state === "pending" ? Theme.palette.surfaceRecessed
+                            : Qt.rgba(c.r, c.g, c.b, 0.14 + 0.30 * lane.breathe)   // current → breathing
                         var pts = [[x0, 0]]
                         if (i === lane.steps.length - 1) pts.push([x1, 0], [x1, height])
                         else pts.push([x1 - 14, 0], [x1, height / 2], [x1 - 14, height])
@@ -146,20 +190,40 @@ LogosFrame {
             }
             Repeater {
                 model: lane.steps
-                LogosText {
+                Item {
+                    id: stepCell
                     required property int index
                     required property var modelData
                     objectName: "blendStep" + index
                     x: lane.segmentLeft(index) + (index > 0 ? 14 : 0)
                     width: lane.segmentWidth - (index > 0 ? 14 : 0) - (index < lane.steps.length - 1 ? 14 : 0)
                     height: lane.height
-                    horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
-                    text: (modelData.state === "complete" ? "✓ " : "") + modelData.label
-                    font.pixelSize: 12; elide: Text.ElideRight; textFormat: Text.PlainText
-                    color: modelData.state === "error" ? Theme.palette.error : modelData.state === "current" ? root.accent
-                        : modelData.state === "complete" ? Theme.palette.textSecondary : Theme.palette.textTertiary
+                    // Like the dashboard lifecycle lane: a GREEN check for completed stages, with the
+                    // label itself in muted GRAY; the current stage takes the state accent (yellow
+                    // while in-progress), pending is faint.
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        LogosText {
+                            id: stepCheck
+                            visible: stepCell.modelData.state === "complete"
+                            text: "✓"; color: Theme.palette.success
+                            font.pixelSize: 12; font.weight: Theme.typography.weightBold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        LogosText {
+                            text: stepCell.modelData.label
+                            font.pixelSize: 12; textFormat: Text.PlainText; elide: Text.ElideRight
+                            width: Math.min(implicitWidth, stepCell.width - (stepCheck.visible ? stepCheck.implicitWidth + parent.spacing : 0))
+                            color: stepCell.modelData.state === "error" ? Theme.palette.error
+                                : stepCell.modelData.state === "current" ? root.accent
+                                : stepCell.modelData.state === "complete" ? Theme.palette.textSecondary
+                                : Theme.palette.textTertiary
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
                     QQC.ToolTip.visible: stepHover.hovered
-                    QQC.ToolTip.text: modelData.label + " · " + modelData.state
+                    QQC.ToolTip.text: stepCell.modelData.label + " · " + stepCell.modelData.state
                     HoverHandler { id: stepHover }
                 }
             }
@@ -172,7 +236,7 @@ LogosFrame {
             spacing: Theme.spacing.small
             LogosText {
                 objectName: "blendRecoveryTitle"
-                Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; textFormat: Text.PlainText
                 text: root.recovery.title || (root.recoveryLocked ? qsTr("Recovery status pending") : qsTr("Recover Core"))
                 color: root.recoveryAccent; font.weight: Theme.typography.weightBold
             }
@@ -240,18 +304,18 @@ LogosFrame {
                     onClicked: if (enabled) root.resumeRecoveryRequested()
                 }
                 LogosButton {
+                    objectName: "blendRecoveryDismiss"; text: qsTr("Dismiss")
+                    // Terminal (attention) only — clears the retained journal so it stops nagging.
+                    visible: root.recovery.canDismiss === true
+                    enabled: root.backendReady && !root.recoveryBusy
+                    onClicked: if (enabled) root.dismissRecoveryRequested()
+                }
+                LogosButton {
                     objectName: "blendRecoveryRefresh"; text: qsTr("Refresh")
                     enabled: root.backendReady && !root.loading
                     onClicked: root.refreshRequested()
                 }
             }
-        }
-        LogosText {
-            objectName: "blendResult"
-            Layout.fillWidth: true
-            visible: root.resultText.length > 0
-            text: root.resultText; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere
-            color: root.resultError ? Theme.palette.error : Theme.palette.textSecondary
         }
         ColumnLayout {
             objectName: "blendExplanation"
@@ -260,26 +324,38 @@ LogosFrame {
             spacing: Theme.spacing.small
             LogosText {
                 Layout.fillWidth: true; text: root.data.detail || qsTr("Refresh to check the node's current evidence.")
-                wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
-                color: Theme.palette.textSecondary
+                wrapMode: Text.WordWrap; textFormat: Text.PlainText   // whole words, never mid-word breaks
+                color: Theme.palette.text                 // white
             }
             LogosText {
                 objectName: "blendEvidence"
                 Layout.fillWidth: true; text: root.data.evidence || qsTr("Evidence unavailable.")
-                wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                wrapMode: Text.WordWrap; textFormat: Text.PlainText   // whole words, never mid-word breaks
                 color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
             }
-            LogosButton {
-                objectName: "blendAction"
-                Layout.maximumWidth: parent.width
-                text: root.data.actionLabel || qsTr("Refresh")
-                visible: ["manage", "repair", "refresh"].indexOf(root.data.action) >= 0
-                enabled: !root.busy && (!root.recoveryLocked || root.data.action === "refresh")
-                onClicked: {
-                    if (!enabled) return
-                    if (root.data.action === "manage") root.manageRequested()
-                    else if (root.data.action === "repair") root.repairRequested()
-                    else if (root.data.action === "refresh") root.refreshRequested()
+            RowLayout {
+                Layout.fillWidth: true; spacing: Theme.spacing.medium
+                LogosButton {
+                    objectName: "blendAction"
+                    text: root.data.actionLabel || qsTr("Refresh")
+                    visible: ["manage", "repair", "refresh"].indexOf(root.data.action) >= 0
+                    enabled: !root.busy && (!root.recoveryLocked || root.data.action === "refresh")
+                    onClicked: {
+                        if (!enabled) return
+                        if (root.data.action === "manage") root.manageRequested()
+                        else if (root.data.action === "repair") root.repairRequested()
+                        else if (root.data.action === "refresh") root.refreshRequested()
+                    }
+                }
+                // Refresh result to the RIGHT of the button; auto-hides after a few seconds.
+                LogosText {
+                    objectName: "blendResult"
+                    Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter
+                    // Errors persist; non-error results (e.g. "Checked — no change.") auto-hide.
+                    visible: root.resultText.length > 0 && (root.resultError || root._showResult)
+                    text: root.resultText; textFormat: Text.PlainText; elide: Text.ElideRight
+                    color: root.resultError ? Theme.palette.error : Theme.palette.textSecondary
+                    font.pixelSize: Theme.typography.secondaryText
                 }
             }
         }
