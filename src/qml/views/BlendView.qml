@@ -898,13 +898,22 @@ Item {
                 LogosText { text: qsTr("LIVENESS"); color: Theme.palette.textTertiary; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
                     contentItem: ColumnLayout { spacing: Theme.spacing.small
-                        KV { k: qsTr("Provider nonce"); sub: qsTr("one signal of activity — read with membership, not proof alone"); v: root.recNonce >= 0 ? "" + root.recNonce : "—"; valColor: Theme.palette.success
+                        // nonce is a positive signal only when it has actually advanced; 0/"—" is neutral, not green.
+                        KV { k: qsTr("Provider nonce"); sub: qsTr("one signal of activity — read with membership, not proof alone"); v: root.recNonce >= 0 ? "" + root.recNonce : "—"; valColor: root.recNonce > 0 ? Theme.palette.success : Theme.palette.textSecondary
                              info: ({ "title": qsTr("Provider nonce"), "what": qsTr("An on-chain counter that advances with accepted activity. A rising nonce is one signal you're live, not sufficient alone — liveness = membership AND healthy peers AND recent activity."), "states": [], "docs": root.docsUrl }) }
-                        KV { k: qsTr("Active heartbeat"); v: qsTr("Sending"); valColor: Theme.palette.success }
-                        KV { k: qsTr("Reachability (Blend port)")
-                             v: (root.backend && root.backend.blendStatus === BlockchainBackend.Core) ? qsTr("Reachable")
-                                : root.portListening ? qsTr("Listening") : root.portAttested ? qsTr("Confirmed") : qsTr("Needs confirmation")
-                             valColor: ((root.backend && root.backend.blendStatus === BlockchainBackend.Core) || root.portListening || root.portAttested) ? Theme.palette.success : Theme.palette.warning }
+                        // heartbeat: the engine emits Active messages only while the blend service runs; show
+                        // "Not sending" (red) when it isn't, instead of an unconditional green "Sending".
+                        KV { readonly property bool _hb: root.backend && (root.backend.blendStatus === BlockchainBackend.Edge || root.backend.blendStatus === BlockchainBackend.Core || root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
+                             k: qsTr("Active heartbeat"); v: _hb ? qsTr("Sending") : qsTr("Not sending"); valColor: _hb ? Theme.palette.success : Theme.palette.error
+                             info: ({ "title": qsTr("Active heartbeat"), "what": qsTr("A periodic message the node emits to signal it's a live provider. Not work-verified in this release — it means declared + heartbeating + reachable, not proof of mixing."), "states": [{ "label": qsTr("Sending"), "meaning": qsTr("Node is heartbeating.") }, { "label": qsTr("Not sending"), "meaning": qsTr("Node down or stalled.") }], "docs": root.docsUrl }) }
+                        // reachability: same real-signal ladder as the activation view — verified prober verdict,
+                        // Core membership, local listener, attestation; a real unreachable verdict is red, unconfirmed amber.
+                        KV { readonly property bool _rOk: root.reachVerdict === "reachable" || (root.backend && root.backend.blendStatus === BlockchainBackend.Core) || root.portListening || root.portAttested
+                             k: qsTr("Reachability (Blend port)")
+                             v: (root.reachVerdict === "reachable" || (root.backend && root.backend.blendStatus === BlockchainBackend.Core)) ? qsTr("Reachable")
+                                : root.portListening ? qsTr("Listening") : root.portAttested ? qsTr("Confirmed")
+                                : root.reachChecking ? qsTr("Checking…") : root.reachVerdict === "unreachable" ? qsTr("Not reachable") : qsTr("Needs confirmation")
+                             valColor: _rOk ? Theme.palette.success : root.reachVerdict === "unreachable" ? Theme.palette.error : Theme.palette.warning }
                     }
                 }
 

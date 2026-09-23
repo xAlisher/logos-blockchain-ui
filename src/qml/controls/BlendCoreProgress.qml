@@ -169,8 +169,10 @@ LogosFrame {
                     horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
                     text: (modelData.state === "complete" ? "✓ " : "") + modelData.label
                     font.pixelSize: 12; elide: Text.ElideRight; textFormat: Text.PlainText
+                    // completed stages show a green check (matches the dashboard lifecycle lane);
+                    // the current stage takes the state accent (yellow while in-progress), pending is muted.
                     color: modelData.state === "error" ? Theme.palette.error : modelData.state === "current" ? root.accent
-                        : modelData.state === "complete" ? Theme.palette.textSecondary : Theme.palette.textTertiary
+                        : modelData.state === "complete" ? Theme.palette.success : Theme.palette.textTertiary
                     QQC.ToolTip.visible: stepHover.hovered
                     QQC.ToolTip.text: modelData.label + " · " + modelData.state
                     HoverHandler { id: stepHover }

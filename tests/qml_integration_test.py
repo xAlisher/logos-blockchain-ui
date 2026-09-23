@@ -62,6 +62,19 @@ class Integration(unittest.TestCase):
         self.assertNotIn('does NOT emit', helptext)
         self.assertNotIn('and earning rewards.', helptext)
 
+    def test_no_hardcoded_liveness(self):
+        # The Active/Core block must derive liveness from real signals, not hardcode them.
+        # Regression guards for the audit that fixed the always-green heartbeat/nonce/reach.
+        blend = (ROOT / 'views/BlendView.qml').read_text()
+        # heartbeat must never be an unconditional green "Sending" — it needs a negative branch
+        self.assertNotIn('v: qsTr("Sending"); valColor: Theme.palette.success', blend)
+        self.assertIn('Not sending', blend)
+        # nonce is green only when it has advanced past 0
+        self.assertIn('recNonce > 0 ? Theme.palette.success', blend)
+        # active-block reachability honours a real unreachable verdict (red), like the activation view
+        self.assertGreaterEqual(blend.count('reachVerdict === "unreachable"'), 2)
+        self.assertIn('Not reachable', blend)
+
 
 if __name__ == '__main__':
     unittest.main()

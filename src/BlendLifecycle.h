@@ -65,7 +65,7 @@ inline QVariantMap reduce(const QVariantMap& in)
     else if (accepted && !connected)
         set("at-risk", "Core connectivity uncertain", "Accepted activity exists, but current Core connectivity is not healthy or is unknown.", "warning");
     else
-        set("collecting", "Collecting Blend activity", "No accepted activity is visible yet. Core mode and nonce alone do not prove activity; local binding may be unknown.");
+        set("collecting", "Collecting Blend activity", "No accepted activity is visible yet. Core mode and nonce alone do not prove activity; local binding may be unknown.", "warning");
     // This engine has no runtime binding GET. An explicit idempotent setter is a
     // useful operator action when activity is missing/stale; unknown is NOT a diagnosis.
     if ((state == "collecting" || state == "at-risk") && in.value("core").toBool()
