@@ -1569,9 +1569,17 @@ qint64 LogosNode1clickBackend::blendMissingBindingAt(qint64 runStart) const
 // per-peer reachability / message-send counters live ONLY in the node log; the live /blend/info
 // API contributes the currently-connected peers and their health bool. We merge both and tag each
 // row with its source(s) so the UI never implies more certainty than the source provides.
-QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, const QString& ourId)
+QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, const QString& ourId, int currentEpoch, qint64 epochStartMs)
 {
     QVariantMap out;
+    // Reset the per-epoch proposal/miss tally on an epoch change; seed the cursor at the epoch
+    // start so this epoch's counts include what is still in the scanned log tail.
+    if (currentEpoch != m_countEpoch) {
+        m_countEpoch = currentEpoch;
+        m_epochProposals = 0; m_epochDirect = 0;
+        m_lastCountedTs = epochStartMs;
+    }
+    qint64 newestCountedTs = m_lastCountedTs;
     // ---- API: peers we're currently connected to (id -> healthy) ----
     QMap<QString, bool> apiHealth;
     const QJsonArray cep = core.toObject().value(QStringLiteral("current_epoch_peers")).toArray();
@@ -1590,7 +1598,12 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
         static const QRegularExpression reDial(QStringLiteral("Dialing error for peer: Some\\(PeerId\\(\"([^\"]+)\"\\)\\)|Giving up on message delivery: peer PeerId\\(\"([^\"]+)\"\\)"));
         static const QRegularExpression reSent(QStringLiteral("Sent out (\\d+) data, (\\d+) processed and (\\d+) cover"));
         static const QRegularExpression reMiss(QStringLiteral("did not deliver (\\d+) locally-originated payload"));
+        static const QRegularExpression reProposed(QStringLiteral("proposed block HeaderId"));
         static const QRegularExpression ts(QStringLiteral("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z"));
+        auto lineTs = [&](const QString& line) -> qint64 {
+            const auto t = ts.match(line);
+            return t.hasMatch() ? QDateTime::fromString(t.captured(), Qt::ISODateWithMs).toMSecsSinceEpoch() : 0;
+        };
         for (int i = 0; i < qMin(2, int(files.size())); ++i) {
             QFile file(files[i].absoluteFilePath());
             if (!file.open(QIODevice::ReadOnly)) continue;
@@ -1616,10 +1629,19 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
                         window = QStringLiteral("%1 sent · %2 processed · %3 cover").arg(ms.captured(1), ms.captured(2), ms.captured(3)); }
                 }
                 const auto mm = reMiss.match(line);
-                if (mm.hasMatch()) missed += mm.captured(1).toInt();
+                if (mm.hasMatch()) {
+                    missed += mm.captured(1).toInt();
+                    const qint64 at = lineTs(line);   // per-epoch tally: only new lines past the cursor
+                    if (at > m_lastCountedTs) { m_epochDirect += mm.captured(1).toInt(); if (at > newestCountedTs) newestCountedTs = at; }
+                }
+                if (reProposed.match(line).hasMatch()) {
+                    const qint64 at = lineTs(line);
+                    if (at > m_lastCountedTs) { ++m_epochProposals; if (at > newestCountedTs) newestCountedTs = at; }
+                }
             }
         }
     }
+    m_lastCountedTs = newestCountedTs;   // advance the per-epoch cursor
     // Cache the log roster so the table/count stay stable on polls where the ~hourly membership
     // line has scrolled out of the scanned tail; a fresh scan supersedes it. Kept log-only so the
     // Log/API source tags stay accurate (API-only peers are folded into the union below, not here).
@@ -1644,7 +1666,8 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
     out["peers"] = peers;
     out["messages"] = QVariantMap{{"window", window}, {"windowTs", windowTs}, {"missed", missed},
                                   {"connected", apiHealth.size()}, {"total", int(ids.size())},
-                                  {"fromLog", !window.isEmpty() || !rosterAddr.isEmpty()}};
+                                  {"fromLog", !window.isEmpty() || !rosterAddr.isEmpty()},
+                                  {"epoch", m_countEpoch}, {"proposalsEpoch", m_epochProposals}, {"directEpoch", m_epochDirect}};
     return out;
 }
 
@@ -1676,7 +1699,10 @@ qint64 LogosNode1clickBackend::blendBindingLoadedAt(qint64 runStart, const QStri
             const auto time = timestamp.match(line);
             if (!time.hasMatch()) continue;
             const qint64 at = QDateTime::fromString(time.captured(), Qt::ISODateWithMs).toMSecsSinceEpoch();
-            if (at >= runStart) latest = qMax(latest, at);
+            // The "Loaded declaration" line is emitted in the same SDP-init burst as
+            // "Service 'Sdp' is ready" (the run-start marker) and lands a hair BEFORE it, so allow a
+            // small tolerance, then clamp to runStart so the caller treats it as confirmed-this-run.
+            if (at >= runStart - 3000) latest = qMax(latest, qMax(at, runStart));
         }
     }
     return latest;
@@ -2084,7 +2110,15 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
         || (!completedWithdrawal && (m_blendWithdrawalPending || store.value("withdraw_pending").toBool()))
         || (m_blendMutation && !m_recoveryTick);
     // Core-peer roster + message telemetry (API + log), for the Blend tab's nodes table and cards.
-    const QVariantMap telemetry = blendCoreTelemetry(core, blend.value("node_id").toString());
+    // Derive the current epoch's start (ms) so proposal/miss counts can be scoped per epoch.
+    const int curEpoch = time.value("current_epoch").toInt(-1);
+    const qint64 slotDur = static_cast<qint64>(time.value("slot_duration_ms").toDouble(0));
+    const qint64 genesisMs = static_cast<qint64>(time.value("genesis_time_unix_ms").toDouble(0));
+    const qint64 curSlot = static_cast<qint64>(time.value("current_slot").toDouble(0));
+    const qint64 epochLenSlots = 36000;
+    const qint64 epochStartMs = (slotDur > 0 && genesisMs > 0 && curSlot > 0)
+        ? genesisMs + (curSlot / epochLenSlots) * epochLenSlots * slotDur : 0;
+    const QVariantMap telemetry = blendCoreTelemetry(core, blend.value("node_id").toString(), curEpoch, epochStartMs);
     result["corePeers"] = telemetry.value("peers");
     result["messages"] = telemetry.value("messages");
     return withBlendRecovery(result);

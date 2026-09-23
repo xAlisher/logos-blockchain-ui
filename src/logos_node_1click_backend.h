@@ -161,8 +161,14 @@ private:
     // Core-peer roster + message telemetry, merged from the live /blend/info API and the node log.
     // Non-const: the membership roster (logged only ~once per epoch) is cached so the table stays
     // stable across polls where the roster line has scrolled out of the scanned log tail.
-    QVariantMap blendCoreTelemetry(const QJsonValue& core, const QString& ourId);
+    QVariantMap blendCoreTelemetry(const QJsonValue& core, const QString& ourId, int currentEpoch, qint64 epochStartMs);
     QMap<QString, QString> m_coreRoster;   // peerId -> address, last seen in the node log
+    // Per-epoch accumulators for proposals blended vs broadcast-direct. Reset when the epoch
+    // changes; counted incrementally from new log lines so a 10h epoch needs no full re-scan.
+    int m_epochProposals = 0;
+    int m_epochDirect = 0;
+    int m_countEpoch = -1;
+    qint64 m_lastCountedTs = 0;
     // Last-resort force stop: SIGKILL the module host on the node's HTTP port.
     bool forceStopNode();
     // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).
