@@ -1923,22 +1923,22 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
     m_recoverySnapshot.bindingKnown = input["bindingStatus"] == "confirmed";
     QStringList evidence;
     if (apiOk) {
-        evidence << QStringLiteral("Epoch %1 · %2 · %3 healthy peers")
+        const int hp = input["healthyPeers"].toInt();
+        evidence << QStringLiteral("Epoch %1 · %2 · %3")
             .arg(input["epoch"].toInt())
-            .arg(core.isObject() ? QStringLiteral("Core") : QStringLiteral("Not Core"))
-            .arg(input["healthyPeers"].toInt() < 0 ? QStringLiteral("unknown") : QString::number(input["healthyPeers"].toInt()));
-        if (!record.isEmpty()) evidence << QStringLiteral("Declared %1 · active %2%3 · nonce %4")
+            .arg(core.isObject() ? QStringLiteral("in Core") : QStringLiteral("not in Core"))
+            .arg(hp < 0 ? QStringLiteral("peers unknown") : QStringLiteral("%1 healthy peers").arg(hp));
+        if (!record.isEmpty()) evidence << QStringLiteral("Declared at epoch %1, active from epoch %2%3 · nonce %4")
             .arg(input["created"].toInt()).arg(input["active"].toInt())
-            .arg(input["active"].toInt() == input["created"].toInt() + 2 ? QStringLiteral(" (initial baseline)") : QString())
+            .arg(input["active"].toInt() == input["created"].toInt() + 2 ? QStringLiteral(" (first eligible)") : QString())
             .arg(input["nonce"].toString());
     }
-    if (!apiOk) evidence << QStringLiteral("One or more local API requests failed or returned malformed JSON.");
+    if (!apiOk) evidence << QStringLiteral("A local node API request failed or returned unreadable data.");
     if (!identity.value("error").toString().isEmpty()) evidence << identity.value("error").toString();
-    if (!runtimeIdentityOk) evidence << QStringLiteral("The API's public node identity does not verify against this configured provider; actions are blocked.");
-    if (input["bindingStatus"] == "missing") evidence << QStringLiteral("Current-run SDP log: No declaration_id set. Cannot post activity without declaration.");
-    else if (input["bindingStatus"] == "confirmed") evidence << QStringLiteral("This run acknowledged /sdp/set-declaration-id; no newer missing-binding error observed.");
-    else evidence << QStringLiteral("Local SDP binding is unknown; config omission is not proof of a missing runtime binding.");
-    if (!record.isEmpty()) evidence << QStringLiteral("Accepted activity requires active > created + 2; nonce also includes withdrawals. Membership uses a frozen epoch snapshot.");
+    if (!runtimeIdentityOk) evidence << QStringLiteral("The node's public identity does not match this provider, so actions are blocked.");
+    if (input["bindingStatus"] == "missing") evidence << QStringLiteral("Activity binding: this run reports no declaration set, so it cannot post activity.");
+    else if (input["bindingStatus"] == "confirmed") evidence << QStringLiteral("Activity binding: set and acknowledged this run.");
+    else evidence << QStringLiteral("Activity binding: not known from here (a config omission is not proof it is missing).");
     input["evidence"] = evidence.join(' ');
     // Do not hide repair from the internal guard; UI overlap is guarded separately.
     QVariantMap result = BlendLifecycle::reduce(input);

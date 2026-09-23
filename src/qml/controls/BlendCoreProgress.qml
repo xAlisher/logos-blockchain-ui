@@ -91,32 +91,25 @@ LogosFrame {
     }
     contentItem: ColumnLayout {
         spacing: Theme.spacing.small
-        RowLayout {
+        // The big state title doubles as the expand/collapse control (tap to toggle);
+        // no separate "Blend Core" label or chevron row — the card lives in the Blend tab.
+        LogosText {
+            objectName: "blendTitle"
             Layout.fillWidth: true
-            ColumnLayout {
-                Layout.fillWidth: true
-                LogosText { text: qsTr("Blend Core"); color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
-                LogosText {
-                    objectName: "blendTitle"
-                    Layout.fillWidth: true
-                    text: root.data.title || qsTr("Status unavailable")
-                    color: root.accent; font.pixelSize: 24; font.weight: Theme.typography.weightBold
-                    wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
-                }
-            }
-            QQC.ToolButton {
+            text: root.data.title || qsTr("Status unavailable")
+            color: root.accent; font.pixelSize: 24; font.weight: Theme.typography.weightBold
+            wrapMode: Text.WordWrap; textFormat: Text.PlainText
+            Accessible.name: (root.expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + text
+            TapHandler {
                 objectName: "blendToggle"
-                text: root.expanded ? "⌃" : "⌄"
-                Accessible.name: root.expanded ? qsTr("Collapse Blend Core details") : qsTr("Expand Blend Core details")
-                onClicked: { root.userToggled = true; root.expanded = !root.expanded }
-                contentItem: LogosText { text: parent.text; color: Theme.palette.textSecondary; horizontalAlignment: Text.AlignHCenter; font.pixelSize: 24 }
-                background: Rectangle { color: "transparent" }
+                onTapped: { root.userToggled = true; root.expanded = !root.expanded }
             }
         }
         Item {
             id: lane
             objectName: "blendStrip"
             Layout.fillWidth: true
+            Layout.bottomMargin: Theme.spacing.medium   // breathing room between the strip and the text below it
             implicitHeight: 30
             readonly property var steps: root.data.steps && root.data.steps.length ? root.data.steps
                 : [qsTr("Online"), qsTr("Declared"), qsTr("Activated"), qsTr("Connected"), qsTr("Activity"), qsTr("Maintaining")].map(function(label) { return {label: label, state: "pending"} })
@@ -192,7 +185,7 @@ LogosFrame {
             spacing: Theme.spacing.small
             LogosText {
                 objectName: "blendRecoveryTitle"
-                Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; textFormat: Text.PlainText
                 text: root.recovery.title || (root.recoveryLocked ? qsTr("Recovery status pending") : qsTr("Recover Core"))
                 color: root.recoveryAccent; font.weight: Theme.typography.weightBold
             }
@@ -280,13 +273,13 @@ LogosFrame {
             spacing: Theme.spacing.small
             LogosText {
                 Layout.fillWidth: true; text: root.data.detail || qsTr("Refresh to check the node's current evidence.")
-                wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                wrapMode: Text.WordWrap; textFormat: Text.PlainText   // whole words, never mid-word breaks
                 color: Theme.palette.text                 // white
             }
             LogosText {
                 objectName: "blendEvidence"
                 Layout.fillWidth: true; text: root.data.evidence || qsTr("Evidence unavailable.")
-                wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText
+                wrapMode: Text.WordWrap; textFormat: Text.PlainText   // whole words, never mid-word breaks
                 color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
             }
             RowLayout {

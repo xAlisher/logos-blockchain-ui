@@ -49,7 +49,7 @@ inline QVariantMap reduce(const QVariantMap& in)
         out["ok"] = false;
         set("unavailable", "Declaration telemetry incomplete", "Created and active epochs are required to assess activity.", "warning");
     } else if (epoch < created + 2)
-        set("activation-pending", "Activation pending", "Activation starts at created + 2 epochs, subject to the frozen membership snapshot.", "warning");
+        set("activation-pending", "Activation pending", "Your declaration is on chain. Core switches on two epochs after it was created. Keep the node online; there is nothing to do and no need to declare again.", "warning");
     else if (out["bindingStatus"] == "missing")
         set("binding-missing", "Local SDP binding missing", "The current node run reports no declaration_id. Repair the existing owned binding; do not redeclare.", "error", "repair");
     else if (epoch >= active + 3)
@@ -57,7 +57,7 @@ inline QVariantMap reduce(const QVariantMap& in)
     else if (epoch >= active + 2)
         set("at-risk", "Activity at risk", "No newer accepted activity is visible; the next epoch may exclude this provider.", "warning");
     else if (!in.value("core").toBool() && !accepted)
-        set("activation-pending", "Waiting for Core membership", "The runtime is not Core. Frozen membership or the network's minimum member threshold may still prevent activation. Stay online; do not redeclare.", "warning");
+        set("activation-pending", "Waiting for Core membership", "The node has aged in but is not in Core yet. The membership snapshot taken at the epoch boundary, or a network minimum-members threshold, can hold this up. Stay online; do not declare again.", "warning");
     else if (accepted && connected)
         set("healthy", "Maintaining Blend Core", "Recent accepted activity and Core connectivity are observed. This is not a payout or future eligibility guarantee.", "success");
     else if (!accepted && out["bindingStatus"] == "confirmed")

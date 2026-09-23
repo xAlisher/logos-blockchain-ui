@@ -34,7 +34,7 @@ TestCase {
         panel.busy = true
         verify(!button.enabled)
         mouseClick(button); compare(actionSpy.count, 1)
-        mouseClick(findChild(panel, "blendToggle")); compare(panel.expanded, false)
+        mouseClick(findChild(panel, "blendTitle")); compare(panel.expanded, false)
         panel.lifecycle = fixture("error", row.tag)
         compare(panel.expanded, false) // user choice survives polls
     }
@@ -79,7 +79,7 @@ TestCase {
     function test_collapsed_expansion() {
         compare(panel.expanded, false)
         verify(!findChild(panel, "blendExplanation").visible)
-        mouseClick(findChild(panel, "blendToggle"))
+        mouseClick(findChild(panel, "blendTitle"))
         compare(panel.expanded, true)
         verify(findChild(panel, "blendExplanation").visible)
         verify(findChild(panel, "blendAction").visible)

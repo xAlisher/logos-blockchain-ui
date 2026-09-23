@@ -524,7 +524,9 @@ Item {
     component KV: RowLayout {
         property string k; property string sub: ""; property string v; property string copyValue: ""
         property var info: null; property color valColor: Theme.palette.text
-        Layout.fillWidth: true; spacing: Theme.spacing.small
+        // Uniform single-line row height (matches the 22px copy/info controls) so rows
+        // with a copy button or (i) and rows without keep even vertical spacing.
+        Layout.fillWidth: true; Layout.minimumHeight: 22; spacing: Theme.spacing.small
         ColumnLayout {
             spacing: 1; Layout.fillWidth: true
             LogosText { Layout.fillWidth: true; text: k; color: Theme.palette.textSecondary; font.pixelSize: 11 }
