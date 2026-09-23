@@ -434,8 +434,12 @@ Item {
                 }
                 LogosText {   // wizard step indicator (replaces the modal's close button)
                     Layout.alignment: Qt.AlignTop
+                    // "core" phase covers both maturing (declared, not yet mixing) and truly
+                    // active. Only call it Active (Step 3) when actually mixing — otherwise it's
+                    // still Activation (Step 2), matching the strip's "Activation pending".
                     text: (root.phase === "gates") ? qsTr("Step 1 of 3 · Declaration")
-                        : (root.phase === "enabling" || root.phase === "activated") ? qsTr("Step 2 of 3 · Activation")
+                        : (root.phase === "enabling" || root.phase === "activated"
+                           || (root.phase === "core" && root._declaredNotMixing)) ? qsTr("Step 2 of 3 · Activation")
                         : qsTr("Step 3 of 3 · Active")
                     color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText
                 }
