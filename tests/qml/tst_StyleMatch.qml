@@ -60,14 +60,21 @@ TestCase {
         // title inset from the strip card's top-left border (real geometry)
         var tp = title.mapToItem(strip, 0, 0)
         var vp = tval.mapToItem(tile, 0, 0)
-        console.log("STRIP  title inset x=" + tp.x.toFixed(1) + " y=" + tp.y.toFixed(1))
+        var laneItem = findChild(view, "blendStrip")
+        var lanePos = laneItem.mapToItem(strip, 0, 0)
+        var gap = lanePos.y - (tp.y + title.height)
+        console.log("STRIP  title inset x=" + tp.x.toFixed(1) + " y=" + tp.y.toFixed(1)
+                    + " laneHeight=" + laneItem.height + " title->lane gap=" + gap.toFixed(1))
         console.log("TILE   value inset x=" + vp.x.toFixed(1) + " y=" + vp.y.toFixed(1))
-        // The lifecycle strip must share the dashboard tiles' card geometry (measured, not asserted).
+        // Card container matches the dashboard tiles (padding 16, radius 8).
         compare(strip.padding, tile.padding, "card padding matches")
         compare(strip.radius, tile.radius, "card corner radius matches")
-        compare(title.font.pixelSize, tval.font.pixelSize, "strip title size matches tile value size")
-        compare(title.font.weight, tval.font.weight, "strip title weight matches tile value weight")
         compare(tp.x, 16, "title left inset = padding")
         compare(tp.y, 16, "title top inset = padding")
+        // Strip is the dashboard STATUS card's counterpart: hero title 32, lane 30, gap 24
+        // (content spacing 8 + lane topMargin 16). Reference values read from NodeDashboardView.
+        compare(title.font.pixelSize, 32, "strip title = dashboard hero size (32)")
+        compare(laneItem.height, 30, "lane height = dashboard Lifecycle lane (30)")
+        compare(Math.round(gap), 24, "title->lane gap = dashboard Status card (24)")
     }
 }

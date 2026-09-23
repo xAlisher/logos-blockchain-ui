@@ -101,7 +101,7 @@ LogosFrame {
                 objectName: "blendTitle"
                 Layout.fillWidth: true
                 text: root.data.title || qsTr("Status unavailable")
-                color: root.accent; font.pixelSize: 24; font.weight: Theme.typography.weightBold
+                color: root.accent; font.pixelSize: 32; font.weight: Theme.typography.weightBold   // hero size, matches the dashboard Status card
                 wrapMode: Text.WordWrap; textFormat: Text.PlainText
                 Accessible.name: (root.expanded ? qsTr("Collapse") : qsTr("Expand")) + " " + text
                 TapHandler {
@@ -121,6 +121,7 @@ LogosFrame {
             id: lane
             objectName: "blendStrip"
             Layout.fillWidth: true
+            Layout.topMargin: Theme.spacing.large       // gap title→lane, matches the dashboard Status card (spacing+topMargin)
             Layout.bottomMargin: Theme.spacing.medium   // breathing room between the strip and the text below it
             implicitHeight: 30
             readonly property var steps: root.data.steps && root.data.steps.length ? root.data.steps
