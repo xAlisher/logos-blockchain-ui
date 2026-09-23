@@ -452,6 +452,38 @@ Item {
 
     // Structured (i) → the shared InfoModal (what / states / docs), like the dashboard tiles.
     InfoModal { id: infoModal }
+
+    // Privacy consent for the external reachability check (epic #124): it shares the node's
+    // public IP with a third-party prober. Temporary, optional — gated behind explicit consent.
+    QQC.Dialog {
+        id: reachConfirm
+        parent: QQC.Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: Math.min(480, (parent ? parent.width : 480) - 24)
+        closePolicy: QQC.Popup.CloseOnEscape
+        background: Rectangle { color: Theme.palette.surface; radius: Theme.spacing.radiusLarge; border.color: Theme.palette.border; border.width: 1 }
+        QQC.Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.6) }
+        header: LogosText { text: qsTr("Check reachability?"); padding: 20; color: Theme.palette.text; font.pixelSize: 18; font.weight: Theme.typography.weightBold }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing.medium
+            LogosText {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText
+                text: qsTr("This asks a third-party prober service (sequencer.logos.live) to dial your node's public IP on udp/%1 and report whether it's reachable. Your node's public IP is briefly shared with that third party.").arg(root.blendPort)
+            }
+            LogosText {
+                Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Theme.palette.textTertiary; font.pixelSize: 11
+                text: qsTr("Temporary and optional: the node has no built-in reachability verdict yet, so this convenience check stands in for it. You can skip it and confirm your router's port-forward manually instead.")
+            }
+            RowLayout {
+                Layout.fillWidth: true; Layout.topMargin: Theme.spacing.small
+                Item { Layout.fillWidth: true }
+                LogosButton { text: qsTr("Cancel"); onClicked: reachConfirm.close() }
+                LogosButton { text: qsTr("Check reachability"); variant: LogosButton.Variant.Primary
+                              onClicked: { reachConfirm.close(); root._checkReach() } }
+            }
+        }
+    }
     component InfoDot: QQC.Button {
         property var payload: null
         visible: payload !== null
@@ -832,7 +864,7 @@ Item {
                         : _failed ? qsTr("The prober couldn't reach udp/%1 — fix your router's port-forward, then re-check.").arg(root.blendPort)
                         : qsTr("Have the prober dial your Blend port for a real verdict, or attest the forward if it can't reach you.")
                     action: root.reachChecking ? "" : (root.reachVerdict === "unknown" ? qsTr("I've forwarded this port") : qsTr("Check reachability"))
-                    onActed: { if (root.reachVerdict === "unknown") root.portAttested = true; else root._checkReach() }
+                    onActed: { if (root.reachVerdict === "unknown") root.portAttested = true; else reachConfirm.open() }
                 }
 
                 LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.medium
