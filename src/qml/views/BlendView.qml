@@ -26,6 +26,10 @@ Item {
     readonly property var _tele: (controller && controller.lifecycle) ? controller.lifecycle : ({})
     readonly property var corePeers: _tele.corePeers || []
     readonly property var blendMsgs: _tele.messages || ({})
+    readonly property int _tileMin: 240                                    // dashboard-style min tile width for column stacking
+    readonly property int _msgEpoch: blendMsgs.epoch !== undefined ? blendMsgs.epoch : -1
+    readonly property int _msgProp: blendMsgs.proposalsEpoch || 0
+    readonly property int _msgDir: blendMsgs.directEpoch || 0
     // Ask the shell to switch to the Wallet tab (Fund the keys there).
     signal openWallet()
     // The owner binds this to QtRO readiness, not merely replica existence.
@@ -540,37 +544,25 @@ Item {
         property bool mono: false
         property string actionText: ""
         signal actionClicked()
-        Layout.fillWidth: true; Layout.preferredWidth: 1
-        implicitHeight: Math.max(74, tcol.implicitHeight + 24)
+        Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._tileMin
+        implicitHeight: Math.max(108, tcol.implicitHeight + 2 * Theme.spacing.large)   // dashboard tile height
         radius: Theme.spacing.radiusLarge; color: Theme.palette.surfaceRaised
         ColumnLayout {
             id: tcol
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
-            spacing: 3
+            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Theme.spacing.large
+            spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true; spacing: 4
-                LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.textTertiary; font.pixelSize: 11; elide: Text.ElideRight }
+                LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
                 InfoDot { payload: info } }
             RowLayout { Layout.fillWidth: true; spacing: 6
-                LogosText { Layout.fillWidth: true; text: value; color: valueColor; font.pixelSize: 20; font.weight: Theme.typography.weightBold
+                LogosText { Layout.fillWidth: true; text: value; color: valueColor; font.pixelSize: 24; font.weight: Theme.typography.weightBold
                             elide: Text.ElideRight; font.family: mono ? "monospace" : Qt.application.font.family }
-                LogosText { visible: actionText.length > 0; Layout.alignment: Qt.AlignVCenter; text: actionText; color: Theme.palette.info; font.pixelSize: 11
+                LogosText { visible: actionText.length > 0; Layout.alignment: Qt.AlignVCenter; text: actionText; color: Theme.palette.info; font.pixelSize: Theme.typography.secondaryText
                             TapHandler { onTapped: actionClicked() } }
-                BcCopyButton { visible: copyValue.length > 0; Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 18; Layout.preferredWidth: 18
+                BcCopyButton { visible: copyValue.length > 0; Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 20; Layout.preferredWidth: 20
                                onCopyText: if (root.backend) root.backend.copyToClipboard(copyValue) } }
-            LogosText { visible: sub.length > 0; Layout.fillWidth: true; text: sub; color: Theme.palette.textTertiary; font.pixelSize: 11; wrapMode: Text.WordWrap }
+            LogosText { visible: sub.length > 0; Layout.fillWidth: true; text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap }
         }
-    }
-    // a compact stat card (small gray label + value + optional (i)) for the Messages row
-    component MsgCard: Rectangle {
-        property string label: ""; property string value: ""; property color valColor: Theme.palette.text
-        property var info: null
-        Layout.fillWidth: true; Layout.preferredWidth: 1; implicitHeight: 56
-        radius: Theme.spacing.radiusSmall; color: Theme.palette.surfaceRecessed
-        ColumnLayout { anchors.fill: parent; anchors.margins: 10; spacing: 2
-            RowLayout { Layout.fillWidth: true; spacing: 4
-                LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                InfoDot { payload: info } }
-            LogosText { Layout.fillWidth: true; text: value; color: valColor; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight } }
     }
     // label/sub (left) · value (right, mono) · [copy] · (i)
     component KV: RowLayout {
@@ -939,39 +931,33 @@ Item {
                 visible: show && root.nodeUp
                 Layout.fillWidth: true; spacing: Theme.spacing.medium
 
-                LogosFrame { Layout.fillWidth: true; backgroundColor: Theme.palette.surfaceRaised; borderColor: Theme.palette.success; radius: Theme.spacing.radiusMedium; padding: Theme.spacing.large
-                    contentItem: RowLayout { spacing: Theme.spacing.medium
-                        Rectangle { Layout.alignment: Qt.AlignVCenter; width: 40; height: 40; radius: 20; color: Theme.palette.success
-                            LogosText { anchors.centerIn: parent; text: "✓"; color: Theme.palette.surfaceRaised; font.pixelSize: 18; font.weight: Theme.typography.weightBold } }
-                        ColumnLayout { Layout.fillWidth: true; spacing: 2
-                            LogosText { text: root._activityAccepted ? qsTr("Blend Core active") : qsTr("Blend Core member"); color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.weight: Theme.typography.weightBold }
-                            // No claim that the node is "mixing" — that is not work-verified in this release.
-                            LogosText { Layout.fillWidth: true; wrapMode: Text.WordWrap
-                                text: root.coreEpoch < 0 ? qsTr("In the active Core set")
-                                    : root._activityAccepted ? qsTr("Active provider · in the Core set since epoch %1").arg(root.coreEpoch)
-                                    : qsTr("In the Core set since epoch %1 · collecting activity").arg(root.coreEpoch)
-                                color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText } } } }
+                // One continuous dashboard-style tile grid (no section-label dividers). All values
+                // kept neutral/white for now; responsive column stacking matches the Node dashboard.
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: Math.max(1, Math.min(4, Math.floor(width / (root._tileMin + Theme.spacing.large))))
+                    columnSpacing: Theme.spacing.large; rowSpacing: Theme.spacing.large
+                    readonly property int _ep: root._msgEpoch
+                    readonly property int _prop: root._msgProp
+                    readonly property int _dir: root._msgDir
 
-                // ── LIVENESS (dashboard-style tiles) ──
-                RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
-                    LogosText { text: qsTr("Liveness"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
-                    LogosText { text: qsTr("live health signals for this provider"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
-                GridLayout { Layout.fillWidth: true; columns: width < 520 ? 1 : width < 820 ? 2 : 3; columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
-                    Tile { label: qsTr("Provider nonce"); value: root.recNonce >= 0 ? "" + root.recNonce : "—"
-                        valueColor: root.recNonce > 0 ? Theme.palette.success : Theme.palette.text; sub: qsTr("activity signal — not proof alone")
+                    Tile { label: qsTr("Blend Core"); value: root._activityAccepted ? qsTr("Active") : qsTr("Member")
+                        sub: root.coreEpoch < 0 ? qsTr("In the active Core set")
+                            : root._activityAccepted ? qsTr("Active provider · since epoch %1").arg(root.coreEpoch)
+                            : qsTr("In the Core set since epoch %1 · collecting activity").arg(root.coreEpoch) }
+
+                    Tile { label: qsTr("Provider nonce"); value: root.recNonce >= 0 ? "" + root.recNonce : "—"; sub: qsTr("activity signal — not proof alone")
                         info: ({ "title": qsTr("Provider nonce"), "what": qsTr("An on-chain counter that advances with accepted activity. A rising nonce is one signal you're live, not sufficient alone — liveness = membership AND healthy peers AND recent activity."), "states": [], "docs": root.docsUrl }) }
                     Tile { readonly property bool _hb: root.backend && (root.backend.blendStatus === BlockchainBackend.Edge || root.backend.blendStatus === BlockchainBackend.Core || root.backend.blendStatus === BlockchainBackend.CoreDeclaredEdge)
-                        label: qsTr("Active heartbeat"); value: _hb ? qsTr("Sending") : qsTr("Not sending"); valueColor: _hb ? Theme.palette.success : Theme.palette.error
+                        label: qsTr("Active heartbeat"); value: _hb ? qsTr("Sending") : qsTr("Not sending")
                         info: ({ "title": qsTr("Active heartbeat"), "what": qsTr("A periodic message the node emits to signal it's a live provider. Not work-verified in this release — it means declared + heartbeating + reachable, not proof of mixing."), "states": [{ "label": qsTr("Sending"), "meaning": qsTr("Node is heartbeating.") }, { "label": qsTr("Not sending"), "meaning": qsTr("Node down or stalled.") }], "docs": root.docsUrl }) }
                     Tile {
                         readonly property bool _core: root.backend && root.backend.blendStatus === BlockchainBackend.Core
                         readonly property bool _bad: root.reachVerdict === "unreachable"
-                        readonly property bool _ok: !_bad && (root.reachVerdict === "reachable" || _core || root.portListening || root.portAttested)
                         label: qsTr("Reachability (Blend port)")
                         value: root.reachChecking ? qsTr("Checking…") : _bad ? qsTr("Not reachable")
                             : (root.reachVerdict === "reachable" || _core) ? qsTr("Reachable")
                             : root.portListening ? qsTr("Listening") : root.portAttested ? qsTr("Confirmed") : qsTr("Needs confirmation")
-                        valueColor: _bad ? Theme.palette.error : _ok ? Theme.palette.success : root.reachChecking ? Theme.palette.textSecondary : Theme.palette.warning
                         sub: root.reachChecking ? qsTr("asking the prober to dial your port…")
                             : root.reachVerdict === "reachable" ? qsTr("verified by external prober")
                             : _bad ? qsTr("prober could not reach the port — fix your forward, then re-check")
@@ -979,39 +965,16 @@ Item {
                         actionText: root.reachChecking ? "" : qsTr("Check")
                         onActionClicked: if (root.backendReady && !root.reachChecking) reachConfirm.open()
                         info: ({ "title": qsTr("Reachability (Blend port)"), "what": qsTr("Peers must be able to dial your Blend port (udp/%1). There is no built-in AutoNAT verdict, so this uses, in order, a live external prober result, Core membership, a local listener, or your attestation. A prober 'Not reachable' is a real dial failure and overrides the membership inference; Core membership alone can lag a freshly closed port by epochs.").arg(root.blendPort), "states": [], "docs": root.docsUrl }) }
-                }
 
-                // ── PROVIDER RECORD (tiles) ──
-                RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
-                    LogosText { text: qsTr("Provider record"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
-                    LogosText { text: qsTr("your on-chain declaration"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
-                GridLayout { Layout.fillWidth: true; columns: width < 520 ? 1 : width < 820 ? 2 : 3; columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
                     Tile { label: qsTr("Blend signing key"); value: root._elide(root.recProvider || root.identProvider); mono: true; copyValue: root.recProvider || root.identProvider; sub: qsTr("provider_id · the key that earns") }
                     Tile { label: qsTr("BlendZk key"); value: root._elide(root.recZk || root.identZk); mono: true; copyValue: root.recZk || root.identZk; sub: "zk_id" }
                     Tile { label: qsTr("Service type"); value: "BN" }
-                    Tile { label: qsTr("Published address"); value: root.recLocator.length ? root._elide(root.recLocator) : root._elide(root.locator); mono: true; valueColor: Theme.palette.success; copyValue: root.recLocator.length ? root.recLocator : root.locator }
+                    Tile { label: qsTr("Published address"); value: root.recLocator.length ? root._elide(root.recLocator) : root._elide(root.locator); mono: true; copyValue: root.recLocator.length ? root.recLocator : root.locator }
                     Tile { visible: root.createdEpoch >= 0; label: qsTr("Created / active epoch"); value: root.createdEpoch + " / " + (root.coreEpoch >= 0 ? root.coreEpoch : "—") }
-                    Tile { visible: root.withdrawEpoch >= 0; label: qsTr("Withdraw at epoch"); value: "" + root.withdrawEpoch; valueColor: Theme.palette.warning }
-                }
+                    Tile { visible: root.withdrawEpoch >= 0; label: qsTr("Withdraw at epoch"); value: "" + root.withdrawEpoch }
 
-                // ── STAKE (tile) ──
-                RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
-                    LogosText { text: qsTr("Stake"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
-                    LogosText { text: qsTr("collateral bonded to your declaration"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
-                GridLayout { Layout.fillWidth: true; columns: width < 520 ? 1 : width < 820 ? 2 : 3; columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
-                    Tile { label: qsTr("Locked note"); value: root._elide(root.recNote); mono: true; copyValue: root.recNote; sub: qsTr("returned ~2 epochs after withdrawal") }
-                }
+                    Tile { label: qsTr("Locked note"); value: root._elide(root.recNote); mono: true; copyValue: root.recNote; sub: qsTr("stake — returned ~2 epochs after withdrawal") }
 
-                // ── MESSAGES (tiles) — sourced from the node log; empty when unavailable ──
-                RowLayout { Layout.fillWidth: true; spacing: Theme.spacing.tiny
-                    LogosText { text: qsTr("Messages"); color: Theme.palette.text; font.pixelSize: 11; font.weight: Theme.typography.weightBold }
-                    LogosText { text: qsTr("from node logs"); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
-                GridLayout {
-                    Layout.fillWidth: true; columns: width < 520 ? 1 : width < 820 ? 2 : 4
-                    columnSpacing: Theme.spacing.small; rowSpacing: Theme.spacing.small
-                    readonly property int _ep: root.blendMsgs.epoch !== undefined ? root.blendMsgs.epoch : -1
-                    readonly property int _prop: root.blendMsgs.proposalsEpoch || 0
-                    readonly property int _dir: root.blendMsgs.directEpoch || 0
                     Tile { label: qsTr("Last send window")
                         value: (root.blendMsgs.window && root.blendMsgs.window.length) ? root.blendMsgs.window : qsTr("no data in logs")
                         info: ({ "title": qsTr("Blend send window"), "what": qsTr("Each release window the Blend core reports the messages it emitted: data (real payloads it originated or forwards), processed (messages relayed for others), cover (dummy traffic that hides real activity). Source: the node log (blend::service::core, DEBUG) — no HTTP API exposes this, so it is blank if the node runs above DEBUG."), "states": [], "docs": root.docsUrl }) }
@@ -1021,7 +984,6 @@ Item {
                         info: ({ "title": qsTr("Proposals this epoch"), "what": qsTr("Blocks your node proposed this epoch (from the node log), split into mixed (delivered through Blend for proposer privacy) vs direct (missed the delivery deadline and were broadcast in the clear). Mixed = proposed − direct. Per-epoch; resets each epoch."), "states": [], "docs": root.docsUrl }) }
                     Tile { label: parent._ep >= 0 ? qsTr("Delivery (epoch %1)").arg(parent._ep) : qsTr("Delivery")
                         value: parent._dir > 0 ? qsTr("%1 direct").arg(parent._dir) : (root.blendMsgs.fromLog ? qsTr("all mixed") : qsTr("—"))
-                        valueColor: parent._dir > 0 ? Theme.palette.warning : (root.blendMsgs.fromLog ? Theme.palette.success : Theme.palette.textTertiary)
                         info: ({ "title": qsTr("Delivery deadline"), "what": qsTr("Your node's block proposals are sent through Blend for proposer privacy (chain-leader/src/blend.rs). Each is onion-routed through several hops and must reappear on the broadcast channel within T_M = layers × (max per-hop hold + 2) rounds. If it does not, the node publishes that block in the clear — it still propagates, but that one block loses proposer privacy — and logs a miss. Misses usually mean too few reachable Core peers to complete a mix path; it is per-message, not the whole network halting. Per-epoch count (the node does not log which block missed). Source: services/blend/src/delivery + the node log."), "states": [{ "label": qsTr("all mixed"), "meaning": qsTr("No blend-delivery misses this epoch.") }, { "label": qsTr("N direct"), "meaning": qsTr("N proposals fell back to clear broadcast — check reachable peers.") }], "docs": root.docsUrl }) }
                     Tile { label: qsTr("Connected peers")
                         value: (root.blendMsgs.connected !== undefined) ? (root.blendMsgs.connected + " / " + root.blendMsgs.total) : qsTr("—")

@@ -63,16 +63,15 @@ class Integration(unittest.TestCase):
         self.assertNotIn('and earning rewards.', helptext)
 
     def test_no_hardcoded_liveness(self):
-        # The Active/Core block must derive liveness from real signals, not hardcode them.
-        # Regression guards for the audit that fixed the always-green heartbeat/nonce/reach.
+        # Liveness must derive from real signals, not hardcoded values. (Values are rendered
+        # neutral/white now, so this guards the derivation, not the colour.)
         blend = (ROOT / 'views/BlendView.qml').read_text()
         # heartbeat must never be an unconditional green "Sending" — it needs a negative branch
         self.assertNotIn('v: qsTr("Sending"); valColor: Theme.palette.success', blend)
-        self.assertIn('Not sending', blend)
-        # nonce is green only when it has advanced past 0
-        self.assertIn('recNonce > 0 ? Theme.palette.success', blend)
-        # active-block reachability honours a real unreachable verdict (red), like the activation view
-        self.assertGreaterEqual(blend.count('reachVerdict === "unreachable"'), 2)
+        self.assertIn('Not sending', blend)                 # heartbeat has a real negative state
+        self.assertIn('_hb ? qsTr("Sending")', blend)       # ...derived from blendStatus, not hardcoded
+        # reachability honours a real unreachable verdict, and can show it
+        self.assertIn('reachVerdict === "unreachable"', blend)
         self.assertIn('Not reachable', blend)
 
     def test_core_nodes_table_and_message_cards(self):
@@ -82,7 +81,7 @@ class Integration(unittest.TestCase):
         self.assertIn('property var corePeers', blend)
         self.assertIn('property var blendMsgs', blend)
         self.assertIn('Core nodes', blend)
-        self.assertIn('component MsgCard', blend)
+        self.assertIn('component Tile', blend)
         # source tags per node come from the backend, not hardcoded
         self.assertIn('peerRow.modelData.sources', blend)
 
