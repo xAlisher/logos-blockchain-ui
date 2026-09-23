@@ -532,9 +532,35 @@ Item {
         icon.color: hovered ? Theme.palette.primary : Theme.palette.textMuted
         onClicked: if (payload) { infoModal.info = payload; infoModal.open() }
     }
-    // a dashboard-style tile (label + (i) top row, big value with optional copy/action, sub) —
-    // mirrors the Node dashboard's Slot/Peers/Epoch tiles so the two pages read the same.
-    component Tile: Rectangle {
+    // (i) icon — verbatim from the Node dashboard's `Info`: a 16×16 bordered "i" circle.
+    component Info: Rectangle {
+        id: ib
+        signal clicked()
+        readonly property bool hovered: ma.containsMouse
+        width: 16; height: 16; radius: 8; color: "transparent"
+        border.width: 1
+        border.color: hovered ? Theme.palette.text : Qt.rgba(Theme.palette.textTertiary.r, Theme.palette.textTertiary.g, Theme.palette.textTertiary.b, 0.35)
+        LogosText { anchors.centerIn: parent; text: "i"; font.pixelSize: 9; color: ib.hovered ? Theme.palette.text : Theme.palette.textMuted }
+        MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: ib.clicked() }
+    }
+    // copy glyph — verbatim from the Node dashboard's `CopyGlyph`: a 16×16 canvas icon.
+    component CopyGlyph: Canvas {
+        implicitWidth: 16; implicitHeight: 16
+        property color stroke: Theme.palette.textMuted
+        onPaint: {
+            var ctx = getContext("2d"); ctx.reset();
+            ctx.strokeStyle = stroke; ctx.lineWidth = 1.3; ctx.lineJoin = "round"; ctx.lineCap = "round";
+            var r = 2, x = 1, y = 1, s = 9;
+            ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + s, y, x + s, y + s, r); ctx.arcTo(x + s, y + s, x, y + s, r);
+            ctx.arcTo(x, y + s, x, y, r); ctx.arcTo(x, y, x + s, y, r); ctx.closePath(); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(10, 5); ctx.lineTo(14 - r, 5); ctx.arcTo(14, 5, 14, 14, r);
+            ctx.arcTo(14, 14, 5, 14, r); ctx.lineTo(5, 14); ctx.lineTo(5, 10); ctx.stroke();
+        }
+    }
+    // Tile — a faithful replica of the Node dashboard's `Block`: label + (i) in the top row,
+    // big value row, then a bottom sub-row that also carries the copy glyph + "Copied" flash.
+    component Tile: LogosFrame {
+        id: tile
         property string label: ""
         property string value: ""
         property color valueColor: Theme.palette.text
@@ -544,24 +570,32 @@ Item {
         property bool mono: false
         property string actionText: ""
         signal actionClicked()
+        property bool _copied: false
+        Timer { id: copiedTimer; interval: 1400; onTriggered: tile._copied = false }
         Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._tileMin
-        implicitHeight: Math.max(108, tcol.implicitHeight + 2 * Theme.spacing.large)   // dashboard tile height
-        radius: Theme.spacing.radiusLarge; color: Theme.palette.surfaceRaised
-        ColumnLayout {
-            id: tcol
-            anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Theme.spacing.large
+        backgroundColor: Theme.palette.surfaceRaised; borderColor: "transparent"
+        radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
+        implicitHeight: 108
+        contentItem: ColumnLayout {
             spacing: Theme.spacing.small
-            RowLayout { Layout.fillWidth: true; spacing: 4
-                LogosText { Layout.fillWidth: true; text: label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight }
-                InfoDot { payload: info } }
-            RowLayout { Layout.fillWidth: true; spacing: 6
-                LogosText { Layout.fillWidth: true; text: value; color: valueColor; font.pixelSize: 24; font.weight: Theme.typography.weightBold
-                            elide: Text.ElideRight; font.family: mono ? "monospace" : Qt.application.font.family }
-                LogosText { visible: actionText.length > 0; Layout.alignment: Qt.AlignVCenter; text: actionText; color: Theme.palette.info; font.pixelSize: Theme.typography.secondaryText
-                            TapHandler { onTapped: actionClicked() } }
-                BcCopyButton { visible: copyValue.length > 0; Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 20; Layout.preferredWidth: 20
-                               onCopyText: if (root.backend) root.backend.copyToClipboard(copyValue) } }
-            LogosText { visible: sub.length > 0; Layout.fillWidth: true; text: sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; wrapMode: Text.WordWrap }
+            RowLayout { Layout.fillWidth: true
+                LogosText { text: tile.label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
+                Item { Layout.fillWidth: true }
+                Info { visible: tile.info != null; Layout.alignment: Qt.AlignTop; onClicked: root._openInfo(tile.info) } }
+            RowLayout { Layout.fillWidth: true; spacing: 0
+                LogosText { Layout.fillWidth: true; text: tile.value; color: tile.valueColor; font.pixelSize: 24; font.weight: Theme.typography.weightBold
+                            elide: Text.ElideRight; font.family: tile.mono ? "monospace" : Qt.application.font.family } }
+            RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
+                LogosText { visible: tile.sub.length > 0; text: tile.sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight
+                            Layout.alignment: Qt.AlignVCenter }
+                LogosText { visible: tile.actionText.length > 0; text: tile.actionText; color: Theme.palette.info; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter
+                            TapHandler { onTapped: tile.actionClicked() } }
+                CopyGlyph { visible: tile.copyValue.length > 0; Layout.alignment: Qt.AlignVCenter
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                        onClicked: { if (root.backend) root.backend.copyToClipboard(tile.copyValue); tile._copied = true; copiedTimer.restart() } } }
+                LogosText { visible: tile._copied; text: qsTr("Copied"); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
+                Item { Layout.fillWidth: true }
+            }
         }
     }
     // label/sub (left) · value (right, mono) · [copy] · (i)
