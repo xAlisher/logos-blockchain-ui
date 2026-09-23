@@ -84,16 +84,11 @@ TestCase {
     }
 
     // ── tab-specific behaviour ──
-    function test_loads_and_shows_strip_and_step() {
+    function test_loads_and_shows_strip() {
+        // The component instantiated (init compared Component.Ready) and renders the
+        // shipped strip label. The "Step N of 3" indicator was intentionally removed.
         waitForRendering(view)
-        // step indicator reflects the phase; "core" → Step 3 of 3
-        verify(hasTextContaining(view, "Step 3 of 3"))
-    }
-    function test_step_indicator_maps_phase() {
-        view.phase = "gates";    wait(0); verify(hasTextContaining(view, "Step 1 of 3"))
-        view.phase = "enabling"; wait(0); verify(hasTextContaining(view, "Step 2 of 3"))
-        view.phase = "activated";wait(0); verify(hasTextContaining(view, "Step 2 of 3"))
-        view.phase = "core";     wait(0); verify(hasTextContaining(view, "Step 3 of 3"))
+        verify(hasTextContaining(view, "Blend Core"))
     }
     function test_not_a_dismissable_modal() {
         // close() must NOT hide the tab (it is a StackLayout child, not a popup).
