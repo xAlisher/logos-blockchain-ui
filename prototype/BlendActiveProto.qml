@@ -40,10 +40,10 @@ Item {
 
     // ── core-node roster (real module merges API + node log; mock here) ──
     readonly property var corePeers: [
+        ({ id: "12D3KooWGHZf9ReRgfXSYYZjzhy5QJgk98fT2DUqnevvQ26iCnQ4", address: "/ip4/88.19.213.99/udp/3400/quic-v1",   sources: ["Log"], status: "Connected", self: true }),
         ({ id: "12D3KooWSQc7CcGtvWDPF1yCbBthFnQjprfCVHmfmNDUrSmqQsU1", address: "/ip4/65.109.51.37/udp/50002/quic-v1", sources: ["API","Log","Bootstrap"], status: "Connected", self: false }),
         ({ id: "12D3KooWQXJavMDTRscjauFSgVAB1VLB6Rzpy2uY5SU9Tk7927tb", address: "/ip4/65.109.51.37/udp/3402/quic-v1",  sources: ["API","Log","Bootstrap"], status: "Connected", self: false }),
         ({ id: "12D3KooWKmoKQqLzfjLxdNyhDPQJwrx8KUahQ6p1Q6TDjqivL97U", address: "/ip4/178.238.235.164/udp/3400/quic-v1", sources: ["API","Log"], status: "Connected", self: false }),
-        ({ id: "12D3KooWGHZf9ReRgfXSYYZjzhy5QJgk98fT2DUqnevvQ26iCnQ4", address: "/ip4/88.19.213.99/udp/3400/quic-v1",   sources: ["Log"], status: "In set", self: true }),
         ({ id: "12D3KooWJRGau8M1rjT7R5e4YYsgdFhsMX35nRDtMwCDjxQkXAHz", address: "/ip4/65.109.51.37/udp/3401/quic-v1",  sources: ["Log","Bootstrap"], status: "In set", self: false }),
         ({ id: "12D3KooWFzxpUHfox7sTYBfM5JBRknTGD3BXF3j2bzstPXxVz5a2", address: "/ip4/180.93.113.125/udp/3400/quic-v1", sources: ["Log"], status: "In set", self: false }),
         ({ id: "12D3KooWHsqZLW7PyTb8Bw58LYSepLD5DYx1hVUoCHEDn9ucCWQj", address: "/ip4/212.227.95.210/udp/3400/quic-v1", sources: ["Log"], status: "In set", self: false }),
@@ -100,6 +100,9 @@ Item {
         radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: 108
         contentItem: ColumnLayout {
+            // LogosFrame doesn't clamp contentItem width to the frame — bind it, or a long mono value
+            // fills its implicit width and overflows the card instead of eliding.
+            width: Math.max(0, tile.width - 2 * Theme.spacing.large)
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
                 LogosText { text: tile.label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
@@ -109,13 +112,13 @@ Item {
                 LogosText { Layout.fillWidth: true; text: tile.value; color: Theme.palette.text; font.pixelSize: 24; font.weight: Theme.typography.weightBold
                             elide: Text.ElideRight; font.family: tile.mono ? "monospace" : Qt.application.font.family } }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
-                LogosText { visible: tile.sub.length > 0; text: tile.sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight; Layout.alignment: Qt.AlignVCenter }
+                LogosText { visible: tile.sub.length > 0; Layout.fillWidth: true; text: tile.sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight; Layout.alignment: Qt.AlignVCenter }
+                Item { visible: tile.sub.length === 0; Layout.fillWidth: true }
                 LogosText { visible: tile.actionText.length > 0; text: tile.actionText; color: Theme.palette.info; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter
                             TapHandler { onTapped: tile.actionClicked() } }
                 CopyGlyph { visible: tile.copyValue.length > 0; Layout.alignment: Qt.AlignVCenter
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.copyText(tile.copyValue); tile._copied = true; copiedTimer.restart() } } }
                 LogosText { visible: tile._copied; text: qsTr("Copied"); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
-                Item { Layout.fillWidth: true }
             }
         }
     }
@@ -158,7 +161,7 @@ Item {
                     info: ({ "title": qsTr("Created / active epoch"), "what": qsTr("created = the epoch your declaration was accepted. active = when it becomes eligible (created + 2)."), "states": [], "docs": root._docsBlend }) }
                 Tile { visible: root.subState !== "active"; label: qsTr("Withdraw at epoch"); value: "" + root.withdrawAtEpoch
                     info: ({ "title": qsTr("Withdraw at epoch"), "what": qsTr("The epoch your withdrawal takes effect and the declaration is removed; stake unlocks ~2 epochs after."), "states": [], "docs": root._docsBlend }) }
-                Tile { label: qsTr("Locked note"); value: root._elide(root.stakeNote); mono: true; copyValue: root.stakeNote; sub: qsTr("stake — returned ~2 epochs after withdrawal")
+                Tile { label: qsTr("Locked note"); value: root._elide(root.stakeNote); mono: true; copyValue: root.stakeNote
                     info: ({ "title": qsTr("Locked note"), "what": qsTr("The note bonded on-chain as your provider stake; locked while active, returned ~2 epochs after a withdrawal."), "states": [], "docs": root._docsBlend }) }
 
                 Tile { label: qsTr("Last send window"); value: root.sendWindow
