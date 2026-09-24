@@ -34,17 +34,20 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
-- **[`logos_node_1click v0.2.32`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.32)** —
-  **Honest Blend states + reliable Stop + a dashboard graph pass.** Dropped the phantom "Activating" blend type
-  (the node is only ever **Edge** or **Core**); the Enable-Blend-Core modal recognises a **live declaration** and
-  never invites a redundant re-declare, adds a **"Declaration slot free"** gate, and the Blend card shows
-  **"Node mixing proposals"** / a **"Core at risk"** warning. **Stop now works on a stuck/wedged node**
-  (force-kill on a hard deadline instead of hanging) — which also unblocks Settings→**Reset chain state**; the
-  Bootstrap-stuck message is honest (no false "lost peers"). Fresh nodes get a **bootstrap-peer fallback** so they
-  don't stall on ParentMissing. Dashboard graphs reordered (TX → Sync gap → by-epoch row → Peers → Hardware),
-  **white** TX heatmap, rounded lines/bars, "Eligible" reads white; wallet accounts labelled Spendable/Identity.
+- **[`logos_node_1click v0.2.33`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.33)** —
+  **Blend Core lifecycle, rebuilt as an honest dashboard.** The Blend tab is now one continuous grid of
+  **dashboard-style tiles** (liveness, provider record, stake, messages) that match the Node dashboard cards
+  exactly, each with an **(i) info modal** verified against the lifecycle reducer. The headline reads
+  **"Blend Core member"** only once real activity is accepted (nonce advances), and all unverified "mixing"
+  copy is gone (activity is not work-verified on 0.2.x). Added a **Core-nodes table** and **Messages** cards
+  fed by a merged source (Blend API + node-log telemetry), each row tagged **API / Log / Bootstrap** so you can
+  see where a peer is known from; your own node sorts to the top and shows green. Fixed the hardcoded liveness
+  values (issues #133 / #134). The **"Blend type by epoch"** graph loses its legend, gets taller bars, and its
+  title and bar baseline now line up with the other by-epoch charts (measured, not eyeballed).
   Module pin: **blockchain_module 0.2.3**.
-  Previous: **v0.2.31** node stop/reset on a stuck node + honest stall detection;
+  Previous: **v0.2.32** honest Blend states (dropped phantom "Activating"), reliable Stop on a wedged node,
+  dashboard graph pass;
+  **v0.2.31** node stop/reset on a stuck node + honest stall detection;
   **v0.2.29** Rewards redesign + Explorer rename + mining-tokens tile;
   **v0.2.28** onboarding respects on-disk config/keys (no config/keys ⇒ always onboarding);
   **v0.2.27** Blend Core funding usable (faucet feedback + copyable SDP funding key);
@@ -58,11 +61,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.32/logos_node_1click-0.2.32-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.33/logos_node_1click-0.2.33-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.32/logos_node_1click-0.2.32-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.33/logos_node_1click-0.2.33-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
