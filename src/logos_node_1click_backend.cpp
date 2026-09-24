@@ -1676,8 +1676,10 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
                              {"status", status}, {"self", !ourId.isEmpty() && id == ourId}};
     }
     std::sort(peers.begin(), peers.end(), [](const QVariant& a, const QVariant& b) {
+        const QVariantMap am = a.toMap(), bm = b.toMap();
+        if (am.value("self").toBool() != bm.value("self").toBool()) return am.value("self").toBool();   // our node first
         auto rank = [](const QString& s) { return s == "Connected" ? 0 : s == "Degraded" ? 1 : s == "In set" ? 2 : 3; };
-        return rank(a.toMap().value("status").toString()) < rank(b.toMap().value("status").toString());
+        return rank(am.value("status").toString()) < rank(bm.value("status").toString());
     });
     out["peers"] = peers;
     out["messages"] = QVariantMap{{"window", window}, {"windowTs", windowTs}, {"missed", missed},
