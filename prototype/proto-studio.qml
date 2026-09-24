@@ -341,7 +341,7 @@ Window {
                      steps: S("complete", "current", "pending", "pending", "pending", "pending") }
         }
         if (blendStep === 2) {
-            var risk = blendAct.subState === "stalled"
+            var risk = !blendAct.heartbeatOk
             return { title: risk ? qsTr("Activation at risk") : qsTr("Activating — awaiting Core membership"),
                      tone: risk ? "error" : "warning", action: "refresh", actionLabel: qsTr("Refresh"),
                      detail: qsTr("Declared on-chain. \"Activated\" means the node is actually admitted as Core — not merely past created + 2 epochs. Keep it reachable and heartbeating."),
@@ -364,24 +364,22 @@ Window {
 
     // ── Blend wizard state presets ──
     function _decl(p) {
-        blendDecl.gSynced    = ("gSynced" in p)    ? p.gSynced    : true
-        blendDecl.gFunded    = ("gFunded" in p)    ? p.gFunded    : true
-        blendDecl.gZkFunded  = ("gZkFunded" in p)  ? p.gZkFunded  : true
-        blendDecl.gNetwork   = ("gNetwork" in p)   ? p.gNetwork   : true
-        blendDecl.slotFree   = ("slotFree" in p)   ? p.slotFree   : true
-        blendDecl.natState   = p.natState || "reachable"
-        blendDecl.ipDynamic  = p.ipDynamic || false
-        blendDecl.phase      = p.phase || "idle"
-        blendDecl.errorText  = p.errorText || ""
+        blendDecl.gSynced     = ("gSynced" in p)    ? p.gSynced    : true
+        blendDecl.gFunded     = ("gFunded" in p)    ? p.gFunded    : true
+        blendDecl.gStakeNote  = ("gStakeNote" in p) ? p.gStakeNote : (("gZkFunded" in p) ? p.gZkFunded : true)
+        blendDecl.gNetwork    = ("gNetwork" in p)   ? p.gNetwork   : true
+        blendDecl.slotFree    = ("slotFree" in p)   ? p.slotFree   : true
+        blendDecl.portAttested = (p.natState || "reachable") === "reachable"
+        blendDecl.phase       = p.phase || "idle"
+        blendDecl.errorText   = p.errorText || ""
         win.blendStep = 1
         studioTabs.currentIndex = 6
     }
     function _activate(p) {
-        blendAct.subState    = p.subState || "activating"
-        blendAct.progress    = ("progress" in p) ? p.progress : 0.45
-        blendAct.etaText     = p.etaText || qsTr("~1h 10m")
-        blendAct.heartbeatOk = ("heartbeatOk" in p) ? p.heartbeatOk : true
-        blendAct.natState    = p.natState || "reachable"
+        blendAct.activationProgress = ("progress" in p) ? p.progress : 0.45
+        blendAct.activationTimeLeft = p.etaText || qsTr("~1h 10m")
+        blendAct.heartbeatOk = (p.subState === "stalled") ? false : (("heartbeatOk" in p) ? p.heartbeatOk : true)
+        blendAct.reachVerdict = p.natState || "reachable"
         win.blendStep = 2
         studioTabs.currentIndex = 6
     }
