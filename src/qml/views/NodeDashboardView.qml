@@ -40,14 +40,17 @@ Item {
     property string blocksEmptyText: qsTr("Start the node to see blocks arrive.")
     signal clearBlocksRequested()
     signal copyText(string t)
-    signal enableBlendRequested()             // open the Enable-Blend-Core flow (epic #89)
+    // The Blend Core progress block + its recovery workflow moved to the Blend tab (#118),
+    // so its relay props/signals are gone. blendRecoveryLocked stays — the Recover-node
+    // (bootstrap-stuck) button below still gates on it.
+    property bool blendRecoveryLocked: false
     signal recoverRequested()                 // "Bootstrap stuck" hero CTA → host runs stop → reset chain → re-bootstrap
 
     // Version footer. This fork ships ONE module version — the /release in-UI guard
     // (CMakeLists) greps this literal and requires it to equal metadata.json. The
     // core/UI/testnet split is kept as API for the official build; empty core/testnet
     // ⇒ the footer honestly shows just "Module v<x>".
-    property string moduleVersion: "0.2.32"
+    property string moduleVersion: "0.2.33"
     property string coreVersion: ""
     property string uiVersion: moduleVersion
     property string testnetVersion: ""
@@ -151,7 +154,7 @@ Item {
     property int  blendNowEpoch: -1                           // current epoch from the declarations poll
     property bool blendMineLive: false                       // our declaration is is_active (#107)
     // Core at risk: we're a live declared provider but the declaration is within 1 epoch of ageing out
-    // (heartbeat not refreshing `active`) → Core will drop unless it re-declares / comes back online (#107).
+    // Check lifecycle evidence rather than inferring accepted activity from Core connectivity.
     readonly property bool _coreAtRisk: blendMineLive && blendInactiveSince > 0 && blendNowEpoch >= 0
                                         && blendNowEpoch >= blendInactiveSince - 1
     property string epoch: "—"
@@ -343,15 +346,10 @@ Item {
         if (_blendPhase === "core") {
             if (_coreAtRisk)
                 return ({ value: qsTr("Core"),
-                          // The node doesn't auto-refresh the declaration in this build, so it ages out at
-                          // active+2; renewing means withdraw + re-declare (a plain re-declare no-ops while
-                          // the declaration is still live). blendInactiveSince = active+2 → drops at +1.
-                          sub: (blendInactiveSince > 0
-                                  ? qsTr("⚠ Ages out at epoch %1 — withdraw & re-declare to renew").arg(blendInactiveSince + 1)
-                                  : qsTr("⚠ Core at risk — declaration ageing; withdraw & re-declare to renew")),
+                          sub: qsTr("⚠ Activity at risk — check Blend Core evidence below"),
                           c: Theme.palette.warning })
             return ({ value: qsTr("Core"),
-                      sub: qsTr("Node mixing proposals"),
+                      sub: qsTr("In the active Core set"),   // not "mixing" — that isn't work-verified in this release
                       c: "#d9a521" })
         }
         // edge or coredeclared → both honestly read as Edge (the node's live mode)
@@ -719,12 +717,15 @@ Item {
                     showLane: true; laneSteps: root._lifeSteps; laneReached: root._lifeReached; laneTransitioning: root._lifeTransitioning
                     info: root._infoData.status; onInfoRequested: root._openInfo(info)
                 }
+                // Blend Core progress block moved to the Blend tab (#118). The Node page
+                // keeps the compact Blend metric tile below; the full evidence strip +
+                // enable/manage flow live under the dedicated Blend tab now.
                 // Recovery CTA — only when the node is wedged in a prolonged bootstrap
                 // (finalization frozen, falling behind). Opens the host's explain-and-confirm
                 // modal that runs stop → reset chain state → re-bootstrap from scratch.
                 RowLayout {
                     Layout.fillWidth: true; visible: root.nodeStalled && root._prolonged
-                    LogosButton { text: qsTr("Recover node"); onClicked: root.recoverRequested() }
+                    LogosButton { text: qsTr("Recover node"); enabled: !root.blendRecoveryLocked; onClicked: if (enabled) root.recoverRequested() }
                     Item { Layout.fillWidth: true }
                 }
                 GridLayout {
@@ -732,7 +733,7 @@ Item {
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Stake"); value: root.stakeStr; abbreviate: true; sub: root.foundingAddr.length > 0 ? root._short(root.foundingAddr) : ""; copyValue: root.foundingAddr; onCopyRequested: (t) => root.copyText(t); info: root._infoData.stake; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Earned"); value: root.earnedStr; sub: root.feePct.length ? qsTr("Last claim fee: %1% of reward").arg(root.feePct) : ""; info: root._infoData.earned; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blend"); value: root._blendUi.value; sub: root._blendUi.sub; accent: root._blendUi.c; shine: root._blendPhase === "core"
-                            // No tile CTA — the header "Enable Blend Core" action is the single entry point (epic #89).
+                            // No tile CTA — the tile shows Blend status only; the Blend tab is the entry point.
                             info: root._infoData.blend; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Epoch"); value: root.epoch; sub: root.epochProgress.length ? root.epochProgress : root._epochSub; progress: root._epochFrac; info: root._infoData.epoch; onInfoRequested: root._openInfo(info) }
                     Block { Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.minimumWidth: root._minCard; label: qsTr("Blocks proposed in epoch"); value: root.proposed; sub: root._proposedSub; subColor: root._lifeReached === 2 ? Theme.palette.warning : root._lifeReached >= 3 ? (root._amt(root.proposed) > 0 ? Theme.palette.textTertiary : Theme.palette.text) : Theme.palette.textTertiary; info: root._infoData.proposed; onInfoRequested: root._openInfo(info) }

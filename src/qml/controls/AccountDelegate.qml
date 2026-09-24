@@ -11,6 +11,7 @@ ItemDelegate {
     property string balanceError: ""
 
     signal getBalanceRequested(string addressHex)
+    signal fundRequested(string addressHex)
     signal copyRequested(string text)
 
     width: ListView.view ? ListView.view.width : implicitWidth
@@ -44,6 +45,15 @@ ItemDelegate {
                 font.pixelSize: Theme.typography.secondaryText
                 color: Theme.palette.textSecondary
                 elide: Text.ElideRight
+            }
+
+            // Fund — request test funds to this spendable key via the faucet (#117).
+            LogosButton {
+                visible: root._fundable
+                Layout.alignment: Qt.AlignRight
+                text: qsTr("Fund")
+                padding: Theme.spacing.small
+                onClicked: root.fundRequested(model.address || "")
             }
 
             // balance refresh — only for spendable/fundable keys

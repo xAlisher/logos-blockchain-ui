@@ -21,13 +21,13 @@ var data = {
     blend: {
         title: "Blend",
         what: "Whether this node uses the Blend Network — the mixnet that hides which node proposed a block, strengthening proposer privacy for the whole network.",
-        calc: "A node opts in as a Blend core node via the Service Declaration Protocol (proving ownership of a min-stake note); the declaration activates two epochs later. Not exposed by the 0.3 node API yet — the tile shows 'Not active' until a Blend health signal is wired.",
+        calc: "A node opts in as a Blend core node via the Service Declaration Protocol (proving ownership of a min-stake note); the declaration activates two epochs later. The lifecycle block reports declaration, connectivity and accepted activity independently; unknown evidence stays unknown. Epoch snapshots may lag.",
         states: [
             { label: "Not Active", meaning: "Node still bootstrapping — proposals not mixed yet." },
             { label: "Edge", meaning: "Your proposals are mixed through the Blend core network (N core nodes)." },
             { label: "Edge (Core declared)", meaning: "You declared Core on-chain but the node is running Edge this epoch — button reads 'Blend Core declared'." },
-            { label: "Core", meaning: "You are a Blend core node, mixing proposals for others (with N nodes) and earning rewards." },
-            { label: "Core at risk", meaning: "Your on-chain declaration's active epoch is not being refreshed, so it ages out 2 epochs after 'active' (you drop to Edge even while mixing). In this testnet build the node does NOT emit the periodic SDPActive heartbeat that would refresh it. To keep Core you must RENEW the declaration before it ages out: withdraw the current one, wait ~2 epochs for it to clear, then re-declare. A plain re-declare while it's still live is a no-op (the node returns the existing declaration)." }
+            { label: "Core", meaning: "Core mode reports connectivity, not accepted activity or earnings. Check independently verified lifecycle evidence." },
+            { label: "Core at risk", meaning: "Recent accepted activity has not extended eligibility. First exclusion is active+3 (I=2), subject to frozen snapshot lag. Check current binding and activity evidence; explicit local binding repair may help when offered. Do not withdraw and re-declare merely to renew connectivity." }
         ],
         docs: "https://docs.logos.co/blockchain/concepts/about-the-blend-network"
     },
@@ -94,7 +94,7 @@ var data = {
     },
     blendModeByEpoch: {
         title: "Blend type by epoch",
-        what: "The Blend mode this node was in each epoch — Core (mixing), Declared (edge) (an on-chain Core declaration but running edge), Edge, Activating, or Off — one coloured cell per epoch.",
+        what: "The Blend mode this node was in each epoch — Core (declared active in the Core set), Declared (edge) (an on-chain Core declaration but running edge), Edge, Activating, or Off — one coloured cell per epoch.",
         calc: "Recorded by the app into a small write-ahead store (blend-mode-history.json) each time it refreshes the Blend status: the current epoch's cell is set to the resolved mode (last-seen wins within an epoch). This is why it survives even though the node's own log — the only other source — rotates after ~10h. A blank/faint cell means the node was down or the mode was unknown that epoch. History begins the first time you run this app version; older epochs it never observed won't appear."
     },
     peersSeries: {

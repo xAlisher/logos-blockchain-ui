@@ -47,25 +47,16 @@ LogosFrame {
     radius: Theme.spacing.radiusLarge
     padding: Theme.spacing.large
 
+    // Mirror EpochBarChart's layout EXACTLY so title-Y and the chart baseline line up across the
+    // by-epoch row: [title row] + [Item preferredHeight 180 → Canvas], and the hover caption is
+    // painted INSIDE the canvas (no separate LogosText row — that row is what dropped the title 14px).
     contentItem: ColumnLayout {
         spacing: Theme.spacing.small
         RowLayout {
             Layout.fillWidth: true
             LogosText { text: root.title; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
             Item { Layout.fillWidth: true }
-            // legend
-            Repeater {
-                model: [ { m: "core" }, { m: "coredeclared" }, { m: "edge" }, { m: "off" } ]
-                delegate: RowLayout {
-                    spacing: 4; Layout.leftMargin: 10
-                    Rectangle {
-                        width: 8; height: 8; radius: 2; color: root._color(modelData.m); Layout.alignment: Qt.AlignVCenter
-                        // mirror the strip: declared-but-edge = blue swatch + gold underline
-                        Rectangle { visible: modelData.m === "coredeclared"; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 2; color: root._gold }
-                    }
-                    LogosText { text: root._label(modelData.m); color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                }
-            }
+            // (legend removed — the hovered-cell caption painted in-canvas names the mode)
             Rectangle {
                 id: ib
                 Layout.alignment: Qt.AlignVCenter; Layout.leftMargin: 8
@@ -77,24 +68,22 @@ LogosFrame {
                 MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.infoRequested(root.info) }
             }
         }
-        // hovered cell caption: "Epoch N: <mode>"
-        LogosText {
-            Layout.fillWidth: true; Layout.preferredHeight: 14
-            text: strip.hoverIdx >= 0 && strip.hoverIdx < strip.vis.length
-                  ? qsTr("Epoch %1: %2").arg(strip.vis[strip.hoverIdx].epoch).arg(root._label(strip.vis[strip.hoverIdx].mode))
-                  : ""
-            color: Theme.palette.textTertiary; font.pixelSize: 11
-        }
         Item {
-            Layout.fillWidth: true; Layout.preferredHeight: 20
+            Layout.fillWidth: true; Layout.preferredHeight: 180   // == EpochBarChart body → same baseline
             Canvas {
                 id: strip
                 anchors.fill: parent
                 readonly property var s: root.series
+                // same insets as EpochBarChart so the baseline + left edge align across the row
+                readonly property int padL: 6
+                readonly property int padR: 6
+                readonly property int padT: 22
+                readonly property int padB: 8
                 readonly property int minSlot: 6
                 readonly property var vis: {
                     var d = s || []
-                    var maxN = Math.max(1, Math.floor(width / minSlot))
+                    var pw = Math.max(1, width - padL - padR)
+                    var maxN = Math.max(1, Math.floor(pw / minSlot))
                     return d.length > maxN ? d.slice(-maxN) : d
                 }
                 property int hoverIdx: -1
@@ -106,28 +95,44 @@ LogosFrame {
                 Component.onCompleted: requestPaint()
                 onPaint: {
                     var ctx = getContext("2d"); ctx.reset()
-                    var d = vis, n = d.length
+                    var d = vis, n = d.length, W = width, H = height
                     if (n === 0) return
-                    var slot = minSlot, cw = slot - 1, H = height
+                    var ph = Math.max(1, H - padT - padB)
+                    var baseY = padT + ph                 // == H - padB, matches the bar chart axis
+                    // baseline axis (same faint line as EpochBarChart) so the two read as one row
+                    ctx.strokeStyle = Theme.palette.border; ctx.globalAlpha = 0.4; ctx.lineWidth = 1
+                    ctx.beginPath(); ctx.moveTo(padL, baseY); ctx.lineTo(W - padR, baseY); ctx.stroke(); ctx.globalAlpha = 1
+                    var slot = minSlot, cw = slot - 1
                     for (var j = 0; j < n; j++) {
                         ctx.fillStyle = root._color(d[j].mode)
                         ctx.globalAlpha = (j === hoverIdx) ? 1.0 : 0.9
-                        ctx.fillRect(slot * j, 0, cw, H)
-                        // declared-but-edge: a 2px gold underline over the normal edge blue
+                        // full-height cell sitting ON the baseline (top at padT, bottom at baseY)
+                        ctx.fillRect(padL + slot * j, padT, cw, ph)
+                        // declared-but-edge: a 2px gold underline at the baseline over the edge blue
                         if (d[j].mode === "coredeclared") {
                             ctx.globalAlpha = 1
                             ctx.fillStyle = root._gold
-                            ctx.fillRect(slot * j, H - 2, cw, 2)
+                            ctx.fillRect(padL + slot * j, baseY - 2, cw, 2)
                         }
                     }
                     ctx.globalAlpha = 1
+                    // hovered-cell caption painted in the top gutter, like EpochBarChart
+                    if (hoverIdx >= 0 && hoverIdx < n) {
+                        var hv = qsTr("Epoch %1: %2").arg(d[hoverIdx].epoch).arg(root._label(d[hoverIdx].mode))
+                        ctx.font = "11px sans-serif"; ctx.fillStyle = Theme.palette.text
+                        ctx.textAlign = "center"; ctx.textBaseline = "alphabetic"
+                        var tw = ctx.measureText(hv).width
+                        var hx = padL + slot * (hoverIdx + 0.5)
+                        hx = Math.max(padL + tw / 2, Math.min(W - padR - tw / 2, hx))
+                        ctx.fillText(hv, hx, padT - 7)
+                    }
                 }
                 MouseArea {
                     anchors.fill: parent; hoverEnabled: true
                     onPositionChanged: {
                         var d = strip.vis
                         if (!d || d.length === 0) { strip.hoverIdx = -1; return }
-                        var idx = Math.floor(mouseX / strip.minSlot)
+                        var idx = Math.floor((mouseX - strip.padL) / strip.minSlot)
                         strip.hoverIdx = (idx >= 0 && idx < d.length) ? idx : -1
                     }
                     onExited: strip.hoverIdx = -1

@@ -20,6 +20,7 @@ class BlockchainBackend
     PROP(QString leaderKey READONLY)
     PROP(BlendStatus blendStatus READONLY)
     PROP(QString lastBlendEvent READONLY)
+    PROP(bool blendRecoveryActive=false READONLY)
     // Size of the epoch's Blend CORE set (membership_count from the blend log) — the "N core
     // nodes" the dashboard shows for Edge/Core. <0 = unknown (log rotated / not yet written).
     PROP(int blendCoreNodes READONLY)
@@ -98,8 +99,21 @@ class BlockchainBackend
     // GET /mantle/sdp/declarations → all active BN declarations, keyed by id. Returns
     // {ok, count, mineId, mineCreated, mineActive, mineWithdrawAt} — count drives the
     // "network size ≥ 2" gate; the mine* fields (matched via the persisted declaration
-    // id / our locator) drive the Activating→Core polling.
+    // id and verified provider identity) drive the Activating→Core polling.
     SLOT(QVariantMap getBlendDeclarations())
+    SLOT(QVariantMap getBlendLifecycle())
+    SLOT(QVariantMap repairBlendBinding())
+    SLOT(QVariantMap startBlendRecovery())
+    SLOT(QVariantMap pauseBlendRecovery())
+    SLOT(QVariantMap resumeBlendRecovery())
+    // Dismiss a terminally-stopped recovery (phase "attention") — clears the retained
+    // journal so it stops nagging. Terminal-only; no on-chain effect.
+    SLOT(QVariantMap dismissBlendRecovery())
+    // Pre-activation reachability check (epic #124): bind a short-lived udp/<blendPort>
+    // responder, then ask the external prober to dial our public IP:port with `nonceHex`.
+    // Returns { ok, reachable, detail }. ok=false when the prober is unreachable (fall back
+    // to operator attestation). Only meaningful while NOT Core (the port is free then).
+    SLOT(QVariantMap checkBlendReachable(QString nonceHex))
     // Per-epoch blend-mode history (write-ahead store) → {success, value: JSON [{epoch,mode}]}.
     SLOT(QVariantMap getBlendModeHistory())
     // Per-epoch max block height (write-ahead) for the blocks-per-epoch chart.
@@ -109,8 +123,8 @@ class BlockchainBackend
     SLOT(QVariantMap getBlockTx())
     // POST /sdp/withdrawal <declarationId> → leaves the Blend Network and unlocks the
     // staked note (sets Declaration.withdraw_at). Resolves this node's declaration id
-    // from the write-ahead store, falling back to matching /mantle/sdp/declarations by
-    // our locked note / locator. Returns {ok, error}. Deletes the store on success.
+    // from the write-ahead store and verifies public provider ownership on chain.
+    // Returns {ok, error}. Retains pending state until on-chain removal; 2xx is not unlock.
     SLOT(QVariantMap withdrawBlendCore())
     // Config-derived, no running node needed: {ok, key, blendPort, publicIp, locator}.
     // `key` = sdp.wallet.funding_pk (the key the declaration fee is paid from — the UI

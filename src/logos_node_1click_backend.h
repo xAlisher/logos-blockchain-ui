@@ -13,6 +13,7 @@
 
 #include "AccountsModel.h"
 #include "BlockModel.h"
+#include "BlendRecovery.h"
 
 class LogosAPI;
 class LogosAPIClient;
@@ -115,6 +116,13 @@ public slots:
     // Blend Core provider lifecycle (epic #89). See the .rep for the API contract.
     QVariantMap declareBlendCore(QString locator, QString lockedNoteId) override;
     QVariantMap getBlendDeclarations() override;
+    QVariantMap getBlendLifecycle() override;
+    QVariantMap repairBlendBinding() override;
+    QVariantMap startBlendRecovery() override;
+    QVariantMap pauseBlendRecovery() override;
+    QVariantMap resumeBlendRecovery() override;
+    QVariantMap dismissBlendRecovery() override;
+    QVariantMap checkBlendReachable(QString nonceHex) override;
     // Per-epoch blend-mode history (write-ahead store) for the dashboard "Blend type" strip.
     QVariantMap getBlendModeHistory() override;
     // Per-epoch max block height (write-ahead) → blocks-per-epoch (Δheight) chart.
@@ -130,6 +138,37 @@ protected:
     void onContextReady() override;
 
 private:
+    std::unique_ptr<BlendRecovery::Controller> m_blendRecovery;
+    BlendRecovery::Snapshot m_recoverySnapshot;
+    QString m_recoveryScope;
+    QTimer* m_blendRecoveryTimer = nullptr;
+    bool m_recoveryTick = false;
+    void ensureBlendRecovery();
+    bool blendRecoveryBlocks();
+    QVariantMap withBlendRecovery(QVariantMap lifecycle);
+    void advanceBlendRecovery();
+    void readBlendRecoveryFunding(BlendRecovery::Snapshot& snapshot);
+    bool m_blendMutation = false;
+    bool m_blendReading = false;
+    bool m_blendSubmissionPending = false;
+    bool m_blendWithdrawalPending = false;
+    qint64 m_blendRunFloor = 0;
+    qint64 m_blendRepairedAt = 0;
+    QString m_blendRepairedId;
+    qint64 blendRunStartedAt() const;
+    qint64 blendMissingBindingAt(qint64 runStart) const;
+    qint64 blendBindingLoadedAt(qint64 runStart, const QString& declId) const;
+    // Core-peer roster + message telemetry, merged from the live /blend/info API and the node log.
+    // Non-const: the membership roster (logged only ~once per epoch) is cached so the table stays
+    // stable across polls where the roster line has scrolled out of the scanned log tail.
+    QVariantMap blendCoreTelemetry(const QJsonValue& core, const QString& ourId, int currentEpoch, qint64 epochStartMs);
+    QMap<QString, QString> m_coreRoster;   // peerId -> address, last seen in the node log
+    // Per-epoch accumulators for proposals blended vs broadcast-direct. Reset when the epoch
+    // changes; counted incrementally from new log lines so a 10h epoch needs no full re-scan.
+    int m_epochProposals = 0;
+    int m_epochDirect = 0;
+    int m_countEpoch = -1;
+    qint64 m_lastCountedTs = 0;
     // Last-resort force stop: SIGKILL the module host on the node's HTTP port.
     bool forceStopNode();
     // Shared proposal scan; tailBytes bounds per-file read (0 = whole file).
@@ -149,7 +188,7 @@ private:
     // Latest `membership_count=N` from the blend service log = the epoch's Blend CORE set size
     // (the "N core nodes" shown on the dashboard). -1 if not found (log rotated / not written).
     int blendMembershipCount() const;
-    // On-chain state of OUR SDP declaration (matched by locked_note_id): { found, active, withdrawAt }.
+    // On-chain state of OUR SDP declaration (matched by verified provider identity): { found, active, withdrawAt }.
     QVariantMap onchainBlendDecl() const;
     // Current epoch from the node's /time/info (-1 if unavailable). Distinguishes a genuinely
     // pending declaration (epoch < active) from an active-but-not-mixing one (epoch >= active).
@@ -177,7 +216,7 @@ private:
     QString buildBlendLocator() const;
     // Write-ahead store for THIS node's Blend declaration ({declaration_id, locked_note_id,
     // locator, created_at}). declareBlendCore writes it so withdrawBlendCore can find the
-    // declaration id and refreshBlendStatus can report Activating; withdraw deletes it.
+    // declaration id and refreshBlendStatus can report Activating; withdraw retains it until confirmed removal.
     QString blendDeclStorePath() const;
     // Per-epoch blend-mode history store (blend-mode-history.json beside the node config):
     // recordBlendMode upserts {epoch: mode} (last-seen wins) from refreshBlendStatus.

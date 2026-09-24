@@ -25,6 +25,7 @@ Rectangle {
     // when the replica transitions to Valid. Drive it from the bridge's
     // viewModuleReadyChanged signal instead.
     property bool ready: false
+    readonly property bool blendRecoveryLocked: blendLifecycleController.recoveryLocked || blendLifecycleController.recoveryBusy
 
     Connections {
         target: logos
@@ -130,6 +131,7 @@ Rectangle {
         }
 
         function _doReset() {
+            if (root.blendRecoveryLocked) return
             resetConfirmDialog.close()
             if (!root.backend) return
             logos.watch(
@@ -151,6 +153,7 @@ Rectangle {
             },
             LogosButton {
                 text: qsTr("Reset")
+                enabled: !root.blendRecoveryLocked
                 implicitWidth: 110
                 implicitHeight: 40
                 onClicked: resetConfirmDialog._doReset()
@@ -187,6 +190,7 @@ Rectangle {
             },
             LogosButton {
                 text: qsTr("Reset & re-bootstrap")
+                enabled: !root.blendRecoveryLocked
                 implicitWidth: 180; implicitHeight: 40
                 // Same proven path as Settings → Reset chain state, now that stop is async +
                 // force-kill-verified: stop → wipe chain → start. Progress shows on the hero.
@@ -240,6 +244,7 @@ Rectangle {
     property int    _wipeTries: 0
     property int    _wipeAttempts: 0
     function _wipeAndStart() {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         root._wipeError = ""
         root._wipeTries = 0
@@ -290,6 +295,7 @@ Rectangle {
         root._resetChainState()
     }
     function _resetChainState() {
+        if (root.blendRecoveryLocked) return
         logos.watch(
             root.backend.resetChainState(),
             function(result) {
@@ -537,7 +543,7 @@ Rectangle {
                 text: root._wipeStage.length > 0 ? root._wipeStageText()
                                                  : qsTr("Wipe the database and start over")
                 implicitWidth: 260; implicitHeight: 40
-                enabled: root._wipeStage.length === 0
+                enabled: root._wipeStage.length === 0 && !root.blendRecoveryLocked
                 onClicked: root._wipeAndStart()
                 // Gentle pulse while a stage runs, so it reads as working.
                 SequentialAnimation on opacity {
@@ -552,6 +558,19 @@ Rectangle {
         ]
     }
 
+    BlendLifecycleController {
+        id: blendLifecycleController
+        backend: root.backend
+        bridge: logos
+        ready: root.ready
+        externalBusy: blendView.mutationBusy
+    }
+    Timer {
+        interval: 5000; repeat: true; triggeredOnStart: true
+        running: root.ready
+        onTriggered: blendLifecycleController.refresh()
+    }
+
     // ── Fund the node (auto-stake) via the cryptarchia web faucet (issue #22) ──
     // POST the node's public key to the faucet; it credits testnet funds that
     // auto-stake. The backend runs the POST via system curl — QML network is
@@ -559,14 +578,20 @@ Rectangle {
     property string _fundStage: ""    // "", "requesting", "success", "error"
     property string _fundResult: ""   // tx / response text, or the error text
     property int _fundDots: 0
+    // The key the Fund dialog targets. "" = the node's primary address (header Fund);
+    // set to a specific key by the per-account Fund buttons (#117).
+    property string _fundTargetKey: ""
+    readonly property string _fundEffectiveKey: (_fundTargetKey && _fundTargetKey.length)
+        ? _fundTargetKey : (root.backend ? (root.backend.primaryAddress || "") : "")
     Timer {
         interval: 400; repeat: true; running: root._fundStage === "requesting"
         onTriggered: root._fundDots = (root._fundDots + 1) % 4
     }
     function _fundDotStr() { return ["", ".", "..", "..."][root._fundDots] }
-    // Dashboard fund: primaryAddress (the backend also tops up the leader key).
+    // Dashboard fund: the dialog's effective target (primary address, or the
+    // specific key a per-account Fund button selected).
     function _requestFunds() {
-        root._requestFundsFor(root.backend ? (root.backend.primaryAddress || "") : "")
+        root._requestFundsFor(root._fundEffectiveKey)
     }
     // Fund a specific key. Onboarding passes the LEADER funding key so only that
     // one key is funded (requestFaucetFunds skips its duplicate leader top-up when
@@ -614,7 +639,7 @@ Rectangle {
         id: fundDialog
         anchors.centerIn: parent
         width: 480
-        title: qsTr("Fund the node")
+        title: root._fundTargetKey.length ? qsTr("Fund a key") : qsTr("Fund the node")
         closePolicy: Popup.CloseOnEscape
         // Darker scrim behind the modal (~3× the default dim).
         Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.72) }
@@ -631,7 +656,11 @@ Rectangle {
                 width: parent.width; wrapMode: Text.WordWrap
                 color: Theme.palette.textSecondary
                 font.pixelSize: Theme.typography.secondaryText
-                text: qsTr("These are testnet funds — no real value. They auto-stake: your balance "
+                // The auto-stake / leader-slot claim is only true for the node's staking
+                // key; when funding a specific key (Blend/SDP), keep it factual.
+                text: root._fundTargetKey.length
+                    ? qsTr("These are testnet funds — no real value, sent to the key below. It can take a little while to arrive.")
+                    : qsTr("These are testnet funds — no real value. They auto-stake: your balance "
                            + "counts as stake, so your node starts winning leader slots proportional "
                            + "to it and proposes blocks on its own. It can take a little while to arrive.")
             }
@@ -639,7 +668,8 @@ Rectangle {
                 visible: root._fundStage === "" || root._fundStage === "requesting"
                 width: parent.width; spacing: 4
                 LogosText {
-                    text: qsTr("Destination — your node's public key")
+                    text: root._fundTargetKey.length ? qsTr("Destination — the selected key")
+                                                     : qsTr("Destination — your node's public key")
                     font.pixelSize: Theme.typography.secondaryText
                     color: Theme.palette.textSecondary
                 }
@@ -647,7 +677,7 @@ Rectangle {
                     width: parent.width; spacing: Theme.spacing.small
                     LogosText {
                         width: parent.width - 26
-                        text: root.backend ? (root.backend.primaryAddress || "—") : "—"
+                        text: root._fundEffectiveKey.length ? root._fundEffectiveKey : "—"
                         font.pixelSize: Theme.typography.primaryText
                         font.family: Theme.typography.publicSans
                         color: Theme.palette.text
@@ -659,7 +689,7 @@ Rectangle {
                         MouseArea {
                             id: keyCopyM; anchors.fill: parent; anchors.margins: -4
                             hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: if (root.backend) root.backend.copyToClipboard(root.backend.primaryAddress)
+                            onClicked: if (root.backend) root.backend.copyToClipboard(root._fundEffectiveKey)
                         }
                     }
                 }
@@ -835,6 +865,7 @@ Rectangle {
                 }
                 MouseArea {
                     id: resetM
+                    enabled: !root.blendRecoveryLocked
                     anchors.fill: parent; hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     // Close first, then open the confirm modal on the NEXT tick — two modals
@@ -866,17 +897,8 @@ Rectangle {
         ]
     }
 
-    // ── Enable / Manage Blend Core modal (epic #89) ──
-    // Full-view overlay, hidden until open()ed from the header action or the Blend
-    // tile CTA. Fed by real backend calls (getSdpFundingKey/getBalance/getNotes/
-    // checkBlendPortReachable/getBlendDeclarations for the gates; declareBlendCore
-    // to enable; withdrawBlendCore to disable). blendStatus drives the header label.
-    EnableBlendCoreModal {
-        id: enableBlendModal
-        anchors.fill: parent
-        z: 300
-        backend: root.backend
-    }
+    // Enable / Manage Blend Core is now the Blend TAB (BlendView, #119) — the modal
+    // overlay was removed. The tab hosts the same phase-driven flow + the evidence strip.
 
     // Node balance for the dashboard tile and the claim gate.
     //
@@ -1122,6 +1144,7 @@ Rectangle {
     // restart the node (the node reads bootstrap.ibd.peers from initial_peers at start).
     property var _pendingPeerApply: null
     function applyBootstrapPeers(peersText) {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         var peers = String(peersText).split("\n").map(function(s){ return s.trim() })
                     .filter(function(s){ return s.length > 0 })
@@ -1149,7 +1172,7 @@ Rectangle {
     Connections {
         target: root.backend
         function onStatusChanged() {
-            if (!root.backend || root.backend.status !== BlockchainBackend.Stopped) return
+            if (!root.backend || root.backend.status !== BlockchainBackend.Stopped || root.blendRecoveryLocked) return
             if (root._pendingPeerApply) {
                 var fn = root._pendingPeerApply
                 root._pendingPeerApply = null
@@ -1169,6 +1192,7 @@ Rectangle {
     // firing the backend call against a running node (which it rejects).
     property var _pendingAfterStop: null
     function _stopThenRun(fn) {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         if (root.backend.status === BlockchainBackend.Running
             || root.backend.status === BlockchainBackend.Starting) {
@@ -1182,6 +1206,7 @@ Rectangle {
     // Settings "Reset chain state" — stop, wipe chain db/state (keeps keys+config),
     // restart to re-sync from genesis. Feedback surfaces on settingsView.actionResult.
     function _resetChainThenRestart() {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         settingsView.actionResult = qsTr("Stopping the node…")
         root._stopThenRun(function() {
@@ -1200,6 +1225,7 @@ Rectangle {
     // Settings "Regenerate keys" — stop, back up + remove the keystore, restart so the
     // node mints a fresh identity. Feedback surfaces on settingsView.actionResult.
     function _regenerateKeysThenRestart() {
+        if (root.blendRecoveryLocked) return
         if (!root.backend) return
         settingsView.actionResult = qsTr("Stopping the node…")
         root._stopThenRun(function() {
@@ -1797,7 +1823,7 @@ Rectangle {
     // Loading state before backend connects
     ColumnLayout {
         anchors.centerIn: parent
-        visible: !root.ready
+        visible: !root.ready && !root.blendRecoveryLocked
         spacing: 12
         Text {
             Layout.alignment: Qt.AlignHCenter
@@ -1812,7 +1838,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Theme.spacing.large
         currentIndex: _d.currentPage
-        visible: root.ready
+        visible: root.ready || root.blendRecoveryLocked
 
         // Page 1: Config choice
         ScrollView {
@@ -1907,7 +1933,8 @@ Rectangle {
             onNodeRunningChanged: {
                 // Only the node-gated tab (Operations=4) strands the user when the
                 // node stops; Node/Rewards/Blocks/Proposals/Settings stay valid.
-                if (!nodeRunning && operationTabBar.currentIndex === 4)
+                if (!nodeRunning && (operationTabBar.currentIndex === 4
+                                     || operationTabBar.currentIndex === 5))  // Wallet, Blend
                     operationTabBar.currentIndex = 0
                 // A manual (re)start clears any cap auto-pause.
                 if (nodeRunning) root._autoPaused = false
@@ -1926,6 +1953,10 @@ Rectangle {
                     LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
                         text: qsTr("Wallet")
+                        enabled: opPage.nodeRunning
+                    }
+                    LogosTabButton {
+                        text: qsTr("Blend")
                         enabled: opPage.nodeRunning
                     }
                     // Settings is reachable before the node runs (configure first).
@@ -1948,33 +1979,14 @@ Rectangle {
                         && (root.backend.primaryAddress || "").length > 0
                     text: qsTr("Fund")
                     enabled: ready
-                    onClicked: if (ready) fundDialog.open()
+                    onClicked: if (ready) { root._fundTargetKey = ""; fundDialog.open() }
                     ToolTip.visible: fundHover.hovered && !fundBtn.ready
                     ToolTip.text: qsTr("Fund the node once it's online")
                     HoverHandler { id: fundHover }
                 }
 
-                // Blend Core provider action (epic #89). Label follows blendStatus:
-                // "Enable Blend Core" (Edge) / "Blend: activating…" (declaration pending)
-                // / "Blend Core ✓" (Core). Opens the gated Enable/Manage modal. Enabled
-                // only once the node is Online (Blend is meaningless while bootstrapping).
-                GhostButton {
-                    id: blendBtn
-                    Layout.alignment: Qt.AlignVCenter
-                    readonly property string bs: root.backend
-                        ? root._dashBlend(root.backend.blendStatus) : "none"
-                    readonly property bool online: root.backend
-                        && root.backend.status === BlockchainBackend.Running
-                    visible: online
-                    // Button matrix: bootstrapping (bs "none") → Enable, DISABLED · edge → Enable Core ·
-                    // declared (coredeclared/activating) → Blend Core declared · core → Blend Core active.
-                    text: bs === "core" ? qsTr("Blend Core active")
-                          : (bs === "coredeclared" || bs === "activating") ? qsTr("Blend Core declared")
-                          : bs === "edge" ? qsTr("Enable Core")
-                          : qsTr("Enable Blend Core")
-                    enabled: online && bs !== "none"      // disabled while bootstrapping / not synced
-                    onClicked: enableBlendModal.open()
-                }
+                // Blend Core header button removed (#120): the Blend TAB is the single
+                // entry point for enabling/managing Blend Core now.
 
                 // Node run/stop — small primary CTA. A bootstrapping node sits in
                 // Starting for a long time (the start RPC outlives IBD/recovery), so
@@ -1982,6 +1994,7 @@ Rectangle {
                 // brief Stopping transition disables the button.
                 CtaButton {
                     id: nodeCtlBtn
+                    objectName: "nodeRunControl"
                     compact: true
                     Layout.alignment: Qt.AlignVCenter
                     readonly property int st: root.backend ? root.backend.status : -1
@@ -1990,12 +2003,16 @@ Rectangle {
                     readonly property bool stopping: st === BlockchainBackend.Stopping
                     // Live (running OR still starting/bootstrapping) → offer Stop.
                     readonly property bool live: running || starting
-                    enabled: root.backend && !stopping
+                    // A confirmed pause permits Stop without releasing the plan's
+                    // identity/reset locks; a stopped node can still be started.
+                    enabled: root.backend && root.ready && !stopping
+                        && (!root.blendRecoveryLocked || blendLifecycleController.recoveryCanStop
+                            || st === BlockchainBackend.NotStarted || st === BlockchainBackend.Stopped)
                     text: stopping ? qsTr("Stopping…")
                           : live ? qsTr("Stop")
                           : qsTr("Start")
                     onClicked: {
-                        if (!root.backend || nodeCtlBtn.stopping) return
+                        if (!nodeCtlBtn.enabled) return
                         if (nodeCtlBtn.live) root.backend.stopBlockchain()
                         else root.backend.startBlockchain()
                     }
@@ -2108,8 +2125,10 @@ Rectangle {
 
                         onCopyText: (text) => root.copyText(text)
                         onClearBlocksRequested: if (root.backend) root.backend.clearBlocks()
-                        onEnableBlendRequested: enableBlendModal.open()   // Blend tile CTA → open the modal (epic #89)
-                        onRecoverRequested: recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
+                        // Blend progress block moved to the Blend tab (#118); only the
+                        // Recover-node gate remains wired to the Node dashboard.
+                        blendRecoveryLocked: root.blendRecoveryLocked
+                        onRecoverRequested: if (!root.blendRecoveryLocked) recoverStuckDialog.open()     // "Bootstrap stuck" hero CTA → explain + reset + re-bootstrap
                     }
 
                 }
@@ -2333,6 +2352,9 @@ Rectangle {
                                 )
                             }
                             onRefreshAccountsRequested: if (root.backend) root.backend.refreshAccounts()
+                            // Fund a specific spendable key: open the Fund dialog targeted at
+                            // that key so the operator sees requesting/success/error (#117).
+                            onFundRequested: (addressHex) => { root._fundTargetKey = addressHex; fundDialog.open() }
                             onCopyToClipboard: (text) => {
                                 root.copyText(text)
                             }
@@ -2411,9 +2433,22 @@ Rectangle {
                     }
                 }
 
-                // ---- Tab 5: Settings (node config, bootstrap, rewards, hardware, destructive) ----
+                // ---- Tab 5: Blend (Enable/manage Blend Core — replaces the modal, #119) ----
+                BlendView {
+                    id: blendView
+                    backend: root.backend
+                    backendReady: root.ready
+                    controller: blendLifecycleController
+                    // node time (current_slot/slot_duration_ms) for the activation time bar (#132)
+                    timeInfoJson: opPage.nodeRunning ? root._dashTimeInfo(root.cryptarchiaInfoJson) : ""
+                    onOpenWallet: operationTabBar.currentIndex = 4
+                }
+
+                // ---- Tab 6: Settings (node config, bootstrap, rewards, hardware, destructive) ----
                 SettingsView {
                     id: settingsView
+                    objectName: "nodeSettingsView"
+                    enabled: !root.blendRecoveryLocked
                     // real config paths (keystore sits beside the node config)
                     nodeConfigPath: root.backend
                         ? ((root.backend.userConfig && root.backend.userConfig.length)
