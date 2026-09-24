@@ -53,19 +53,7 @@ LogosFrame {
             Layout.fillWidth: true
             LogosText { text: root.title; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
             Item { Layout.fillWidth: true }
-            // legend
-            Repeater {
-                model: [ { m: "core" }, { m: "coredeclared" }, { m: "edge" }, { m: "off" } ]
-                delegate: RowLayout {
-                    spacing: 4; Layout.leftMargin: 10
-                    Rectangle {
-                        width: 8; height: 8; radius: 2; color: root._color(modelData.m); Layout.alignment: Qt.AlignVCenter
-                        // mirror the strip: declared-but-edge = blue swatch + gold underline
-                        Rectangle { visible: modelData.m === "coredeclared"; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 2; color: root._gold }
-                    }
-                    LogosText { text: root._label(modelData.m); color: Theme.palette.textTertiary; font.pixelSize: 11 }
-                }
-            }
+            // (legend removed — the hovered-cell caption below names the mode)
             Rectangle {
                 id: ib
                 Layout.alignment: Qt.AlignVCenter; Layout.leftMargin: 8
@@ -86,7 +74,7 @@ LogosFrame {
             color: Theme.palette.textTertiary; font.pixelSize: 11
         }
         Item {
-            Layout.fillWidth: true; Layout.preferredHeight: 20
+            Layout.fillWidth: true; Layout.preferredHeight: 44   // taller bars
             Canvas {
                 id: strip
                 anchors.fill: parent

@@ -594,6 +594,9 @@ Item {
         radius: Theme.spacing.radiusLarge; padding: Theme.spacing.large
         implicitHeight: 108
         contentItem: ColumnLayout {
+            // LogosFrame doesn't clamp contentItem width to the frame, so bind it — otherwise a long
+            // mono value fills its own implicit width and overflows the card instead of eliding.
+            width: Math.max(0, tile.width - 2 * Theme.spacing.large)
             spacing: Theme.spacing.small
             RowLayout { Layout.fillWidth: true
                 LogosText { objectName: "blendTileLabel"; text: tile.label; color: Theme.palette.textSecondary; font.pixelSize: Theme.typography.secondaryText }
@@ -603,15 +606,15 @@ Item {
                 LogosText { objectName: "blendTileValue"; Layout.fillWidth: true; text: tile.value; color: tile.valueColor; font.pixelSize: 24; font.weight: Theme.typography.weightBold
                             elide: Text.ElideRight; font.family: tile.mono ? "monospace" : Qt.application.font.family } }
             RowLayout { Layout.fillWidth: true; Layout.preferredHeight: 16; spacing: Theme.spacing.small
-                LogosText { visible: tile.sub.length > 0; text: tile.sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight
+                LogosText { visible: tile.sub.length > 0; Layout.fillWidth: true; text: tile.sub; color: Theme.palette.textTertiary; font.pixelSize: Theme.typography.secondaryText; elide: Text.ElideRight
                             Layout.alignment: Qt.AlignVCenter }
+                Item { visible: tile.sub.length === 0; Layout.fillWidth: true }   // keep copy/action right-aligned when there's no sub
                 LogosText { visible: tile.actionText.length > 0; text: tile.actionText; color: Theme.palette.info; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter
                             TapHandler { onTapped: tile.actionClicked() } }
                 CopyGlyph { visible: tile.copyValue.length > 0; Layout.alignment: Qt.AlignVCenter
                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                         onClicked: { if (root.backend) root.backend.copyToClipboard(tile.copyValue); tile._copied = true; copiedTimer.restart() } } }
                 LogosText { visible: tile._copied; text: qsTr("Copied"); color: Theme.palette.success; font.pixelSize: Theme.typography.secondaryText; Layout.alignment: Qt.AlignVCenter }
-                Item { Layout.fillWidth: true }
             }
         }
     }
@@ -1033,7 +1036,7 @@ Item {
                     Tile { visible: root.withdrawEpoch >= 0; label: qsTr("Withdraw at epoch"); value: "" + root.withdrawEpoch
                         info: ({ "title": qsTr("Withdraw at epoch"), "what": qsTr("The epoch your scheduled withdrawal takes effect and the declaration is removed; the locked stake unlocks ~2 epochs after withdrawal."), "states": [], "docs": root.docsUrl }) }
 
-                    Tile { label: qsTr("Locked note"); value: root._elide(root.recNote); mono: true; copyValue: root.recNote; sub: qsTr("stake — returned ~2 epochs after withdrawal")
+                    Tile { label: qsTr("Locked note"); value: root._elide(root.recNote); mono: true; copyValue: root.recNote
                         info: ({ "title": qsTr("Locked note"), "what": qsTr("The note bonded on-chain as your provider stake. It's locked while the declaration is active and returned to your wallet ~2 epochs after a withdrawal."), "states": [], "docs": root.docsUrl }) }
 
                     Tile { label: qsTr("Last send window")

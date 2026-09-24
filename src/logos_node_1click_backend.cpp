@@ -1664,9 +1664,13 @@ QVariantMap LogosNode1clickBackend::blendCoreTelemetry(const QJsonValue& core, c
     QVariantList peers;
     for (const QString& id : ids) {
         const bool inApi = apiHealth.contains(id), inLog = rosterAddr.contains(id);
+        const bool isSelf = !ourId.isEmpty() && id == ourId;
         QStringList src; if (inApi) src << QStringLiteral("API"); if (inLog) src << QStringLiteral("Log");
         if (bootstrapIds.contains(id)) src << QStringLiteral("Bootstrap");
-        QString status = inApi ? (apiHealth.value(id) ? QStringLiteral("Connected") : QStringLiteral("Degraded"))
+        // self is the local running Core member — it's never in current_epoch_peers (that list is
+        // OTHER peers we dial), so show it Connected rather than "In set".
+        QString status = isSelf ? QStringLiteral("Connected")
+            : inApi ? (apiHealth.value(id) ? QStringLiteral("Connected") : QStringLiteral("Degraded"))
             : unreachable.contains(id) ? QStringLiteral("Unreachable") : QStringLiteral("In set");
         peers << QVariantMap{{"id", id}, {"address", rosterAddr.value(id)}, {"sources", src},
                              {"status", status}, {"self", !ourId.isEmpty() && id == ourId}};
