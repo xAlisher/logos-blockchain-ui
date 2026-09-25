@@ -205,6 +205,13 @@ private:
     // classify each known wallet key by its config role, then append the identity keys
     // (Blend public key from the keystore, and the network peer id passed in).
     QVariantList buildAccounts(const QStringList& knownAddresses, const QString& peerId) const;
+    // candidate user_config.yaml paths (generated path, userConfig(), Basecamp module_data
+    // instances), newest first — the single source both the port and API-base readers scan.
+    QStringList configCandidates() const;
+    // The node's local HTTP API base ("http://<host>:<port>") from api.listen_address in the
+    // config (0.0.0.0/:: → 127.0.0.1). Falls back to http://127.0.0.1:8080. Fixes #143: a node
+    // on a non-default API port was invisible to the app because the base was hardcoded.
+    QString nodeApiBase() const;
     // blend listening port from the config (blend_port / a udp/<port> in the blend
     // listening_address). Falls back to 3400 (the testnet default) if not found.
     int blendPortFromConfig() const;

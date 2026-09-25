@@ -820,7 +820,7 @@ QVariantMap LogosNode1clickBackend::getNetworkInfo()
     p.setProcessEnvironment(curlEnv());
     p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
-             QStringLiteral("http://127.0.0.1:8080/network/info")});
+             nodeApiBase() + QStringLiteral("/network/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return out; }
     const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
     if (!doc.isObject())
@@ -856,7 +856,7 @@ QVariantMap LogosNode1clickBackend::getBlendInfo() const
     p.setProcessEnvironment(curlEnv());
     p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
-             QStringLiteral("http://127.0.0.1:8080/blend/info")});
+             nodeApiBase() + QStringLiteral("/blend/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return out; }
     const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
     if (!doc.isObject())
@@ -949,7 +949,7 @@ QString LogosNode1clickBackend::nodeMode() const
     p.setProcessEnvironment(curlEnv());
     p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
-             QStringLiteral("http://127.0.0.1:8080/cryptarchia/info")});
+             nodeApiBase() + QStringLiteral("/cryptarchia/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return {}; }
     const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
     if (!doc.isObject())
@@ -974,7 +974,7 @@ QVariantMap LogosNode1clickBackend::onchainBlendDecl() const
     p.setProcessEnvironment(curlEnv());
     p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("4"),
-             QStringLiteral("http://127.0.0.1:8080/mantle/sdp/declarations")});
+             nodeApiBase() + QStringLiteral("/mantle/sdp/declarations")});
     if (!p.waitForFinished(5000)) { p.kill(); return out; }
     const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
     if (!doc.isObject())
@@ -1000,7 +1000,7 @@ int LogosNode1clickBackend::currentEpochOnchain() const
     p.setProcessEnvironment(curlEnv());
     p.start(resolveCurl(),
             {QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("3"),
-             QStringLiteral("http://127.0.0.1:8080/time/info")});
+             nodeApiBase() + QStringLiteral("/time/info")});
     if (!p.waitForFinished(4000)) { p.kill(); return -1; }
     const QJsonDocument doc = QJsonDocument::fromJson(p.readAllStandardOutput());
     if (!doc.isObject())
@@ -1290,34 +1290,6 @@ QVariantMap LogosNode1clickBackend::getBlendModeHistory()
 // /sdp/withdrawal. All HTTP to the node's local API via system curl — the app's Qt/QML
 // HTTPS stack is unreliable on this AppImage (same rationale as getBlendInfo).
 
-// One synchronous request to the node's local HTTP API. Returns the response body;
-// *outCode gets the HTTP status (empty ⇒ curl couldn't run / no reply).
-static QString nodeApiRequest(const QString& method, const QString& path,
-                              const QString& jsonBody, QString* outCode)
-{
-    if (outCode) outCode->clear();
-    const QString curl = resolveCurl();
-    if (curl.isEmpty())
-        return {};
-    QStringList args{QStringLiteral("-sS"), QStringLiteral("-m"), QStringLiteral("8"),
-                     QStringLiteral("-X"), method,
-                     QStringLiteral("-w"), QStringLiteral("\n%{http_code}")};
-    if (!jsonBody.isEmpty())
-        args << QStringLiteral("-H") << QStringLiteral("Content-Type: application/json")
-             << QStringLiteral("-d") << jsonBody;
-    args << (QStringLiteral("http://127.0.0.1:8080") + path);
-    QProcess p;
-    p.setProcessEnvironment(curlEnv());
-    p.start(curl, args);
-    if (!p.waitForFinished(10000)) { p.kill(); return {}; }
-    const QString out = QString::fromUtf8(p.readAllStandardOutput());
-    // curl -w "\n%{http_code}" appends the status after the body.
-    const int nl = out.lastIndexOf(QLatin1Char('\n'));
-    if (outCode)
-        *outCode = (nl >= 0 ? out.mid(nl + 1) : QString()).trimmed();
-    return (nl >= 0 ? out.left(nl) : out).trimmed();
-}
-
 // Extract the node's own error text from an ErrorBody JSON (or return the raw body).
 static QString nodeApiError(const QString& body, const QString& code)
 {
@@ -1374,7 +1346,7 @@ QString LogosNode1clickBackend::sdpFundingKey() const
 
 // The blend listening port from the config (blend_port: N, or a /udp/<port> inside a
 // blend listening_address). Falls back to 3400 — the testnet Blend default.
-int LogosNode1clickBackend::blendPortFromConfig() const
+QStringList LogosNode1clickBackend::configCandidates() const
 {
     QStringList candidates;
     if (!generatedUserConfigPath().isEmpty()) candidates << generatedUserConfigPath();
@@ -1385,10 +1357,37 @@ int LogosNode1clickBackend::blendPortFromConfig() const
     const QDir md(base + QStringLiteral("/Logos/LogosBasecamp/module_data/blockchain_module"));
     for (const QFileInfo& inst : md.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time))
         candidates << inst.absoluteFilePath() + QStringLiteral("/user_config.yaml");
+    return candidates;
+}
 
+// The node's local HTTP API base from api.listen_address. The Blend backend uses the distinct
+// key `listening_address`, so a `listen_address:` match is unambiguously the API bind. #143.
+QString LogosNode1clickBackend::nodeApiBase() const
+{
+    static const QRegularExpression addrRe(
+        QStringLiteral("(?<![a-z])listen_address:\\s*\"?([\\w.:\\-\\[\\]]+)\"?"));
+    for (const QString& path : configCandidates()) {
+        QFile f(path);
+        if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
+        const auto m = addrRe.match(QString::fromUtf8(f.readAll()));
+        f.close();
+        if (!m.hasMatch()) continue;
+        const QString hp = m.captured(1);
+        const int c = hp.lastIndexOf(QLatin1Char(':'));
+        QString host = c > 0 ? hp.left(c) : QStringLiteral("127.0.0.1");
+        const QString port = c > 0 ? hp.mid(c + 1) : QStringLiteral("8080");
+        if (host.isEmpty() || host == QStringLiteral("0.0.0.0") || host == QStringLiteral("::"))
+            host = QStringLiteral("127.0.0.1");   // bind-any → reach it on loopback
+        return QStringLiteral("http://%1:%2").arg(host, port);
+    }
+    return QStringLiteral("http://127.0.0.1:8080");
+}
+
+int LogosNode1clickBackend::blendPortFromConfig() const
+{
     static const QRegularExpression portRe(QStringLiteral("blend_port:\\s*(\\d+)"));
     static const QRegularExpression udpRe(QStringLiteral("/udp/(\\d+)/quic"));
-    for (const QString& path : candidates) {
+    for (const QString& path : configCandidates()) {
         QFile f(path);
         if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
         const QString body = QString::fromUtf8(f.readAll());
@@ -1920,7 +1919,7 @@ void LogosNode1clickBackend::readBlendRecoveryFunding(BlendRecovery::Snapshot& s
     for (const QString& key : keys) if (BlendLifecycle::isId(key) && paths.size() < 32)
         paths << QStringLiteral("/wallet/%1/balance").arg(key);
     if (paths.isEmpty()) return;
-    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), paths);
+    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), paths);
     for (const QString& path : paths) {
         const auto reply = replies.value(path);
         const QJsonDocument doc = QJsonDocument::fromJson(reply.body.toUtf8());
@@ -1954,7 +1953,7 @@ void LogosNode1clickBackend::advanceBlendRecovery()
     QScopedValueRollback<bool> mutation(m_blendMutation, true);
     const QString infoPath = QStringLiteral("/cryptarchia/info");
     auto chainTip = [&]() {
-        const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {infoPath}).value(infoPath);
+        const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {infoPath}).value(infoPath);
         if (!reply.ok()) return QString();
         return QJsonDocument::fromJson(reply.body.toUtf8()).object().value("cryptarchia_info").toObject().value("tip").toString();
     };
@@ -1985,7 +1984,7 @@ void LogosNode1clickBackend::advanceBlendRecovery()
             m_blendRepairedAt = 0;
             m_blendRepairedId.clear();
         }
-        const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {path}, QStringLiteral("POST"), payload).value(path);
+        const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {path}, QStringLiteral("POST"), payload).value(path);
         if (binding && reply.ok()) {
             if (runStart <= 0 || runStart != blendRunStartedAt()) return Reply{};
             m_blendRepairedAt = QDateTime::currentMSecsSinceEpoch();
@@ -2019,7 +2018,7 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
     const QString declarationsPath = QStringLiteral("/mantle/sdp/declarations");
     const QString timePath = QStringLiteral("/time/info"), blendPath = QStringLiteral("/blend/info");
     const QString modePath = QStringLiteral("/cryptarchia/info");
-    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), {declarationsPath, timePath, blendPath, modePath});
+    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {declarationsPath, timePath, blendPath, modePath});
     auto json = [&](const QString& path) { return QJsonDocument::fromJson(replies.value(path).body.toUtf8()); };
     const QJsonDocument declarations = json(declarationsPath);
     const QJsonObject time = json(timePath).object(), blend = json(blendPath).object(), mode = json(modePath).object();
@@ -2163,7 +2162,7 @@ QVariantMap LogosNode1clickBackend::repairBlendBinding()
     const qint64 runStart = blendRunStartedAt();
     if (runStart <= 0 || status() != Running) { out["error"] = QStringLiteral("Cannot verify the current node run."); return out; }
     const QString path = QStringLiteral("/sdp/set-declaration-id");
-    const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {path}, QStringLiteral("POST"), QStringLiteral("\"%1\"").arg(id)).value(path);
+    const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {path}, QStringLiteral("POST"), QStringLiteral("\"%1\"").arg(id)).value(path);
     if (!reply.ok() || blendRunStartedAt() != runStart) {
         out["error"] = reply.ok() ? QStringLiteral("The node restarted during repair; binding is unknown.") : nodeApiError(reply.body, reply.code);
         return out;
@@ -2235,7 +2234,7 @@ QVariantMap LogosNode1clickBackend::declareBlendCore(QString locator, QString lo
         return out;
     }
     QString code;
-    const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {QStringLiteral("/blend/join")}, QStringLiteral("POST"), jsonBody).value(QStringLiteral("/blend/join"));
+    const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {QStringLiteral("/blend/join")}, QStringLiteral("POST"), jsonBody).value(QStringLiteral("/blend/join"));
     const QString resp = reply.body;
     code = reply.code;
     if (BlendMutation::definitivelyRejected(code)) {
@@ -2299,7 +2298,7 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
     QScopedValueRollback<bool> reading(m_blendReading, true);
     const QString declarationsPath = QStringLiteral("/mantle/sdp/declarations");
     const QString timePath = QStringLiteral("/time/info");
-    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), {declarationsPath, timePath});
+    const auto replies = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {declarationsPath, timePath});
     const auto reply = replies.value(declarationsPath);
     if (!reply.ok()) return out;
     const QJsonDocument doc = QJsonDocument::fromJson(reply.body.toUtf8());
@@ -2397,7 +2396,7 @@ QVariantMap LogosNode1clickBackend::withdrawBlendCore()
         return out;
     }
     QString code;
-    const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), {QStringLiteral("/sdp/withdrawal")}, QStringLiteral("POST"), jsonBody).value(QStringLiteral("/sdp/withdrawal"));
+    const auto reply = BlendLifecycle::request(resolveCurl(), curlEnv(), nodeApiBase(), {QStringLiteral("/sdp/withdrawal")}, QStringLiteral("POST"), jsonBody).value(QStringLiteral("/sdp/withdrawal"));
     const QString resp = reply.body;
     code = reply.code;
     if (BlendMutation::definitivelyRejected(code)) {

@@ -13,6 +13,7 @@ struct Reply { QString body; QString code; bool ok() const { return code.startsW
 // Concurrent, bounded HTTP snapshot. Event dispatch stays live in the QtRO host;
 // callers hold overlap/mutation guards across this nested event loop.
 inline QMap<QString, Reply> request(const QString& curl, const QProcessEnvironment& env,
+                                  const QString& apiBase,
                                   const QStringList& paths, const QString& method = "GET",
                                   const QString& body = {})
 {
@@ -32,7 +33,7 @@ inline QMap<QString, Reply> request(const QString& curl, const QProcessEnvironme
         QObject::connect(p.get(), &QProcess::finished, &loop, [&](int, QProcess::ExitStatus) { if (--pending == 0) loop.quit(); });
         QStringList args{"-sS", "--connect-timeout", "1", "--max-time", reading ? "1.5" : "8", "-X", method, "-w", "\n%{http_code}"};
         if (!body.isEmpty()) args << "-H" << "Content-Type: application/json" << "-d" << body;
-        args << (QStringLiteral("http://127.0.0.1:8080") + path);
+        args << (apiBase + path);
         p->start(curl, args);
         processes.push_back(std::move(p));
     }
