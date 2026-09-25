@@ -1931,10 +1931,10 @@ Rectangle {
             // the Operations tab is open, fall back to the Node tab so the user
             // isn't stranded on a disabled tab.
             onNodeRunningChanged: {
-                // Only the node-gated tab (Operations=4) strands the user when the
-                // node stops; Node/Rewards/Blocks/Proposals/Settings stay valid.
-                if (!nodeRunning && (operationTabBar.currentIndex === 4
-                                     || operationTabBar.currentIndex === 5))  // Wallet, Blend
+                // The node-gated tabs (Blend=1, Wallet=5) strand the user when the
+                // node stops; Consensus/Rewards/Explorer/Proposals/Settings stay valid.
+                if (!nodeRunning && (operationTabBar.currentIndex === 1
+                                     || operationTabBar.currentIndex === 5))  // Blend, Wallet
                     operationTabBar.currentIndex = 0
                 // A manual (re)start clears any cap auto-pause.
                 if (nodeRunning) root._autoPaused = false
@@ -1947,16 +1947,20 @@ Rectangle {
                 LogosTabBar {
                     id: operationTabBar
                     spacing: Theme.spacing.large   // more room between the tabs
-                    LogosTabButton { text: qsTr("Node") }
+                    // Tab order (IA): Consensus first, Blend right after it (both are
+                    // the node's live participation), then Rewards/Explorer/Proposals/
+                    // Wallet, Settings last. The content stack keeps its original child
+                    // order and remaps via operationStack.currentIndex (below).
+                    LogosTabButton { text: qsTr("Consensus") }
+                    LogosTabButton {
+                        text: qsTr("Blend")
+                        enabled: opPage.nodeRunning
+                    }
                     LogosTabButton { text: qsTr("Rewards") }
                     LogosTabButton { text: qsTr("Explorer") }
                     LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
                         text: qsTr("Wallet")
-                        enabled: opPage.nodeRunning
-                    }
-                    LogosTabButton {
-                        text: qsTr("Blend")
                         enabled: opPage.nodeRunning
                     }
                     // Settings is reachable before the node runs (configure first).
@@ -2025,9 +2029,14 @@ Rectangle {
                 id: operationStack
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: operationTabBar.currentIndex
+                // Content children keep their original order
+                // [Consensus, Rewards, Explorer, Proposals, Wallet, Blend, Settings];
+                // the tab bar order is Consensus·Blend·Rewards·Explorer·Proposals·
+                // Wallet·Settings, so remap the visible tab index -> child index.
+                readonly property var tabToChild: [0, 5, 1, 2, 3, 4, 6]
+                currentIndex: tabToChild[operationTabBar.currentIndex]
 
-                // ---- Tab 0: Node dashboard (Blocks/Proposals promoted to their own tabs) ----
+                // ---- Child 0: Node dashboard (Consensus tab) — Blocks/Proposals promoted to their own tabs ----
                 ColumnLayout {
                     spacing: Theme.spacing.large
 
@@ -2273,7 +2282,7 @@ Rectangle {
                     onCopyToClipboard: (text) => root.copyText(text)
                     // jump to the Rewards tab (now a top-level tab)
                     onOpenLeaderRewardsRequested: {
-                        operationTabBar.currentIndex = 1   // Rewards is now its own top tab
+                        operationTabBar.currentIndex = 2   // Rewards tab (Consensus=0, Blend=1)
                     }
                 }
 
@@ -2441,7 +2450,7 @@ Rectangle {
                     controller: blendLifecycleController
                     // node time (current_slot/slot_duration_ms) for the activation time bar (#132)
                     timeInfoJson: opPage.nodeRunning ? root._dashTimeInfo(root.cryptarchiaInfoJson) : ""
-                    onOpenWallet: operationTabBar.currentIndex = 4
+                    onOpenWallet: operationTabBar.currentIndex = 5   // Wallet tab (after reorder)
                 }
 
                 // ---- Tab 6: Settings (node config, bootstrap, rewards, hardware, destructive) ----
