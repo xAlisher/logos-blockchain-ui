@@ -1065,33 +1065,47 @@ Item {
                             LogosText { text: qsTr("%1 shown").arg(root.corePeers.length); color: Theme.palette.textTertiary; font.pixelSize: 11 } }
                         Repeater {
                             model: root.corePeers
-                            delegate: RowLayout {
+                            // Table-style row: a full-width Rectangle that highlights on hover so the eye
+                            // can track a peer id/address across to its tags + status.
+                            delegate: Rectangle {
                                 id: peerRow
                                 required property var modelData
                                 readonly property color _sc: peerRow.modelData.status === "Connected" ? Theme.palette.success
                                     : peerRow.modelData.status === "Degraded" ? Theme.palette.warning
                                     : peerRow.modelData.status === "Unreachable" ? Theme.palette.error : Theme.palette.textTertiary
-                                Layout.fillWidth: true; Layout.minimumHeight: 30; spacing: Theme.spacing.small
-                                Rectangle { Layout.alignment: Qt.AlignVCenter; width: 8; height: 8; radius: 4; color: peerRow._sc }
-                                ColumnLayout { Layout.fillWidth: true; spacing: 1
-                                    RowLayout { spacing: 6
-                                        LogosText { text: root._elide(peerRow.modelData.id); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace" }
-                                        Rectangle { visible: peerRow.modelData.self === true; radius: 3; color: Theme.palette.info; implicitHeight: 14; implicitWidth: youLabel.implicitWidth + 8
-                                            LogosText { id: youLabel; anchors.centerIn: parent; text: qsTr("you"); color: Theme.palette.surfaceRaised; font.pixelSize: 10 } } }
-                                    // Always render the second line (even when empty) so the row keeps its
-                                    // two-line height and the source tags + status stay right-aligned; an
-                                    // API-only peer has a peerId + health but no multiaddr (address comes
-                                    // from the node log), so show why rather than collapsing the layout.
-                                    LogosText { Layout.fillWidth: true; readonly property bool _hasAddr: (""+peerRow.modelData.address).length > 0
-                                        text: _hasAddr ? peerRow.modelData.address : qsTr("address not seen in log yet")
-                                        color: _hasAddr ? Theme.palette.textTertiary : Theme.palette.textMuted
-                                        font.pixelSize: 11; font.family: _hasAddr ? "monospace" : "sans-serif"; font.italic: !_hasAddr; elide: Text.ElideRight } }
-                                Row { Layout.alignment: Qt.AlignVCenter; spacing: 4
-                                    Repeater { model: peerRow.modelData.sources || []
-                                        delegate: Rectangle { required property string modelData; radius: 3; color: Theme.palette.surface; implicitHeight: 15; implicitWidth: srcLabel.implicitWidth + 8
-                                            LogosText { id: srcLabel; anchors.centerIn: parent; text: parent.modelData; color: Theme.palette.textSecondary; font.pixelSize: 10 } } } }
-                                LogosText { Layout.alignment: Qt.AlignVCenter; text: peerRow.modelData.status; color: peerRow._sc; font.pixelSize: 11 }
-                                BcCopyButton { Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 20; Layout.preferredWidth: 20; onCopyText: if (root.backend) root.backend.copyToClipboard(peerRow.modelData.id) }
+                                Layout.fillWidth: true
+                                implicitHeight: rowLay.implicitHeight + 2 * Theme.spacing.small
+                                radius: Theme.spacing.radiusSmall
+                                // translucent tint so it reads as a table-row highlight over the card bg,
+                                // and the source chips (surface) still contrast on hover
+                                color: hov.hovered ? Qt.rgba(Theme.palette.text.r, Theme.palette.text.g, Theme.palette.text.b, 0.06) : "transparent"
+                                HoverHandler { id: hov }
+                                RowLayout {
+                                    id: rowLay
+                                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: Theme.spacing.small; anchors.rightMargin: Theme.spacing.small
+                                    spacing: Theme.spacing.small
+                                    Rectangle { Layout.alignment: Qt.AlignVCenter; width: 8; height: 8; radius: 4; color: peerRow._sc }
+                                    ColumnLayout { Layout.fillWidth: true; spacing: 1
+                                        RowLayout { spacing: 6
+                                            LogosText { text: root._elide(peerRow.modelData.id); color: Theme.palette.text; font.pixelSize: Theme.typography.primaryText; font.family: "monospace" }
+                                            Rectangle { visible: peerRow.modelData.self === true; radius: 3; color: Theme.palette.info; implicitHeight: 16; implicitWidth: youLabel.implicitWidth + 8
+                                                LogosText { id: youLabel; anchors.centerIn: parent; text: qsTr("you"); color: Theme.palette.surfaceRaised; font.pixelSize: 11 } } }
+                                        // Always render the second line (even when empty) so the row keeps its
+                                        // two-line height and the source tags + status stay right-aligned; an
+                                        // API-only peer has a peerId + health but no multiaddr (address comes
+                                        // from the node log), so show why rather than collapsing the layout.
+                                        LogosText { Layout.fillWidth: true; readonly property bool _hasAddr: (""+peerRow.modelData.address).length > 0
+                                            text: _hasAddr ? peerRow.modelData.address : qsTr("address not seen in log yet")
+                                            color: _hasAddr ? Theme.palette.textTertiary : Theme.palette.textMuted
+                                            font.pixelSize: Theme.typography.secondaryText; font.family: _hasAddr ? "monospace" : "sans-serif"; font.italic: !_hasAddr; elide: Text.ElideRight } }
+                                    Row { Layout.alignment: Qt.AlignVCenter; spacing: 4
+                                        Repeater { model: peerRow.modelData.sources || []
+                                            delegate: Rectangle { required property string modelData; radius: 3; color: Theme.palette.surface; implicitHeight: 18; implicitWidth: srcLabel.implicitWidth + 10
+                                                LogosText { id: srcLabel; anchors.centerIn: parent; text: parent.modelData; color: Theme.palette.textSecondary; font.pixelSize: 11 } } } }
+                                    LogosText { Layout.alignment: Qt.AlignVCenter; text: peerRow.modelData.status; color: peerRow._sc; font.pixelSize: Theme.typography.secondaryText }
+                                    BcCopyButton { Layout.alignment: Qt.AlignVCenter; Layout.preferredHeight: 20; Layout.preferredWidth: 20; onCopyText: if (root.backend) root.backend.copyToClipboard(peerRow.modelData.id) }
+                                }
                             }
                         }
                         LogosText { visible: root.corePeers.length === 0; Layout.fillWidth: true; wrapMode: Text.WordWrap
