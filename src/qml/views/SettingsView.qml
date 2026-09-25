@@ -250,7 +250,7 @@ Item {
         id: regenDlg
         anchors.centerIn: parent; modal: true; width: 460
         title: qsTr("Regenerate keys?")
-        message: qsTr("This creates a new node identity and Peer ID. Any stake, rewards or reputation tied to the current keys will no longer be reachable. Back up your keys first. This cannot be undone.")
+        message: qsTr("This creates a new node identity and Peer ID. With the new identity, anything tied to your current keys stops working with this node: a Blend Core declaration becomes unusable and its locked stake is orphaned (you would have to declare again), along with staked balance, rewards and reputation. Your current keys are auto-backed-up next to the config as keystore_backup_<time>.yaml, so restore that file to get this identity back. Back up your keystore first.")
         leftActions: [ LogosButton { text: qsTr("Cancel"); onClicked: regenDlg.close() } ]
         rightActions: [ DangerButton { text: qsTr("Regenerate"); onClicked: { regenDlg.close(); root.regenerateKeysRequested() } } ]
     }
