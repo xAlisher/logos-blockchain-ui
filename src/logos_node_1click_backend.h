@@ -297,6 +297,10 @@ private:
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;
+    // Wallet's known addresses (from the last refreshAccounts). Used by leaderFundingKey()/
+    // sdpFundingKey() to prefer a config funding key that the wallet actually holds, so a stale
+    // config candidate can't make the app poll a non-wallet key (Stake "—" / wrong labels).
+    QStringList m_knownAddresses;
     AccountsModel* m_spendableModel = nullptr;   // spendable-only view for the transfer pickers
     BlockModel* m_blockModel = nullptr;
 

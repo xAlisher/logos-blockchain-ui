@@ -312,24 +312,32 @@ QString LogosNode1clickBackend::leaderFundingKey() const
         candidates << inst.absoluteFilePath() + QStringLiteral("/user_config.yaml");
 
     static const QRegularExpression hexRe(QStringLiteral("[0-9a-fA-F]{64}"));
+    // A stale user_config.yaml can linger in a candidate path (e.g. an old generated config after a
+    // regen) with a leader key the wallet no longer holds. Returning the first match then polls a
+    // non-wallet key (getBalance -> 404, "Stake —") and breaks role labels. So PREFER a candidate
+    // whose key is in the wallet's known addresses; only fall back to the first found if none match.
+    QString firstFound;
     for (const QString& path : candidates) {
         QFile f(path);
         if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
         const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
         f.close();
-        // Mirror the proven approach: enter the `leader:` block, take the first
-        // `funding_pk:` after it — that is the key proposal draws from.
+        // Enter the `leader:` block, take the first `funding_pk:` after it.
+        QString k;
         bool inLeader = false;
         for (const QString& line : lines) {
             const QString t = line.trimmed();
             if (t.startsWith(QStringLiteral("leader:"))) { inLeader = true; continue; }
             if (inLeader && t.startsWith(QStringLiteral("funding_pk:"))) {
                 const auto m = hexRe.match(t);
-                if (m.hasMatch()) return m.captured(0);
+                if (m.hasMatch()) { k = m.captured(0); break; }
             }
         }
+        if (k.isEmpty()) continue;
+        if (firstFound.isEmpty()) firstFound = k;
+        if (m_knownAddresses.contains(k, Qt::CaseInsensitive)) return k;
     }
-    return QString();
+    return firstFound;
 }
 
 void LogosNode1clickBackend::setError(const QString& message)
@@ -1322,11 +1330,14 @@ QString LogosNode1clickBackend::sdpFundingKey() const
         candidates << inst.absoluteFilePath() + QStringLiteral("/user_config.yaml");
 
     static const QRegularExpression hexRe(QStringLiteral("[0-9a-fA-F]{64}"));
+    // Prefer a candidate whose key is in the wallet (skip stale configs) — see leaderFundingKey().
+    QString firstFound;
     for (const QString& path : candidates) {
         QFile f(path);
         if (!f.exists() || !f.open(QIODevice::ReadOnly)) continue;
         const QStringList lines = QString::fromUtf8(f.readAll()).split(QLatin1Char('\n'));
         f.close();
+        QString k;
         bool inSdp = false;
         for (const QString& line : lines) {
             const QString t = line.trimmed();
@@ -1337,11 +1348,14 @@ QString LogosNode1clickBackend::sdpFundingKey() const
                 inSdp = t.startsWith(QStringLiteral("sdp:"));
             if (inSdp && t.startsWith(QStringLiteral("funding_pk:"))) {
                 const auto m = hexRe.match(t);
-                if (m.hasMatch()) return m.captured(0);
+                if (m.hasMatch()) { k = m.captured(0); break; }
             }
         }
+        if (k.isEmpty()) continue;
+        if (firstFound.isEmpty()) firstFound = k;
+        if (m_knownAddresses.contains(k, Qt::CaseInsensitive)) return k;
     }
-    return QString();
+    return firstFound;
 }
 
 // The blend listening port from the config (blend_port: N, or a /udp/<port> inside a
@@ -4170,6 +4184,9 @@ void LogosNode1clickBackend::refreshAccounts()
     }
 
     qDebug() << "refreshAccounts: loaded" << list.size() << "addresses";
+    // Cache for leaderFundingKey()/sdpFundingKey(): they prefer a config funding key that is
+    // actually in the wallet, so a stale config candidate can't win (Chair, 2026-09-25).
+    m_knownAddresses = list;
 
     // Enrich with per-key labels/hints/group (Spendable vs Identity) classified from the
     // node config + keystore, so the wallet view names each key instead of showing bare hex.
