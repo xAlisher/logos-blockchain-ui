@@ -4022,7 +4022,14 @@ QVariantList LogosNode1clickBackend::buildAccounts(const QStringList& knownAddre
     };
 
     // ── Spendable: the wallet's known keys, labelled by their config role ──
+    // Keys with a known role get a role label; the rest are numbered ("Wallet 1", "Wallet 2", …)
+    // plus a short address tail, so several plain spendable keys are distinguishable at a glance
+    // (they were all "Wallet" before — chair feedback 2026-09-25).
+    auto tail = [](const QString& a) {
+        return a.size() > 10 ? a.left(6) + QStringLiteral("…") + a.right(4) : a;
+    };
     QVariantList out;
+    int walletN = 0;
     for (const QString& addr : knownAddresses) {
         if (!leaderPk.isEmpty() && addr == leaderPk)
             out << mk(addr, tr("Leader funding key"),
@@ -4033,12 +4040,12 @@ QVariantList LogosNode1clickBackend::buildAccounts(const QStringList& knownAddre
                       tr("Pays your Blend Core declaration stake"),
                       QStringLiteral("spendable"), true);
         else if (addr == primary)
-            out << mk(addr, tr("Wallet"),
-                      tr("Your spendable balance — faucet funds land here"),
+            out << mk(addr, tr("Wallet %1").arg(++walletN),
+                      tr("Your main spendable balance — faucet funds land here"),
                       QStringLiteral("spendable"), true);
         else
-            out << mk(addr, tr("Wallet"),
-                      tr("Another spendable key in your wallet"),
+            out << mk(addr, tr("Wallet %1").arg(++walletN),
+                      tr("Spendable key · %1").arg(tail(addr)),
                       QStringLiteral("spendable"), true);
     }
 
