@@ -34,6 +34,15 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
+- **[`logos_node_1click v0.2.34`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.34)** —
+  **Works with a node on any API port, plus a cleaner Core-nodes table.** The app now reads the node's
+  **`api.listen_address`** from the config instead of assuming `127.0.0.1:8080`, so a node whose API is on a
+  non-default port (e.g. `8081`) is reachable and can declare Blend Core (#143). The **Core-nodes** panel is now
+  a proper table: larger fonts matching the other cards, a **hover highlight** per row so values track across to
+  their tags/status, and **API-only peers** (in the Blend API but not yet in the log) keep the row layout with an
+  "address not seen in log yet" note instead of collapsing it. Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.33** Blend Core lifecycle rebuilt as an honest dashboard (tiles + (i) modals, "Blend Core
+  member" only on accepted activity, Core-nodes table + Messages, epoch-graph alignment);
 - **[`logos_node_1click v0.2.33`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.33)** —
   **Blend Core lifecycle, rebuilt as an honest dashboard.** The Blend tab is now one continuous grid of
   **dashboard-style tiles** (liveness, provider record, stake, messages) that match the Node dashboard cards
@@ -61,11 +70,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.33/logos_node_1click-0.2.33-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.34/logos_node_1click-0.2.34-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.33/logos_node_1click-0.2.33-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.34/logos_node_1click-0.2.34-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
