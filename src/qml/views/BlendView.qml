@@ -1078,7 +1078,14 @@ Item {
                                         LogosText { text: root._elide(peerRow.modelData.id); color: Theme.palette.text; font.pixelSize: Theme.typography.secondaryText; font.family: "monospace" }
                                         Rectangle { visible: peerRow.modelData.self === true; radius: 3; color: Theme.palette.info; implicitHeight: 14; implicitWidth: youLabel.implicitWidth + 8
                                             LogosText { id: youLabel; anchors.centerIn: parent; text: qsTr("you"); color: Theme.palette.surfaceRaised; font.pixelSize: 10 } } }
-                                    LogosText { visible: (""+peerRow.modelData.address).length > 0; Layout.fillWidth: true; text: peerRow.modelData.address; color: Theme.palette.textTertiary; font.pixelSize: 11; font.family: "monospace"; elide: Text.ElideRight } }
+                                    // Always render the second line (even when empty) so the row keeps its
+                                    // two-line height and the source tags + status stay right-aligned; an
+                                    // API-only peer has a peerId + health but no multiaddr (address comes
+                                    // from the node log), so show why rather than collapsing the layout.
+                                    LogosText { Layout.fillWidth: true; readonly property bool _hasAddr: (""+peerRow.modelData.address).length > 0
+                                        text: _hasAddr ? peerRow.modelData.address : qsTr("address not seen in log yet")
+                                        color: _hasAddr ? Theme.palette.textTertiary : Theme.palette.textMuted
+                                        font.pixelSize: 11; font.family: _hasAddr ? "monospace" : "sans-serif"; font.italic: !_hasAddr; elide: Text.ElideRight } }
                                 Row { Layout.alignment: Qt.AlignVCenter; spacing: 4
                                     Repeater { model: peerRow.modelData.sources || []
                                         delegate: Rectangle { required property string modelData; radius: 3; color: Theme.palette.surface; implicitHeight: 15; implicitWidth: srcLabel.implicitWidth + 8
