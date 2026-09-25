@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Blend — explained</title>
+<style>
+@font-face{font-family:Public;src:url('../assets/PublicSans.ttf')}*{box-sizing:border-box}body{margin:0;background:#F5F5EF;color:#152521;font-family:Public,Arial,sans-serif;font-weight:400}main{max-width:1200px;margin:auto;padding:32px 24px 64px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #DBDDD7;padding-bottom:24px}header span{font-size:13px;letter-spacing:.08em}h1{font-size:clamp(30px,5vw,56px);font-weight:400;margin:32px 0 12px}p{line-height:1.6;max-width:78ch;color:#475651}video{width:100%;display:block;background:#F5F5EF;margin:28px 0 16px;aspect-ratio:16/9}nav{display:flex;flex-wrap:wrap;gap:6px}button{font:inherit;min-height:44px;background:transparent;border:1px solid #B8BDB8;padding:8px 13px;color:inherit;cursor:pointer}button:hover,button[aria-current=true]{background:#C6EBF7;border-color:#5F797C}button:focus-visible,a:focus-visible{outline:3px solid #5F797C;outline-offset:3px}details{border-top:1px solid #DBDDD7;margin-top:28px;padding-top:20px}summary{cursor:pointer;min-height:44px;font-size:20px}li{line-height:1.7;margin-bottom:12px}a{color:#152521;text-underline-offset:3px}small{color:#5F797C}footer{border-top:1px solid #DBDDD7;padding-top:24px;margin-top:32px;font-size:13px}code{overflow-wrap:anywhere} @media(max-width:560px){main{padding:20px 12px}header span{font-size:11px}button{font-size:13px}video{margin-top:20px}}
+</style>
+<main><header><span>BLEND</span><span>UNOFFICIAL FORK GUIDE</span></header><p class="site-nav"><a href="../">All guides</a> · <a href="../blend/">Blend</a> · <a href="../reachability/">Reachability</a></p>
+<h1>Blend, explained.</h1><p>Why private leader election needs private broadcast. A 90-second visual explanation of the network, its three roles, and what Core participation means.</p>
+<video id="film" controls playsinline preload="metadata" poster="poster.png" aria-label="Blend explained: narrated 90-second animation with captions"><source src="blend-explained.mp4" type="video/mp4"></video>
+<small>English synthetic narration · captions · 720p · 9 chapters. Press a chapter to jump; use the player to start or pause.</small>
+<nav aria-label="Video chapters" style="margin-top:18px">
+<button data-time="0">01 · The source</button><button data-time="10">02 · Two protections</button><button data-time="20">03 · Encryption</button><button data-time="30">04 · Dissemination</button><button data-time="40">05 · Timing</button><button data-time="50">06 · Cover traffic</button><button data-time="60">07 · Roles</button><button data-time="70">08 · Core lifecycle</button><button data-time="80">09 · The takeaway</button>
+</nav>
+<details><summary>Transcript</summary><ol id="transcript">
+<li><strong>The source is the secret.</strong> A block can be valid — and still reveal its sender. Direct broadcast gives observers an origin to investigate.</li>
+<li><strong>Privacy needs both halves.</strong> Cryptarchia keeps the leadership election private. Blend helps hide where the winning proposal came from.</li>
+<li><strong>Wrap the proposal.</strong> The proposer adds layers for selected Blend nodes to decrypt. These layers are not a readable route through the network.</li>
+<li><strong>Spread. Don’t draw a route.</strong> Encrypted copies spread from peer to peer across the mesh. Only a selected node can remove the next encryption layer.</li>
+<li><strong>Break the timing pattern.</strong> After decryption, a random wait separates arrival from departure. The final decryptor releases the proposal to ordinary broadcast.</li>
+<li><strong>Give messages a crowd.</strong> Cover and data messages are designed to be indistinguishable. Proof of Quota limits submissions without identifying the sender.</li>
+<li><strong>One network. Three roles.</strong> Core nodes mix. Edge nodes inject with less privacy. Too few eligible Core members? Broadcast fallback provides no Blend privacy.</li>
+<li><strong>Core is ongoing work.</strong> Declare, join epoch membership, relay, and prove activity. Registration is not Core membership. Traffic does not prove accepted activity or rewards.</li>
+<li><strong>Public blocks. Obscured origins.</strong> Blend makes linking a proposal to its origin harder. The trade-off: extra traffic and delay. Not absolute invisibility.</li>
+</ol></details>
+<details><summary>Sources & scope</summary>
+<p>Topology, hop count and timing are illustrative, not measurements. The cryptographic decryption sequence is not a single physical forwarding route. This introduction focuses on block proposals; current documentation also covers Mantle transaction submission. It does not promise anonymity, earnings or uninterrupted Core membership.</p>
+<ul>
+<li><a href="https://docs.logos.co/blockchain/concepts/about-the-blend-network">Logos docs — About the Blend Network</a>: purpose, layered encryption, dissemination, cover traffic, participation.</li>
+<li><a href="https://blog.logos.co/article/logos-blockchain-v02">Logos Blockchain in Testnet v0.2: Privacy Reaches Consensus</a>, 22 July 2026: private election versus private broadcast, network flooding and trade-offs.</li>
+<li><a href="https://blog.logos.co/article/anonymous-block-proposers">Anonymous Block Proposers: How Logos Solves Leader Privacy</a>, 24 March 2026: Core versus Edge, cover traffic and Proof of Quota. This film deliberately avoids the article’s quantitative security claims.</li>
+<li><a href="https://github.com/logos-blockchain/logos-blockchain/tree/adc72a456011795710b8bced1a21d05715f96c1d/services/blend/src">Blend implementation, pinned v0.2.4 source</a> and <a href="https://github.com/logos-blockchain/logos-blockchain/tree/adc72a456011795710b8bced1a21d05715f96c1d/services/sdp/src">SDP service</a>: runtime roles, membership and service activity. See <a href="sources.md">source notes</a> for detailed anchors.</li>
+</ul></details>
+<details><summary>Brand & production notes</summary><p>Independent educational material for an unofficial fork, not an official Logos publication. No Logos logos or marks are used. The existing colours and Public Sans typography are retained; upstream documentation is cited for technical reference only.</p><p>Rendered with Pillow and ffmpeg. No live-node data, production modifications or network transactions. No autoplay; the full transcript provides a non-motion alternative.</p></details>
+<footer>Understand the difference: declared · Core now · activity accepted.<br>Independent guide for an unofficial fork.</footer></main>
+<script>
+const film=document.getElementById('film');
+// Blob URLs support reliable local seeking without an HTTP Range server.
+const mediaSource=film.querySelector('source');
+if(mediaSource.src.startsWith('data:video/mp4;base64,')){
+ const bytes=Uint8Array.from(atob(mediaSource.src.split(',')[1]),c=>c.charCodeAt(0));
+ film.src=URL.createObjectURL(new Blob([bytes],{type:'video/mp4'}));
+ film.load();
+}
+const chapters=[...document.querySelectorAll('[data-time]')];
+chapters.forEach(button=>button.addEventListener('click',()=>{film.currentTime=Number(button.dataset.time)+.5;film.pause();}));
+film.addEventListener('timeupdate',()=>{const n=Math.min(8,Math.floor(film.currentTime/10));chapters.forEach((b,i)=>b.setAttribute('aria-current',String(i===n)));});
+</script></html>
