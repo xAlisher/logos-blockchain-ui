@@ -270,6 +270,11 @@ private:
     // while a claim was in flight, so leadership is never read as a release.
     int proposalCount() const;
     void recordClaimSubmission(const QString& txHash);
+    // WORKAROUND for logos-blockchain#3668 / ui#144: the node lists un-settleable "phantom"
+    // vouchers that reappear after a claim and never prune. Split the node's claimable list into
+    // real vs phantom (a nullifier still claimable after we claimed it + the reservation window
+    // elapsed) so the count stops growing and the UI can point at a rescan. Drop when #3668 lands.
+    QString enrichClaimableWithPhantoms(const QString& rawJson);
     // Public keys a claim of ours can be credited to (leader funding key first,
     // then the wallet key — the module assigns them separately, see ui#35).
     QStringList ourClaimKeys() const;

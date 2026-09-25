@@ -2525,8 +2525,73 @@ QVariantMap LogosNode1clickBackend::getClaimableVouchers()
     if (!m_blockchainClient)
         return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
 
-    return result::toVariantMap(result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
-        BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers"))));
+    const LogosResult lr = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("wallet_get_claimable_vouchers")));
+    QVariantMap out = result::toVariantMap(lr);
+    // WORKAROUND (logos-blockchain#3668 / ui#144): quarantine phantom vouchers so the claimable
+    // count stops growing forever. Enrich the JSON in place; the envelope is unchanged.
+    if (lr.success)
+        out[QStringLiteral("value")] = enrichClaimableWithPhantoms(lr.value.toString());
+    return out;
+}
+
+// See the header note + ui#144. A voucher is "phantom" when it is STILL claimable although we
+// already claimed it and the node's reservation window (security_param blocks, ~2h wall-clock) has
+// elapsed — a genuine claim prunes the nullifier, so anything that comes back never settled. We
+// move those out of `vouchers` (so the count reflects real, settleable rewards) into `phantom`.
+QString LogosNode1clickBackend::enrichClaimableWithPhantoms(const QString& rawJson)
+{
+    const QJsonObject root = QJsonDocument::fromJson(rawJson.toUtf8()).object();
+    const QJsonArray vouchers = root.value(QStringLiteral("vouchers")).toArray();
+    const QString tip = root.value(QStringLiteral("tip")).toString();
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // ~2h proxy for the node's security_param (120 immutable blocks) reservation release.
+    static constexpr qint64 kReservationWindowMs = 2 * 60 * 60 * 1000;
+
+    // Most recent claim we submitted (newest row first). No claims => nothing can be phantom yet.
+    qint64 lastClaimMs = 0;
+    const QJsonArray claims = loadClaimStore().value(QStringLiteral("claims")).toArray();
+    if (!claims.isEmpty()) {
+        const QString iso = claims.first().toObject().value(QStringLiteral("submittedAt")).toString();
+        const QDateTime dt = QDateTime::fromString(iso, Qt::ISODate);
+        if (dt.isValid()) lastClaimMs = dt.toMSecsSinceEpoch();
+    }
+
+    // firstSeen[nullifier] = when we first observed it claimable (persisted beside the config).
+    const QString cfg = userConfig();
+    const QString storePath = cfg.isEmpty() ? QString()
+        : QFileInfo(cfg).absoluteDir().filePath(QStringLiteral("voucher-firstseen.json"));
+    QJsonObject seen;
+    if (!storePath.isEmpty()) {
+        QFile f(storePath);
+        if (f.open(QIODevice::ReadOnly)) { seen = QJsonDocument::fromJson(f.readAll()).object(); f.close(); }
+    }
+
+    QJsonArray real, phantom;
+    QJsonObject nextSeen;
+    for (const QJsonValue& v : vouchers) {
+        const QJsonObject o = v.toObject();
+        const QString nf = o.value(QStringLiteral("nullifier")).toString();
+        const qint64 first = seen.contains(nf) ? qint64(seen.value(nf).toDouble()) : now;
+        nextSeen.insert(nf, double(first));   // carry forward only currently-claimable ones (prunes resolved)
+        const bool isPhantom = lastClaimMs > 0
+            && first <= lastClaimMs                       // was claimable before/at our last claim
+            && (now - lastClaimMs) > kReservationWindowMs; // and the reservation window has since passed
+        (isPhantom ? phantom : real) << o;
+    }
+    if (!storePath.isEmpty()) {
+        QFile f(storePath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write(QJsonDocument(nextSeen).toJson(QJsonDocument::Compact)); f.close();
+        }
+    }
+
+    QJsonObject enriched;
+    enriched.insert(QStringLiteral("tip"), tip);
+    enriched.insert(QStringLiteral("vouchers"), real);        // real, settleable — the count the UI shows
+    enriched.insert(QStringLiteral("phantom"), phantom);      // quarantined — surface as "needs rescan"
+    enriched.insert(QStringLiteral("phantomCount"), phantom.size());
+    return QString::fromUtf8(QJsonDocument(enriched).toJson(QJsonDocument::Compact));
 }
 
 // ---------------------------------------------------------------------------

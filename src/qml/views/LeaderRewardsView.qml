@@ -181,6 +181,9 @@ ColumnLayout {
         ? _parsed.vouchers
         : (Array.isArray(_parsed) ? _parsed : [])
     readonly property string tip: (_parsed && _parsed.tip) ? String(_parsed.tip) : ""
+    // WORKAROUND (logos-blockchain#3668 / ui#144): phantom vouchers the node keeps re-listing after
+    // a claim but that can never settle. Split out by the backend so they don't inflate the count.
+    readonly property int phantomCount: (_parsed && _parsed.phantomCount) ? _parsed.phantomCount : 0
 
     readonly property var _ledger: safeParse(claimsJson)
     readonly property var claims: (_ledger && _ledger.claims) ? _ledger.claims : []
@@ -441,6 +444,20 @@ ColumnLayout {
                 infoData: root._rInfo.submitted
                 onInfoRequested: root._openInfo(infoData)
             }
+        }
+
+        // Phantom-voucher notice (logos-blockchain#3668 / ui#144): the node keeps re-listing
+        // vouchers that were already claimed but can never settle. We hide them from the count
+        // above; tell the operator what they are and how to clear them.
+        LogosText {
+            Layout.leftMargin: root._inset
+            Layout.rightMargin: root._inset
+            Layout.fillWidth: true
+            visible: root.phantomCount > 0
+            wrapMode: Text.WordWrap
+            text: qsTr("%1 voucher(s) can't settle — a known node bug (#3668) keeps re-listing already-claimed vouchers. They're hidden from the count above. Clear them with Settings → Reset chain state (keeps your keys).").arg(root.phantomCount)
+            color: Theme.palette.warning
+            font.pixelSize: Theme.typography.secondaryText
         }
 
         // Why the button is unavailable, stated rather than left to guess. Suppressed
