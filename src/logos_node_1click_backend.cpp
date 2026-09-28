@@ -996,6 +996,7 @@ QVariantMap LogosNode1clickBackend::onchainBlendDecl() const
         out["found"] = true;
         out["active"] = rec.value("active", -1);
         out["created"] = rec.value("created", -1);
+        out["nonce"] = rec.value("nonce", -1);
         out["withdrawAt"] = rec.value("withdraw_at").isNull() ? -1 : rec.value("withdraw_at").toInt();
     }
     return out;
@@ -1137,6 +1138,29 @@ void LogosNode1clickBackend::refreshBlendStatus()
         }
         if (!mode.isEmpty())
             recordBlendMode(ep, mode);
+    }
+
+    // #145: the on-chain activity proof is AUTHORITATIVE for a past epoch's Core mode,
+    // where the live core_info snapshot above is not. core_info (getBlendInfo) is only
+    // populated while the core libp2p backend has negotiated peers, so it reads absent
+    // across a node restart / peer-renegotiation window and can mis-stamp an epoch as
+    // "coredeclared" even though the node was a bona fide Core member. But the ledger
+    // only accepts an SDP activity op (which advances the declaration nonce) from a
+    // provider that was in that epoch's frozen Core provider set — verify_proof requires
+    // membership + a valid ZK proof + a below-threshold blending token (node rev
+    // adc72a4 that module 0.2.4 pins: ledger/src/mantle/sdp/rewards/blend/target_epoch.rs;
+    // apply_active_msg commits the nonce only if the proof verifies). The op attesting
+    // blend-epoch E-1 is applied in epoch E and sets declaration.active = E, so a live
+    // declaration with nonce>0 is proof that epoch (active-1) was Core. Backfill it,
+    // overriding any transient mis-sample — but only for a PAST epoch, never the current
+    // one (which stays the live/provisional tile).
+    const QVariantMap dcl = onchainBlendDecl();
+    if (dcl.value(QStringLiteral("found")).toBool()) {
+        const int active = dcl.value(QStringLiteral("active")).toInt();
+        const int nonce  = dcl.value(QStringLiteral("nonce")).toInt();
+        const int attested = active - 1;   // the epoch the latest accepted activity proves
+        if (nonce > 0 && attested >= 0 && (ep < 0 || attested < ep))
+            recordBlendMode(attested, QStringLiteral("core"));
     }
 }
 
