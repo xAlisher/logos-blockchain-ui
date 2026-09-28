@@ -34,6 +34,18 @@ Built with [`logos-module-builder`](https://github.com/logos-co/logos-module-bui
 Latest signed `.lgx` (linux-amd64 · **macOS arm64/M1**) — installs **without** `--allow-unsigned`
 and renders **✓ Signed by xAlisher**:
 
+- **[`logos_node_1click v0.2.35`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.35)** —
+  **Consensus/Blend tabs, honest Rewards, on-chain Blend-Core detection.** The operations bar is reordered so the
+  node's two live-participation surfaces sit together up front: the **Node** tab is now **Consensus** and **Blend**
+  follows it (**Consensus · Blend · Rewards · Explorer · Proposals · Wallet · Settings**). The **"Blend type by
+  epoch"** strip now reads Core from the **on-chain activity proof** (#145), so it no longer mis-reports a real
+  Core epoch as "declared (edge)" after a node restart. In **Rewards**, the second Vouchers card is now **Settled**
+  (vouchers that resulted in earning) instead of the misleading in-flight "Submitted" count, the section is renamed
+  **Settled Claims**, and the card matches the list total. Reappeared, already-claimed vouchers (#3668) are shown as
+  harmless rather than "can't settle" (no more "Reset chain state" advice). Wallet: spendable keys are labelled,
+  Stake/labels resolve against the wallet not a stale config, and the Regenerate-keys modal warns it orphans the
+  Blend declaration. Module pin: **blockchain_module 0.2.3**.
+  Previous: **v0.2.34** works with a node on any API port + cleaner Core-nodes table;
 - **[`logos_node_1click v0.2.34`](https://github.com/xAlisher/logos-blockchain-ui/releases/tag/v0.2.34)** —
   **Works with a node on any API port, plus a cleaner Core-nodes table.** The app now reads the node's
   **`api.listen_address`** from the config instead of assuming `127.0.0.1:8080`, so a node whose API is on a
@@ -70,11 +82,11 @@ and renders **✓ Signed by xAlisher**:
 ```bash
 # Linux x86-64 — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.34/logos_node_1click-0.2.34-linux-amd64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.35/logos_node_1click-0.2.35-linux-amd64.lgx
 
 # macOS Apple Silicon — signed, "✓ Signed by xAlisher"
 curl -fL -o logos_node_1click.lgx \
-  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.34/logos_node_1click-0.2.34-darwin-arm64.lgx
+  https://github.com/xAlisher/logos-blockchain-ui/releases/download/v0.2.35/logos_node_1click-0.2.35-darwin-arm64.lgx
 
 lgpm install --file logos_node_1click.lgx
 ```
