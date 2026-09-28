@@ -237,6 +237,16 @@ var rewards = {
         ],
         docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
     },
+    settledCount: {
+        title: "Settled",
+        what: "Vouchers that landed on chain and turned into earnings — settled, or in a block and finalizing. This is the same set the claims list below shows, so it equals the list's 'All epochs' total. (The LGO value is in Earned and the Earned-by-epoch chart.)",
+        calc: "Counted from the landed rows of the claims ledger (status settled or in-block), within the app's ledger window — not a lifetime total. Reappeared, already-claimed vouchers are not counted again.",
+        states: [
+            { label: "Number", meaning: "Claims that landed as earnings — matches the claims list's 'All epochs' count." },
+            { label: "0", meaning: "Nothing landed yet." }
+        ],
+        docs: "https://docs.logos.co/blockchain/node-app/claim-leader-rewards-in-logos-blockchain-ui-app"
+    },
     claimed: {
         title: "Claimed",
         what: "Total leader rewards you have claimed and that have settled to the wallet.",

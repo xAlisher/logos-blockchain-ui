@@ -192,6 +192,13 @@ ColumnLayout {
     // Claims we submitted that have not settled. This counts CLAIMS from our own
     // ledger, not vouchers: the node's reserved-voucher list is never sent to us.
     readonly property int claimingCount: root.summary ? (root.summary.inFlight || 0) : 0
+    // Vouchers that resulted in earning — the count that maps to real rewards (value lives
+    // in Earned / the Earned-by-epoch chart). Uses the SAME "landed" set as the claims list
+    // below (settled OR in-a-block, _claimTotal), so the card and the list's "All epochs"
+    // total always agree. (summary.settled is finalized-only and undercounts vs the list,
+    // which also credits in-block rows as earnings — that mismatch is the 34-vs-115 bug.)
+    // Replaces the old in-flight "Submitted" count (dominated by the harmless #3668 reappearance).
+    readonly property int settledCount: root._claimTotal
 
     // Reward per claim is read from ledger state at execution and CAN change, so
     // the pool's value is an estimate from the most recent settled claim.
@@ -438,10 +445,13 @@ ColumnLayout {
 
             StatTile {
                 topAligned: true
-                // "Submitted" matches the status word used on the claim rows.
-                label: qsTr("Submitted")
-                value: String(root.claimingCount)
-                infoData: root._rInfo.submitted
+                // "Settled" = vouchers that resulted in earning (the real outcome). Replaces
+                // the in-flight "Submitted" count, which was dominated by the harmless #3668
+                // reappearance and unactionable on an auto-claiming node. Earned value + the
+                // per-epoch breakdown live in the Earned tile / Earned-by-epoch chart.
+                label: qsTr("Settled")
+                value: String(root.settledCount)
+                infoData: root._rInfo.settledCount
                 onInfoRequested: root._openInfo(infoData)
             }
         }
@@ -492,7 +502,7 @@ ColumnLayout {
             Layout.rightMargin: root._inset
             Layout.fillWidth: true
             LogosText {
-                text: qsTr("Claims")
+                text: qsTr("Settled Claims")
                 font.pixelSize: Theme.typography.subtitleText
                 font.weight: Theme.typography.weightMedium
             }
