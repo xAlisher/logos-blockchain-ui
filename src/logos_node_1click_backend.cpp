@@ -765,6 +765,11 @@ QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
                 payload.insert(QStringLiteral("time_info"), tio);
                 r.value = QString::fromUtf8(
                     QJsonDocument(payload).toJson(QJsonDocument::Compact));
+                // #150: 0.3.0 adds slots_per_epoch to /time/info — feed it to the block
+                // model's epoch grouping instead of the 36000 hardcode. Absent on 0.2.x
+                // (setter keeps the default), so this is cross-version-safe.
+                if (m_blockModel && tio.contains(QStringLiteral("slots_per_epoch")))
+                    m_blockModel->setEpochLength(tio.value(QStringLiteral("slots_per_epoch")).toInt(36000));
             }
         }
     }
@@ -2170,7 +2175,9 @@ QVariantMap LogosNode1clickBackend::getBlendLifecycle()
     const qint64 slotDur = static_cast<qint64>(time.value("slot_duration_ms").toDouble(0));
     const qint64 genesisMs = static_cast<qint64>(time.value("genesis_time_unix_ms").toDouble(0));
     const qint64 curSlot = static_cast<qint64>(time.value("current_slot").toDouble(0));
-    const qint64 epochLenSlots = 36000;
+    // #150: read slots_per_epoch from /time/info (0.3.0); fall back to the 0.2.x const.
+    qint64 epochLenSlots = static_cast<qint64>(time.value("slots_per_epoch").toDouble(36000));
+    if (epochLenSlots <= 0) epochLenSlots = 36000;
     const qint64 epochStartMs = (slotDur > 0 && genesisMs > 0 && curSlot > 0)
         ? genesisMs + (curSlot / epochLenSlots) * epochLenSlots * slotDur : 0;
     const QVariantMap telemetry = blendCoreTelemetry(core, blend.value("node_id").toString(), curEpoch, epochStartMs);
