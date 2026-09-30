@@ -1,6 +1,7 @@
 #ifndef BLOCKCHAIN_UI_BACKEND_H
 #define BLOCKCHAIN_UI_BACKEND_H
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -133,6 +134,20 @@ public slots:
     QVariantMap withdrawBlendCore() override;
     QVariantMap getSdpFundingKey() override;
     QVariantMap checkBlendPortReachable() override;
+
+    // ── PoW mining (0.3.0) — mirrors logos-blockchain-ui 0.3.0-rc.2 ──────────
+    // Layer A: live operation + readback. Each is a thin wrapper over a pow_*
+    // module IPC method; state is pushed onto the .rep PROPs (see publishPowState
+    // / pollPowStatus / pollClaimableRewards). The settled-rewards TALLY (Layer B)
+    // is deferred — see the .rep note and #136.
+    QVariantMap powStartMining() override;
+    QVariantMap powStopMining() override;
+    QVariantMap powClaimableRewards() override;
+    QVariantMap powClaim(QString claimAddressHex) override;
+    QVariantMap powStartAutoClaim() override;
+    QVariantMap powStopAutoClaim() override;
+    QVariantMap getPowConfig(QString configPath) override;
+    QVariantMap powConfigure(QString configPath, QString configJson) override;
 
 protected:
     void onContextReady() override;
@@ -294,6 +309,40 @@ private:
     qint64 findBlockchainModulePid() const;
     void sampleNodeResources();
     qint64 dirSizeBytes(const QString& path) const;   // recursive node-data-dir size
+
+    // ---- PoW mining runtime (0.3.0), Layer A ----
+    // The PoW service answers nothing until the chain is Online, and a pow_* call
+    // before then stalls every other call — so all polling is gated on this. Set
+    // true once getCryptarchiaInfo() sees mode Online; cleared when Running ends.
+    bool m_powServiceUp = false;
+    // Last pow_status readback. Meaningless unless powStatusKnown().
+    bool m_powIsMining = false;
+    bool m_powAutoClaimArmed = false;
+    // At least one claim target exists and every one has reached its threshold —
+    // the node's own reason for standing auto-claim down.
+    bool m_powEveryTargetReached = false;
+    // Targets came from the config's pow.auto_claim.targets (the node arms itself),
+    // vs the user toggling from here. Seeds autoClaimRunning before pow_status reads.
+    bool m_autoClaimConfigured = false;
+    bool m_autoClaimUserToggled = false;
+    // Previous claimable reading, for powActive. -1 = nothing read yet.
+    int m_lastClaimableTickets = -1;
+    // Since the claimable count last moved in either direction, for powActive.
+    QElapsedTimer m_sinceClaimableMoved;
+    QTimer* m_claimablePollTimer = nullptr;
+    // One reading of pow_claimable_rewards / pow_status, straight onto the PROPs.
+    void pollClaimableRewards();
+    void pollPowStatus();
+    // Resolves miningActive/autoClaimArmed from the readback, or from intent when
+    // there is no readback (a module with no pow_status).
+    void publishPowState();
+    // Opens a fresh activity window so powActive starts from "nothing seen yet".
+    void restartClaimStallWatch();
+    void noteClaimableReading(int tickets);
+    // Reads pow.auto_claim.targets from the config so the switch can report
+    // auto-claim the node armed itself. Reuses getPowConfig.
+    void seedAutoClaimFromConfig();
+    void applyAutoClaimSeed(bool modeOnline);
 
     LogosAPIClient* m_blockchainClient = nullptr;
     AccountsModel* m_accountsModel = nullptr;

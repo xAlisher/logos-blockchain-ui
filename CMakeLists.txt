@@ -36,6 +36,10 @@ logos_module(
         src/AccountsModel.cpp
         src/BlockModel.h
         src/BlockModel.cpp
+        src/ClaimLedger.h
+        src/ClaimLedger.cpp
+        src/ClaimsModel.h
+        src/ClaimsModel.cpp
     INCLUDE_DIRS
         src
     FIND_PACKAGES
