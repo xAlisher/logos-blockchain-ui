@@ -3935,6 +3935,57 @@ static void injectIbdPeersFromInitialPeers(const QString& configPath)
     }
 }
 
+// The dashboard's Blend telemetry (send window, activity-token/reward evaluation,
+// activity-proof submission, PoQ failures) exists ONLY in the node's DEBUG log —
+// targets logos_blockchain::blend::service::core and ::blend::message::reward — with
+// no HTTP API. The "Enable debug logs" setting turns those two up to DEBUG by editing
+// the tracing filter in user_config.yaml, which the node reads at startup. Idempotent
+// both ways: strip any existing override first, then (when enabled) re-insert after the
+// base `logos_blockchain: INFO` line at its own indentation. A filter of an unexpected
+// shape is left untouched.
+static void injectDebugFilter(const QString& configPath, bool enable)
+{
+    static const QStringList kTargets = {
+        QStringLiteral("logos_blockchain::blend::service::core"),
+        QStringLiteral("logos_blockchain::blend::message::reward"),
+    };
+    if (configPath.isEmpty())
+        return;
+    QFile f(configPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return;
+    QString cfg = QString::fromUtf8(f.readAll());
+    f.close();
+
+    // Anchor on the base target inside the tracing filter map: `      logos_blockchain: INFO`.
+    static const QRegularExpression baseRe(
+        QStringLiteral("(?m)^([ \\t]*)logos_blockchain:[ \\t]*INFO[ \\t]*$"));
+    if (!baseRe.match(cfg).hasMatch())
+        return;  // unknown filter shape — don't touch it
+
+    // Strip any existing overrides for our targets (idempotent; also the "disable" path).
+    for (const QString& t : kTargets) {
+        QRegularExpression line(
+            QStringLiteral("(?m)^[ \\t]*") + QRegularExpression::escape(t)
+            + QStringLiteral(":[ \\t]*DEBUG[ \\t]*\\r?\\n"));
+        cfg.remove(line);
+    }
+    if (enable) {
+        const QRegularExpressionMatch bm = baseRe.match(cfg);  // re-find (offsets shifted)
+        if (!bm.hasMatch())
+            return;
+        const QString indent = bm.captured(1);
+        QString ins;
+        for (const QString& t : kTargets)
+            ins += QLatin1Char('\n') + indent + t + QStringLiteral(": DEBUG");
+        cfg.insert(bm.capturedEnd(), ins);   // right after `logos_blockchain: INFO`
+    }
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        f.write(cfg.toUtf8());
+        f.close();
+    }
+}
+
 void LogosNode1clickBackend::startBlockchain()
 {
     const bool recoveryLocked = blendRecoveryBlocks();
@@ -3960,6 +4011,12 @@ void LogosNode1clickBackend::startBlockchain()
 
     // Fill bootstrap.ibd.peers from initial_peers so IBD actually runs.
     injectIbdPeersFromInitialPeers(userConfig());
+
+    // Apply the "Enable debug logs" setting to the config the node is about to read
+    // (the generated config when useGeneratedConfig, else the explicitly set one), so the
+    // dashboard's DEBUG-only Blend telemetry is populated. Takes effect this start.
+    injectDebugFilter(useGeneratedConfig() ? generatedUserConfigPath() : userConfig(),
+                      debugLogs());
 
     const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
         BLOCKCHAIN_MODULE_NAME, "start", userConfig(), deploymentConfig()));

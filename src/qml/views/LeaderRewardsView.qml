@@ -456,22 +456,6 @@ ColumnLayout {
             }
         }
 
-        // Reappeared-voucher notice (logos-blockchain#3668 / ui#144): after a claim, the node
-        // re-lists an already-claimed voucher once its reservation releases (before the claim
-        // finalizes). Per upstream (youngjoon-lee, 2026-09-28) this is harmless and NOT
-        // un-settleable; the fix is upstream tx-retention (logos-lips#448). We keep them out of
-        // the count above and tell the operator it needs no action — no "reset chain state".
-        LogosText {
-            Layout.leftMargin: root._inset
-            Layout.rightMargin: root._inset
-            Layout.fillWidth: true
-            visible: root.phantomCount > 0
-            wrapMode: Text.WordWrap
-            text: qsTr("%1 already-claimed voucher(s) keep reappearing here, a known node behavior (#3668). This is harmless: your balance is unaffected and they don't need re-claiming. They're kept out of the count above. No action needed; an upstream fix is in progress.").arg(root.phantomCount)
-            color: Theme.palette.textSecondary
-            font.pixelSize: Theme.typography.secondaryText
-        }
-
         // Why the button is unavailable, stated rather than left to guess. Suppressed
         // in the no-vouchers case: the "Ready to claim: 0" tile already says it.
         LogosText {

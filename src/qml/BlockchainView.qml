@@ -1090,6 +1090,17 @@ Rectangle {
         property string ramCap: "90"
         property string diskCap: "50"
         property bool rewardsAutoClaim: true
+        // Enable debug logs (default ON): populates the dashboard's DEBUG-only Blend
+        // telemetry. Pushed to the backend (below) and applied to user_config.yaml at start.
+        property bool debugLogs: true
+    }
+    // Keep the backend's debugLogs in sync with the persisted setting, so injectDebugFilter
+    // sees the right value at the next node start (applied on restart).
+    Binding {
+        target: root.backend
+        property: "debugLogs"
+        value: nodeSettings.debugLogs
+        when: !!root.backend
     }
     property int   _cpuOverCount: 0
     property int   _ramOverCount: 0
@@ -2479,6 +2490,7 @@ Rectangle {
                     // real bootstrap peers, rewards state, live CPU/RAM
                     bootstrapPeers: root.defaultBootstrapPeers.join("\n")
                     rewardsAutoClaim: nodeSettings.rewardsAutoClaim
+                    debugLogs: nodeSettings.debugLogs
                     cpuUsage: root.backend ? root.backend.cpuUsage : ""
                     ramUsage: root.backend ? root.backend.ramUsage : ""
                     diskUsage: root.backend ? root.backend.diskUsage : ""
@@ -2506,6 +2518,7 @@ Rectangle {
                             function(e){ settingsView.keystoreBackupResult = qsTr("Error: %1").arg(_d.errorText(e)) })
                     }
                     onRewardsAutoClaimToggled: (on) => { nodeSettings.rewardsAutoClaim = on }
+                    onDebugLogsToggled: (on) => { nodeSettings.debugLogs = on }
                     onApplyBootstrapPeers: (txt) => root.applyBootstrapPeers(txt)
                     // Open the real config flow (Advanced onboarding), not the dashboard tab.
                     onChangeConfigRequested: { onboardingView.advanced = true; onboardingView.step = 0; _d.currentPage = 3 }

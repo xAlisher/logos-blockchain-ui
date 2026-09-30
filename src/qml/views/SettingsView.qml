@@ -25,6 +25,7 @@ Item {
     property string actionResult: ""              // host sets during reset/regenerate (stop→do→restart progress, or "Error: …")
     property string bootstrapPeers: ""           // real initial peers, one per line
     property bool rewardsAutoClaim: false
+    property bool debugLogs: true
     property string cpuUsage: ""                  // real, from /proc sampling ("" = unknown)
     property string ramUsage: ""
     property string diskUsage: ""                 // real, node data-dir footprint
@@ -38,6 +39,7 @@ Item {
     signal resetChainRequested()
     signal regenerateKeysRequested()
     signal rewardsAutoClaimToggled(bool on)
+    signal debugLogsToggled(bool on)
     signal applyBootstrapPeers(string peersText)   // host: generateConfig + restart
     signal changeConfigRequested()                 // host: open the config setup screen
     signal backupConfigRequested()                 // host: copy the node config beside itself
@@ -191,6 +193,17 @@ Item {
                     desc: qsTr("Claim proposing rewards automatically in the background.")
                     value: root.rewardsAutoClaim
                     onUserToggled: (on) => root.rewardsAutoClaimToggled(on)
+                }
+            }
+
+            // DIAGNOSTICS
+            Card {
+                heading: qsTr("Diagnostics")
+                SwitchRow {
+                    label: qsTr("Enable debug logs")
+                    desc: qsTr("Required for the Blend telemetry on the dashboard — send window, activity-token and reward evaluation, activity-proof submission, and mixing failures. That data is only in the node's debug log; no API exposes it, so these read blank without this. Low volume. Takes effect after a restart.")
+                    value: root.debugLogs
+                    onUserToggled: (on) => root.debugLogsToggled(on)
                 }
             }
 
