@@ -2253,7 +2253,11 @@ QVariantMap LogosNode1clickBackend::declareBlendCore(QString locator, QString lo
 
     QJsonObject body;
     body.insert(QStringLiteral("locator"), loc);
+    // 0.3.0 renamed the SDP Declaration field locked_note_id → service_note_id (also the
+    // /blend/join body). Send BOTH so declaring works on 0.2.4 (reads locked_note_id) and
+    // 0.3.0 (reads service_note_id); each node ignores the key it doesn't know.
     body.insert(QStringLiteral("locked_note_id"), note);
+    body.insert(QStringLiteral("service_note_id"), note);
     const QString jsonBody =
         QString::fromUtf8(QJsonDocument(body).toJson(QJsonDocument::Compact));
 
@@ -2384,7 +2388,9 @@ QVariantMap LogosNode1clickBackend::getBlendDeclarations()
             && (withdrawal < 0 || withdrawal > nowEpoch);
         // Full record fields for the Activation/Active pages' provider record + stake.
         out["mineNonce"] = d.value("nonce", -1);
-        out["mineNote"] = d.value("locked_note_id").toString();
+        // 0.3.0 renamed the field; read either (service_note_id on 0.3.0, else locked_note_id).
+        out["mineNote"] = d.value("service_note_id").toString().isEmpty()
+            ? d.value("locked_note_id").toString() : d.value("service_note_id").toString();
         out["mineProvider"] = d.value("provider_id").toString();
         out["mineZk"] = d.value("zk_id").toString();
         const QVariantList locs = d.value("locators").toList();

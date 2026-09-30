@@ -205,7 +205,7 @@ public:
             if (s.present) { attention("Declaration reappeared after removal observation. No redeclaration sent."); return; }
             if (paused() || s.lib < st.value("absenceSlot").toVariant().toLongLong()) return;
             if (!s.funded || !s.noteSpendable) { prerequisite("Waiting for the original collateral to be spendable and SDP fee funding. Fix prerequisites, then resume."); return; }
-            submit(Action::Declare, "declare-pending", QJsonObject{{"locator", st.value("locator")}, {"locked_note_id", st.value("note")}}, post);
+            submit(Action::Declare, "declare-pending", QJsonObject{{"locator", st.value("locator")}, {"locked_note_id", st.value("note")}, {"service_note_id", st.value("note")}}, post);  // both keys: 0.2.4 + 0.3.0
             return;
         }
         if (p == "declare-pending") {

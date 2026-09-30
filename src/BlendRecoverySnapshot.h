@@ -14,7 +14,8 @@ inline bool registryValid(const QJsonObject& registry) {
         if (!BlendLifecycle::isId(it.key()) || !it.value().isObject()
             || !BlendLifecycle::isId(d.value("provider_id").toString())
             || d.value("service_type").toString().isEmpty()
-            || !BlendLifecycle::isId(d.value("locked_note_id").toString())
+            || !(BlendLifecycle::isId(d.value("service_note_id").toString())      // 0.3.0
+                  || BlendLifecycle::isId(d.value("locked_note_id").toString()))  // 0.2.4
             || !number(d.value("created"), std::numeric_limits<int>::max() - 8)
             || !number(d.value("active"), std::numeric_limits<int>::max() - 8)
             || (!d.value("withdraw_at").isNull() && !number(d.value("withdraw_at"), std::numeric_limits<int>::max() - 8))
@@ -35,7 +36,9 @@ inline Snapshot canonical(const QJsonObject& registry, const QString& provider) 
     s.present = true; s.id = match.value("id").toString().toLower();
     s.created = d.value("created").toInt(); s.activity = d.value("active").toInt();
     s.withdrawal = d.value("withdraw_at").isNull() ? -1 : d.value("withdraw_at").toInt();
-    s.note = d.value("locked_note_id").toString().toLower();
+    s.note = (d.value("service_note_id").toString().isEmpty()               // 0.3.0 renamed the field
+              ? d.value("locked_note_id").toString()                        // 0.2.4
+              : d.value("service_note_id").toString()).toLower();
     const QJsonArray locators = d.value("locators").toArray();
     if (locators.size() != 1) { s.valid = false; return s; } // join accepts only one; never silently discard others
     s.locator = locators.first().toString();
