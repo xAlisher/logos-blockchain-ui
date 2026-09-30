@@ -83,4 +83,9 @@ private:
 
     static constexpr int kMaxBlocks = 100;
     QVector<Entry> m_entries;
+    // #150: slots per epoch for EpochRole grouping. Default = the 0.2.x testnet const;
+    // overwritten from /time/info `slots_per_epoch` on 0.3.0 (see the backend's get_time_info read).
+    int m_epochLength = 36000;
+public:
+    void setEpochLength(int n) { if (n > 0) m_epochLength = n; }
 };

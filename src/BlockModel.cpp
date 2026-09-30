@@ -49,7 +49,7 @@ QVariant BlockModel::data(const QModelIndex& index, int role) const
     case ParsedRole:       return e.parsed;
     case EpochRole: {      // floor(slot / epoch_length) for grouping; -1 if unknown
         bool ok = false; const qlonglong s = e.slot.toLongLong(&ok);
-        return ok ? int(s / 36000) : -1;   // PREVIEW: epoch_length is the testnet const (#61)
+        return ok ? int(s / m_epochLength) : -1;   // #150: slots_per_epoch from /time/info (0.3.0); default 36000
     }
     default:               return QVariant();
     }
