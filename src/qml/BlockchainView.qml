@@ -92,6 +92,29 @@ Rectangle {
     readonly property var spendableAccountsModel: logos.model("logos_node_1click", "spendableAccounts")
     readonly property var blockModel: logos.model("logos_node_1click", "blocks")
 
+    // PoW mining (0.3.0): the config's pow section, read by getPowConfig and handed
+    // to the Mining tab's settings editor. Refreshed when the node config resolves
+    // and after a successful powConfigure.
+    property var _powConfigSection: null
+    function _loadPowConfig() {
+        if (!root.backend) return
+        var cfg = (root.backend.userConfig && root.backend.userConfig.length)
+                  ? root.backend.userConfig : root.backend.generatedUserConfigPath
+        if (!cfg || !cfg.length) return
+        logos.watch(root.backend.getPowConfig(cfg),
+            function(r){ if (r.success) root._powConfigSection = r.value },
+            function(e){})
+    }
+    // Poll pow_claimable_rewards only while the Mining tab is on screen — the count
+    // moves thousands of times a second while mining, and nothing else needs it.
+    Binding {
+        target: root.backend
+        property: "claimablePollActive"
+        value: root.ready && miningView.visible
+        when: root.backend !== null
+        restoreMode: Binding.RestoreBindingOrValue
+    }
+
     // Clipboard must be handled here in the UI-host (GUI) process. The backend
     // .rep source runs in a separate, non-GUI ViewModuleHost subprocess where
     // QGuiApplication::clipboard() segfaults (process exits with code 11), so
@@ -1934,7 +1957,8 @@ Rectangle {
                 // The node-gated tabs (Blend=1, Wallet=5) strand the user when the
                 // node stops; Consensus/Rewards/Explorer/Proposals/Settings stay valid.
                 if (!nodeRunning && (operationTabBar.currentIndex === 1
-                                     || operationTabBar.currentIndex === 5))  // Blend, Wallet
+                                     || operationTabBar.currentIndex === 3
+                                     || operationTabBar.currentIndex === 6))  // Blend, Mining, Wallet
                     operationTabBar.currentIndex = 0
                 // A manual (re)start clears any cap auto-pause.
                 if (nodeRunning) root._autoPaused = false
@@ -1957,6 +1981,10 @@ Rectangle {
                         enabled: opPage.nodeRunning
                     }
                     LogosTabButton { text: qsTr("Rewards") }
+                    LogosTabButton {
+                        text: qsTr("Mining")
+                        enabled: opPage.nodeRunning
+                    }
                     LogosTabButton { text: qsTr("Explorer") }
                     LogosTabButton { text: qsTr("Proposals") }
                     LogosTabButton {
@@ -2033,7 +2061,10 @@ Rectangle {
                 // [Consensus, Rewards, Explorer, Proposals, Wallet, Blend, Settings];
                 // the tab bar order is Consensus·Blend·Rewards·Explorer·Proposals·
                 // Wallet·Settings, so remap the visible tab index -> child index.
-                readonly property var tabToChild: [0, 5, 1, 2, 3, 4, 6]
+                // Tab order: Consensus·Blend·Rewards·Mining·Explorer·Proposals·Wallet·Settings.
+                // Children keep [Consensus, Rewards, Explorer, Proposals, Wallet, Blend,
+                // Settings, Mining] — Mining appended as child 7.
+                readonly property var tabToChild: [0, 5, 1, 7, 2, 3, 4, 6]
                 currentIndex: tabToChild[operationTabBar.currentIndex]
 
                 // ---- Child 0: Node dashboard (Consensus tab) — Blocks/Proposals promoted to their own tabs ----
@@ -2089,13 +2120,16 @@ Rectangle {
                         validation: root._hasLed ? "active" : ""
                         epochsToActivate: 0
 
-                        // --- funding / stake (faucet line — no mining on 0.2.4) ---
+                        // --- funding / stake (faucet line) ---
                         funded: root.nodeBalance !== "—" && root.nodeBalance !== "0" && root.nodeBalance !== ""
                         // raw balance is lepta (amounts.js: decimals=9) — convert to LGO.
                         stakeStr: (root.nodeBalance !== "—" && root.nodeBalance !== "") ? Amounts.precise(root.nodeBalance) : "—"
                         foundingAddr: root.balanceKey
-                        empoweringActive: false
-                        empoweringMined: -1
+                        // --- mining (PoW, 0.3.0) — live from the backend's Layer A state ---
+                        empoweringActive: root.backend ? root.backend.miningActive : false
+                        // Tickets ready to claim; -1 until a reading exists (tile shows "—").
+                        empoweringMined: (root.backend && root.backend.claimableLoaded)
+                                         ? root.backend.claimableTickets : -1
                         empoweringTarget: -1
 
                         // --- rewards (real, from getLeaderClaims summary) ---
@@ -2450,7 +2484,7 @@ Rectangle {
                     controller: blendLifecycleController
                     // node time (current_slot/slot_duration_ms) for the activation time bar (#132)
                     timeInfoJson: opPage.nodeRunning ? root._dashTimeInfo(root.cryptarchiaInfoJson) : ""
-                    onOpenWallet: operationTabBar.currentIndex = 5   // Wallet tab (after reorder)
+                    onOpenWallet: operationTabBar.currentIndex = 6   // Wallet tab (after reorder + Mining)
                 }
 
                 // ---- Tab 6: Settings (node config, bootstrap, rewards, hardware, destructive) ----
@@ -2512,6 +2546,81 @@ Rectangle {
                     onCapsChanged: (enabled, cpu, ram, disk) => {
                         nodeSettings.capsEnabled = enabled
                         nodeSettings.cpuCap = cpu; nodeSettings.ramCap = ram; nodeSettings.diskCap = disk
+                    }
+                }
+
+                // ---- Child 7: Mining (PoW, 0.3.0) — its own tab after Rewards ----
+                MiningView {
+                    id: miningView
+
+                    // Read the config's pow section when the tab is opened.
+                    onVisibleChanged: if (visible) root._loadPowConfig()
+
+                    // Live PoW state from the backend's Layer A props.
+                    nodeRunning: opPage.nodeRunning
+                    chainOnline: root._nodeSynced
+                    claimableTickets: root.backend ? root.backend.claimableTickets : 0
+                    soonestExpirySlots: root.backend ? root.backend.soonestExpirySlots : -1
+                    soonestExpiryCount: root.backend ? root.backend.soonestExpiryCount : 0
+                    claimableLoaded: root.backend ? root.backend.claimableLoaded : false
+                    claimableError: root.backend ? root.backend.claimableError : ""
+                    powActive: root.backend ? root.backend.powActive : false
+                    miningActive: root.backend ? root.backend.miningActive : false
+                    powStatusKnown: root.backend ? root.backend.powStatusKnown : false
+                    powRewardsEnabled: root.backend ? root.backend.powRewardsEnabled : false
+                    autoClaimArmed: root.backend ? root.backend.autoClaimArmed : false
+                    autoClaimSelfDisarmed: root.backend ? root.backend.autoClaimSelfDisarmed : false
+                    autoClaimTick: root.backend ? root.backend.autoClaimTick : 0
+                    autoClaimTickUnit: root.backend ? root.backend.autoClaimTickUnit : ""
+                    claimTargets: root.backend ? root.backend.powClaimTargets : []
+                    powConfigSection: root._powConfigSection
+
+                    onStartMiningRequested: {
+                        if (!root.backend) return
+                        miningView.miningBusy = true
+                        logos.watch(root.backend.powStartMining(),
+                            function(r){ miningView.miningBusy = false },
+                            function(e){ miningView.miningBusy = false })
+                    }
+                    onStopMiningRequested: {
+                        if (!root.backend) return
+                        miningView.miningBusy = true
+                        logos.watch(root.backend.powStopMining(),
+                            function(r){ miningView.miningBusy = false },
+                            function(e){ miningView.miningBusy = false })
+                    }
+                    onClaimRequested: (addressHex) => {
+                        if (!root.backend) return
+                        miningView.claimBusy = true
+                        miningView.claimMessage = ""
+                        logos.watch(root.backend.powClaim(addressHex),
+                            function(r){
+                                miningView.claimBusy = false
+                                miningView.claimSuccess = r.success === true
+                                miningView.claimMessage = r.success
+                                    ? qsTr("Claim submitted.")
+                                    : qsTr("Claim failed: %1").arg(r.error || _d.errorText(r))
+                            },
+                            function(e){
+                                miningView.claimBusy = false
+                                miningView.claimSuccess = false
+                                miningView.claimMessage = qsTr("Claim failed: %1").arg(_d.errorText(e))
+                            })
+                    }
+                    onAutoClaimToggled: (enabled) => {
+                        if (!root.backend) return
+                        var call = enabled ? root.backend.powStartAutoClaim()
+                                           : root.backend.powStopAutoClaim()
+                        logos.watch(call, function(r){}, function(e){})
+                    }
+                    onConfigureRequested: (configJson) => {
+                        if (!root.backend) return
+                        var cfg = (root.backend.userConfig && root.backend.userConfig.length)
+                                  ? root.backend.userConfig : root.backend.generatedUserConfigPath
+                        miningView.configBusy = true
+                        logos.watch(root.backend.powConfigure(cfg, configJson),
+                            function(r){ miningView.configBusy = false; root._loadPowConfig() },
+                            function(e){ miningView.configBusy = false })
                     }
                 }
             }
