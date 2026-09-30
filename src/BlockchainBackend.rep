@@ -12,6 +12,11 @@ class BlockchainBackend
     PROP(QString deploymentConfig READWRITE)
     PROP(bool useGeneratedConfig READWRITE)
     PROP(QString generatedUserConfigPath READONLY)
+    // "Enable debug logs" setting (default ON). Turns the two Blend log targets the
+    // dashboard's telemetry reads (blend::service::core, blend::message::reward) up to
+    // DEBUG in user_config.yaml at node start. Applied by injectDebugFilter(); takes
+    // effect on the next node/Basecamp restart (tracing filter is read at startup).
+    PROP(bool debugLogs=true READWRITE)
     PROP(QString lastErrorMessage READONLY)
     PROP(QString primaryAddress READONLY)
     // leader.wallet.funding_pk — the key block proposals draw from, where leader
