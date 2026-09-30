@@ -41,10 +41,39 @@
 #include <QVariant>
 
 #include <algorithm>
+#include <limits>
 #include <unistd.h>   // sysconf(_SC_CLK_TCK) for /proc CPU sampling (PREVIEW #65/#66)
 
 const QString LogosNode1clickBackend::BLOCKCHAIN_MODULE_NAME =
     QStringLiteral("blockchain_module");
+
+// ── PoW mining helpers (0.3.0), Layer A ──────────────────────────────────────
+namespace {
+// u64 max, as the wire carries it — a threshold of this value means "no cap".
+constexpr auto kMaxLepta = "18446744073709551615";
+// How long since the claimable count last moved before PoW reads as idle. The
+// count moves whenever mining finds a ticket, so movement is the only activity
+// proof this app can stand behind (there is no pow_is_mining()).
+constexpr qint64 kPowIdleMs = 60 * 1000;
+
+// u64 that may arrive as a JSON number or a string (the module sends the big
+// ones as strings so they survive a double).
+quint64 powJsonUint(const QJsonValue& value)
+{
+    if (value.isString())
+        return value.toString().toULongLong();
+    return static_cast<quint64>(value.toInteger());
+}
+
+// Trim, drop an optional 0x, lowercase — the normal form addresses are compared in.
+QString powNormalizeHex(const QString& hex)
+{
+    QString out = hex.trimmed();
+    if (out.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive))
+        out = out.mid(2);
+    return out.toLower();
+}
+} // namespace
 
 // Shared, persisted binary intent — the SAME QSettings key node-remote uses, so a
 // Start/Stop from the phone (node-remote) and from this desktop UI are visible to each
@@ -531,6 +560,35 @@ LogosNode1clickBackend::LogosNode1clickBackend(QObject* parent)
     m_blendRecoveryTimer->setInterval(5000);
     connect(m_blendRecoveryTimer, &QTimer::timeout, this, [this]() { advanceBlendRecovery(); });
     m_blendRecoveryTimer->start();
+
+    // ── PoW mining (0.3.0), Layer A ──────────────────────────────────────────
+    // Sane starting values (no reading yet); -1 marks "no soonest expiry known".
+    setSoonestExpirySlots(-1);
+    // The claimable count moves thousands of times a second while mining, so it
+    // is polled — not pushed — and only while a view says someone is looking
+    // (claimablePollActive) and the PoW service can answer (m_powServiceUp). The
+    // cadence is deliberately modest; pow_status rides the node's status poll.
+    m_claimablePollTimer = new QTimer(this);
+    m_claimablePollTimer->setInterval(5000);
+    connect(m_claimablePollTimer, &QTimer::timeout, this, [this]() {
+        if (claimablePollActive())
+            pollClaimableRewards();
+    });
+    m_claimablePollTimer->start();
+
+    // The PoW service is gone the moment the node leaves Running: drop the "service
+    // up" gate and the last readback so a stopped node stops reporting mining as on
+    // (miningActive/autoClaimArmed fall back to intent, which we also clear).
+    connect(this, &BlockchainBackendSimpleSource::statusChanged, this, [this]() {
+        if (status() != Running) {
+            m_powServiceUp = false;
+            setPowStatusKnown(false);
+            setClaimableLoaded(false);
+            setMiningRequested(false);
+            setAutoClaimRunning(false);
+            publishPowState();
+        }
+    });
 }
 
 // PREVIEW (#65/#66): locate the sibling blockchain_module host process by scanning
@@ -766,6 +824,31 @@ QVariantMap LogosNode1clickBackend::getCryptarchiaInfo()
                 r.value = QString::fromUtf8(
                     QJsonDocument(payload).toJson(QJsonDocument::Compact));
             }
+        }
+    }
+
+    // ── PoW status rides this poll (0.3.0) ───────────────────────────────────
+    // The node's PoW service answers nothing until the chain is Online, and a
+    // pow_* call before then stalls every other call — so gate all mining reads on
+    // reaching Online once. cryptarchia_info carries the mode as "mode" (0.2.x) or
+    // "state" (0.3.0); accept either.
+    if (r.success) {
+        const QJsonObject ciObj =
+            QJsonDocument::fromJson(r.value.toString().toUtf8()).object();
+        QString mode = ciObj.value(QStringLiteral("mode")).toString();
+        if (mode.isEmpty())
+            mode = ciObj.value(QStringLiteral("state")).toString();
+        const bool modeOnline = (mode == QLatin1String("Online"));
+
+        const bool wasUp = m_powServiceUp;
+        m_powServiceUp = m_powServiceUp || modeOnline;
+        // First time online this run: read the config's auto-claim intent before the
+        // node's own answer replaces it (applyAutoClaimSeed no-ops once pow_status is known).
+        if (!wasUp && m_powServiceUp)
+            seedAutoClaimFromConfig();
+        if (m_powServiceUp) {
+            pollPowStatus();
+            applyAutoClaimSeed(modeOnline);
         }
     }
     return result::toVariantMap(r);
@@ -2571,6 +2654,346 @@ QVariantMap LogosNode1clickBackend::getClaimableVouchers()
     if (lr.success)
         out[QStringLiteral("value")] = enrichClaimableWithPhantoms(lr.value.toString());
     return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PoW mining (0.3.0), Layer A — mirrors logos-blockchain-ui 0.3.0-rc.2.
+//
+// Each pow_* method is a thin wrapper over a blockchain_module IPC call; the
+// live state (mining on/off, tickets, auto-claim, targets, config) is pushed
+// onto the .rep PROPs by pollPowStatus() / pollClaimableRewards() and resolved
+// for the views by publishPowState(). pollPowStatus rides the node's status poll
+// (getCryptarchiaInfo); pollClaimableRewards runs on m_claimablePollTimer while a
+// view is looking. The DEFERRED Layer B (settled-reward totals + a chain-scanned
+// mining-claim history) is noted in the .rep and #136.
+// ═══════════════════════════════════════════════════════════════════════════
+
+QVariantMap LogosNode1clickBackend::powStartMining()
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_start_mining")));
+    if (r.success) {
+        m_powIsMining = true;
+        setMiningRequested(true);
+        publishPowState();
+        // The tickets this run mines are the ones the activity watch is about; the
+        // previous run's backlog must not count against it.
+        restartClaimStallWatch();
+    }
+    return result::toVariantMap(r);
+}
+
+QVariantMap LogosNode1clickBackend::powStopMining()
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_stop_mining")));
+    if (r.success) {
+        m_powIsMining = false;
+        setMiningRequested(false);
+        publishPowState();
+    }
+    return result::toVariantMap(r);
+}
+
+// Polled by the mining view. Left as a plain call rather than a pushed property
+// because the count moves thousands of times a second while mining, and the view
+// is the only thing that knows how often it can usefully redraw.
+QVariantMap LogosNode1clickBackend::powClaimableRewards()
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    return result::toVariantMap(result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_claimable_rewards"))));
+}
+
+// An empty address pays whichever auto-claim target is furthest below its
+// threshold — the same choice auto-claim itself makes, and the right default
+// when the operator has not picked one.
+QVariantMap LogosNode1clickBackend::powClaim(QString claimAddressHex)
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    const QVariantMap reply = result::toVariantMap(result::toLogosResult(
+        m_blockchainClient->invokeRemoteMethod(
+            BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_claim"), claimAddressHex.trimmed())));
+
+    // Layer B (deferred) would record this submission in a ClaimLedger here so the
+    // mining history shows it in flight — see the .rep note and #136.
+
+    // The count has moved either way — a claim can fail after consuming tickets —
+    // and waiting a full interval makes a successful claim look inert.
+    if (claimablePollActive())
+        pollClaimableRewards();
+
+    return reply;
+}
+
+// Like mining, these only move the flag when the node accepts the call, so a
+// refused toggle leaves the switch showing what the node is actually doing.
+QVariantMap LogosNode1clickBackend::powStartAutoClaim()
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_start_auto_claim")));
+    if (r.success) {
+        m_autoClaimUserToggled = true;
+        m_powAutoClaimArmed = true;
+        setAutoClaimRunning(true);
+        publishPowState();
+    }
+    return result::toVariantMap(r);
+}
+
+QVariantMap LogosNode1clickBackend::powStopAutoClaim()
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_stop_auto_claim")));
+    if (r.success) {
+        m_autoClaimUserToggled = true;
+        m_powAutoClaimArmed = false;
+        setAutoClaimRunning(false);
+        publishPowState();
+    }
+    return result::toVariantMap(r);
+}
+
+// The pow section the config already holds.
+QVariantMap LogosNode1clickBackend::getPowConfig(QString configPath)
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("read_pow_config"),
+        toLocalPath(configPath.trimmed())));
+    if (!r.success)
+        return result::toVariantMap(r);
+
+    const QVariantMap section =
+        QJsonDocument::fromJson(r.value.toString().toUtf8()).object().toVariantMap();
+    setConfigPowSection(section);
+    return result::toVariantMap(LogosResult{true, section, QVariant()});
+}
+
+// Writes the whole PoW section in one module call. The module validates the whole
+// object against the file before writing any of it, so a rejection means the
+// config is untouched and reporting it is the only honest answer.
+//
+// An empty auto_claim_targets array is meaningful rather than a no-op — the node
+// arms auto-claim exactly when the list is non-empty, so clearing it is how
+// auto-claim is turned off.
+QVariantMap LogosNode1clickBackend::powConfigure(QString configPath, QString configJson)
+{
+    if (!m_blockchainClient)
+        return result::toVariantMap(result::err(QStringLiteral("Module not initialized.")));
+
+    return result::toVariantMap(result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_configure"),
+        toLocalPath(configPath.trimmed()), configJson)));
+}
+
+// Five seconds, and only while a view says someone is looking (claimablePollActive).
+void LogosNode1clickBackend::pollClaimableRewards()
+{
+    if (!m_blockchainClient || status() != Running || !m_powServiceUp) {
+        setClaimableLoaded(false);
+        // A node that is not running is not failing to answer — it was not asked.
+        // Leaving the last failure up outlives whatever caused it.
+        setClaimableError(QString());
+        return;
+    }
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_claimable_rewards")));
+    if (!r.success) {
+        // The last good count stays on screen behind the error: a failed poll says
+        // nothing about how many tickets exist, and blanking it would claim zero.
+        setClaimableError(r.error.toString());
+        return;
+    }
+
+    const QJsonDocument doc = QJsonDocument::fromJson(r.value.toString().toUtf8());
+    if (!doc.isObject()) {
+        setClaimableError(tr("Could not read the claimable count."));
+        return;
+    }
+    const QJsonObject obj = doc.object();
+
+    // One pass for both: the soonest deadline, and how many tickets sit on it. A
+    // new minimum restarts the tally rather than adding to it — the count belongs
+    // to the deadline, not to the scan.
+    int soonest = -1;
+    int atSoonest = 0;
+    const QJsonArray expirySlots = obj.value(QStringLiteral("slots_until_expiry")).toArray();
+    for (const QJsonValue& slot : expirySlots) {
+        if (!slot.isDouble())
+            continue;
+        const int v = slot.toInt();
+        if (soonest < 0 || v < soonest) {
+            soonest = v;
+            atSoonest = 1;
+        } else if (v == soonest) {
+            ++atSoonest;
+        }
+    }
+
+    setClaimableError(QString());
+    const int tickets = obj.value(QStringLiteral("claimable_tickets")).toInt();
+    noteClaimableReading(tickets);
+    setClaimableTickets(tickets);
+    setSoonestExpirySlots(soonest);
+    setSoonestExpiryCount(atSoonest);
+    setClaimableLoaded(true);
+}
+
+// One reading of pow_status onto the runtime PROPs. Rides the status poll rather
+// than the claimable timer: that timer only runs while a view is looking, and the
+// mining/auto-claim state must stay live in the background too.
+void LogosNode1clickBackend::pollPowStatus()
+{
+    const auto noReading = [this] {
+        setPowStatusKnown(false);
+        publishPowState();
+    };
+
+    if (!m_blockchainClient || status() != Running || !m_powServiceUp)
+        return noReading();
+
+    const LogosResult r = result::toLogosResult(m_blockchainClient->invokeRemoteMethod(
+        BLOCKCHAIN_MODULE_NAME, QStringLiteral("pow_status")));
+    if (!r.success)
+        return noReading();
+
+    const QJsonDocument doc = QJsonDocument::fromJson(r.value.toString().toUtf8());
+    if (!doc.isObject())
+        return noReading();
+
+    const QJsonObject obj = doc.object();
+    const QJsonObject autoClaim = obj.value(QStringLiteral("auto_claim")).toObject();
+
+    const bool wasMining = m_powIsMining;
+    m_powIsMining = obj.value(QStringLiteral("is_mining")).toBool();
+    m_powAutoClaimArmed = autoClaim.value(QStringLiteral("is_armed")).toBool();
+    if (!wasMining && m_powIsMining)
+        restartClaimStallWatch();
+    setPowRewardsEnabled(obj.value(QStringLiteral("are_rewards_enabled")).toBool());
+
+    const QJsonObject tick = autoClaim.value(QStringLiteral("tick")).toObject();
+    const quint64 tickValue = powJsonUint(tick.value(QStringLiteral("value")));
+    setAutoClaimTick(static_cast<int>(
+        std::min<quint64>(tickValue, std::numeric_limits<int>::max())));
+    setAutoClaimTickUnit(tick.value(QStringLiteral("unit")).toString());
+
+    QVariantList targets;
+    bool everyTargetReached = true;
+    const QJsonArray rows = autoClaim.value(QStringLiteral("targets")).toArray();
+    for (const QJsonValue& entry : rows) {
+        const QJsonObject target = entry.toObject();
+        const QString threshold = target.value(QStringLiteral("threshold")).toString();
+        const QJsonValue balanceValue = target.value(QStringLiteral("balance"));
+        const bool balanceKnown = balanceValue.isString();
+        const QString balance = balanceKnown ? balanceValue.toString() : QString();
+
+        bool thresholdOk = false;
+        bool balanceOk = false;
+        const quint64 thresholdNum = threshold.toULongLong(&thresholdOk);
+        const quint64 balanceNum = balance.toULongLong(&balanceOk);
+
+        const bool reached =
+            balanceKnown && thresholdOk && balanceOk && balanceNum >= thresholdNum;
+        everyTargetReached = everyTargetReached && reached;
+
+        QVariantMap row;
+        row[QStringLiteral("address")] =
+            powNormalizeHex(target.value(QStringLiteral("public_key")).toString());
+        row[QStringLiteral("thresholdLepta")] = threshold;
+        row[QStringLiteral("balanceLepta")] = balance;
+        row[QStringLiteral("balanceKnown")] = balanceKnown;
+        row[QStringLiteral("reached")] = reached;
+        row[QStringLiteral("noCap")] = threshold == QLatin1String(kMaxLepta);
+        targets.append(row);
+    }
+    setPowClaimTargets(targets);
+    m_powEveryTargetReached = !targets.isEmpty() && everyTargetReached;
+
+    setPowStatusKnown(true);
+    publishPowState();
+}
+
+void LogosNode1clickBackend::publishPowState()
+{
+    const bool known = powStatusKnown();
+    setMiningActive(known ? m_powIsMining : miningRequested());
+    setAutoClaimArmed(known ? m_powAutoClaimArmed : autoClaimRunning());
+    setAutoClaimSelfDisarmed(known && !m_powAutoClaimArmed && m_powEveryTargetReached);
+}
+
+// Opens a fresh activity window. Called when mining starts and when the poll is
+// armed, so powActive starts from "nothing seen yet" rather than inheriting the
+// last run's verdict.
+void LogosNode1clickBackend::restartClaimStallWatch()
+{
+    m_lastClaimableTickets = -1;
+    m_sinceClaimableMoved.restart();
+    setPowActive(false);
+}
+
+// Whether the PoW service is doing anything, from the only thing this app can see
+// it through: the claimable count moving.
+void LogosNode1clickBackend::noteClaimableReading(int tickets)
+{
+    const bool moved = m_lastClaimableTickets >= 0 && tickets != m_lastClaimableTickets;
+    if (moved)
+        m_sinceClaimableMoved.restart();
+    setPowActive(m_sinceClaimableMoved.isValid()
+                 && m_sinceClaimableMoved.elapsed() <= kPowIdleMs);
+    m_lastClaimableTickets = tickets;
+}
+
+// Targets in the config mean the node arms auto-claim by itself when its PoW
+// service starts — no call from here, which is why the switch would read Off
+// through runs that were claiming the whole time. Reuses getPowConfig so this and
+// the config view read the file exactly one way.
+void LogosNode1clickBackend::seedAutoClaimFromConfig()
+{
+    m_autoClaimConfigured = false;
+    m_autoClaimUserToggled = false;
+
+    const QString path = userConfig().trimmed();
+    if (path.isEmpty())
+        return;
+
+    const QVariantMap reply = getPowConfig(path);
+    if (!reply.value(QStringLiteral("success")).toBool())
+        return;
+
+    m_autoClaimConfigured = !reply.value(QStringLiteral("value"))
+                                 .toMap()
+                                 .value(QStringLiteral("auto_claim_targets"))
+                                 .toList()
+                                 .isEmpty();
+}
+
+void LogosNode1clickBackend::applyAutoClaimSeed(bool modeOnline)
+{
+    if (powStatusKnown())
+        return;
+    if (!modeOnline || m_autoClaimUserToggled || autoClaimRunning() == m_autoClaimConfigured)
+        return;
+    setAutoClaimRunning(m_autoClaimConfigured);
 }
 
 // See the header note + ui#144. A voucher is "phantom" when it is STILL claimable although we

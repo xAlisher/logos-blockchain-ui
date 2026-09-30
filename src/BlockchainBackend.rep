@@ -31,6 +31,45 @@ class BlockchainBackend
     PROP(QString ramUsage READONLY)
     PROP(QString diskUsage READONLY)
 
+    // ── PoW mining (0.3.0) ──────────────────────────────────────────────────
+    // Mirrors the official app's mining surface (logos-blockchain-ui 0.3.0-rc.2).
+    // This is Layer A: live operation and readback. The settled-rewards TALLY
+    // (earned/mining-reward totals + a chain-scanned history model) is Layer B,
+    // deferred — it needs the chain-identity/genesis ledger machinery the fork
+    // does not carry and surgery on getLeaderClaims' scanner. Refs #136.
+
+    // The pow section already in the config, as read by getPowConfig.
+    PROP(QVariantMap configPowSection READONLY)
+
+    // Tickets waiting to be claimed, and when the nearest of them lapses.
+    PROP(int claimableTickets)
+    PROP(int soonestExpirySlots)
+    // How many tickets share that soonest deadline.
+    PROP(int soonestExpiryCount)
+    PROP(bool claimableLoaded)
+    PROP(QString claimableError)
+    PROP(bool claimablePollActive READWRITE)
+    // The claimable count moved on one of the last few readings — the only proof
+    // of PoW activity the app can stand behind (there is no pow_is_mining()).
+    PROP(bool powActive READONLY)
+    // Whether mining was last *asked for* from here — intent, not state. Fallback
+    // for miningActive on a module with no pow_status. Bind views to miningActive.
+    PROP(bool miningRequested READONLY)
+    // Whether auto-claim was last started from here, seeded from the config's
+    // pow.auto_claim.targets. Intent/inference, fallback for autoClaimArmed.
+    PROP(bool autoClaimRunning READONLY)
+
+    // ---- PoW runtime state, read back from the node (pow_status) ----
+    PROP(bool powStatusKnown READONLY)
+    PROP(bool miningActive READONLY)
+    PROP(bool autoClaimArmed READONLY)
+    PROP(bool autoClaimSelfDisarmed READONLY)
+    PROP(bool powRewardsEnabled READONLY)
+    PROP(int autoClaimTick READONLY)
+    PROP(QString autoClaimTickUnit READONLY)
+    // Rows of { address, thresholdLepta, balanceLepta, balanceKnown, reached, noCap }.
+    PROP(QVariantList powClaimTargets READONLY)
+
     SLOT(void startBlockchain())
     SLOT(void stopBlockchain())
     SLOT(void confirmRunning())
@@ -136,4 +175,25 @@ class BlockchainBackend
     // docs link carries the shared-public-IP / one-relay-per-port caveat. Returns
     // {ok, listening, blendPort, note}.
     SLOT(QVariantMap checkBlendPortReachable())
+
+    // ── PoW mining (0.3.0) — mirrors the official app ───────────────────────
+    SLOT(QVariantMap powStartMining())
+    SLOT(QVariantMap powStopMining())
+    // Tickets this node could claim right now, as the module's JSON:
+    // { claimable_tickets, slots_until_expiry: [ ... ] }. Polled, not pushed.
+    SLOT(QVariantMap powClaimableRewards())
+    // claimAddressHex may be empty, which pays whichever auto-claim target is
+    // currently furthest below its threshold — the same choice auto-claim makes.
+    SLOT(QVariantMap powClaim(QString claimAddressHex))
+    // Runtime overrides on the node's own default. Not persisted — a node restart
+    // undoes both rather than writing the config back.
+    SLOT(QVariantMap powStartAutoClaim())
+    SLOT(QVariantMap powStopAutoClaim())
+    // The pow section in an already-generated user_config.yaml. The node reads it
+    // once when its PoW service starts, so the config view offers it while the
+    // config is being written and before the node has ever run.
+    SLOT(QVariantMap getPowConfig(QString configPath))
+    // Every PoW setting in one call: the module validates the whole object before
+    // writing any of it, so a rejected target cannot leave the config half-applied.
+    SLOT(QVariantMap powConfigure(QString configPath, QString configJson))
 }
